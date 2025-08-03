@@ -87,6 +87,7 @@ class DataService {
 
   // Core CRUD operations
   async getAllTransactions(): Promise<Transaction[]> {
+    console.log(`DataService: getAllTransactions called, returning ${this.transactions.length} transactions`);
     return [...this.transactions];
   }
 
@@ -109,6 +110,7 @@ class DataService {
   }
 
   async addTransactions(transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<Transaction[]> {
+    console.log(`DataService: Adding ${transactions.length} transactions`);
     const now = new Date();
     const newTransactions = transactions.map(transaction => ({
       ...transaction,
@@ -117,8 +119,11 @@ class DataService {
       lastModifiedDate: now,
     }));
     
+    console.log(`DataService: Created ${newTransactions.length} new transaction objects`);
     this.transactions.push(...newTransactions);
+    console.log(`DataService: Total transactions now: ${this.transactions.length}`);
     this.saveToStorage();
+    console.log(`DataService: Saved to localStorage`);
     return newTransactions;
   }
 

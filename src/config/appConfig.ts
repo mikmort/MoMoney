@@ -25,7 +25,7 @@ export const defaultConfig: AppConfig = {
     openai: {
       endpoint: process.env.REACT_APP_AZURE_OPENAI_ENDPOINT || 'YOUR_AZURE_OPENAI_ENDPOINT',
       apiKey: process.env.REACT_APP_AZURE_OPENAI_API_KEY || 'YOUR_AZURE_OPENAI_API_KEY',
-      deploymentName: process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT || 'gpt-4',
+      deploymentName: process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
       apiVersion: process.env.REACT_APP_AZURE_OPENAI_API_VERSION || '2024-02-15-preview'
     },
     msal: {

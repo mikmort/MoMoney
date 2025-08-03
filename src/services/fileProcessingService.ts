@@ -18,13 +18,36 @@ import { v4 as uuidv4 } from 'uuid';
 
 export class FileProcessingService {
   private activeImports = new Map<string, FileImportProgress>();
+  private cancellationTokens = new Map<string, boolean>();
+
+  // Method to cancel an active import
+  cancelImport(fileId: string): void {
+    console.log(`🛑 Cancelling import for file: ${fileId}`);
+    this.cancellationTokens.set(fileId, true);
+    const progress = this.activeImports.get(fileId);
+    if (progress) {
+      progress.status = 'error';
+      progress.errors.push('Import cancelled by user');
+    }
+  }
+
+  // Check if import is cancelled
+  private isCancelled(fileId: string): boolean {
+    return this.cancellationTokens.get(fileId) === true;
+  }
+
+  // Clean up after import completion or cancellation
+  private cleanup(fileId: string): void {
+    this.activeImports.delete(fileId);
+    this.cancellationTokens.delete(fileId);
+  }
 
   async processFile(
     file: File, 
     categories: Category[], 
     subcategories: Subcategory[],
     onProgress?: (progress: FileImportProgress) => void
-  ): Promise<StatementFile> {
+  ): Promise<{ statementFile: StatementFile; fileId: string }> {
     const fileId = uuidv4();
     const statementFile: StatementFile = {
       id: fileId,
@@ -49,23 +72,44 @@ export class FileProcessingService {
     this.activeImports.set(fileId, progress);
 
     try {
+      // Check for cancellation
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
       // Step 1: Read file content
       this.updateProgress(progress, 10, 'processing', 'Reading file...', onProgress);
       const fileContent = await this.readFileContent(file);
+
+      // Check for cancellation
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
 
       // Step 2: Get schema mapping from AI
       this.updateProgress(progress, 25, 'mapping', 'Analyzing file structure...', onProgress);
       const schemaMapping = await this.getAISchemaMapping(fileContent, statementFile.fileType);
       statementFile.schemaMapping = schemaMapping.mapping;
 
+      // Check for cancellation
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
       // Step 3: Parse file data
       this.updateProgress(progress, 40, 'importing', 'Parsing file data...', onProgress);
       const rawData = await this.parseFileData(fileContent, statementFile.fileType, schemaMapping.mapping);
       progress.totalRows = rawData.length;
 
+      // Check for cancellation
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
       // Step 4: Process each row with AI categorization
       this.updateProgress(progress, 50, 'importing', 'Processing transactions...', onProgress);
       const transactions = await this.processTransactions(
+        fileId, // Pass fileId for cancellation checks
         rawData, 
         schemaMapping.mapping, 
         categories, 
@@ -78,8 +122,15 @@ export class FileProcessingService {
         }
       );
 
+      // Check for cancellation
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
       // Step 5: Save to database
       this.updateProgress(progress, 90, 'importing', 'Saving transactions...', onProgress);
+      console.log(`🔍 FileProcessingService: About to save ${transactions.length} transactions`);
+      console.log(`🔍 Sample transactions:`, transactions.slice(0, 2));
       await dataService.addTransactions(transactions);
 
       // Step 6: Complete
@@ -94,9 +145,11 @@ export class FileProcessingService {
       statementFile.errorMessage = errorMessage;
       progress.errors.push(errorMessage);
       this.updateProgress(progress, progress.progress, 'error', `Error: ${errorMessage}`, onProgress);
+    } finally {
+      this.cleanup(fileId);
     }
 
-    return statementFile;
+    return { statementFile, fileId };
   }
 
   private updateProgress(
@@ -169,7 +222,7 @@ Analyze this ${fileType.toUpperCase()} file content and map it to our transactio
 
 Target schema fields:
 - date: Transaction date
-- description: Transaction description
+- description: Transaction description  
 - additionalNotes: Additional notes (optional)
 - category: Transaction category (optional in source)
 - subcategory: Transaction subcategory (optional in source)
@@ -178,7 +231,22 @@ Target schema fields:
 File content sample:
 ${request.fileContent}
 
-Please identify which columns/fields in the source data map to our target schema. Return a JSON response with:
+IMPORTANT MAPPING RULES:
+1. If the data has HEADERS (like "Date", "Amount", "Text"), use the EXACT header name as the column identifier
+2. If the data has NO headers (just rows of values), use numeric indices (0, 1, 2, etc.)
+3. For date formats: Analyze the actual date values to determine the format:
+   - "03.07.2024" = "DD.MM.YYYY" (European format)
+   - "07/03/2024" = "MM/DD/YYYY" (US format)  
+   - "2024-07-03" = "YYYY-MM-DD" (ISO format)
+4. For amount formats: Look for European number formatting (comma as decimal separator)
+
+EXAMPLES:
+- If you see headers like {Date: "03.07.2024", Text: "Transfer", Amount: "500.000,00"}
+  → dateColumn: "Date", descriptionColumn: "Text", amountColumn: "Amount", dateFormat: "DD.MM.YYYY"
+- If you see array data like ["03.07.2024", "Transfer", "500.000,00"]  
+  → dateColumn: "0", descriptionColumn: "1", amountColumn: "2", dateFormat: "DD.MM.YYYY"
+
+Return ONLY a clean JSON response without any markdown formatting or code blocks:
 {
   "mapping": {
     "dateColumn": "column_name_or_index",
@@ -189,7 +257,7 @@ Please identify which columns/fields in the source data map to our target schema
     "notesColumn": "column_name_or_index", (if exists)
     "hasHeaders": true/false,
     "skipRows": 0,
-    "dateFormat": "MM/DD/YYYY or DD/MM/YYYY or YYYY-MM-DD etc",
+    "dateFormat": "DD.MM.YYYY or MM/DD/YYYY or YYYY-MM-DD etc",
     "amountFormat": "positive for debits or credits"
   },
   "confidence": 0.85,
@@ -200,9 +268,12 @@ Please identify which columns/fields in the source data map to our target schema
       const response = await azureOpenAIService.makeRequest(prompt);
       
       try {
-        const aiResponse = JSON.parse(response);
+        // Clean the response to handle markdown code blocks
+        const cleanedResponse = this.cleanAIResponse(response);
+        const aiResponse = JSON.parse(cleanedResponse);
         return aiResponse;
       } catch (parseError) {
+        console.warn('Failed to parse AI schema mapping response:', parseError, 'Raw response:', response);
         // Fallback to default mapping if AI response can't be parsed
         return this.getDefaultSchemaMapping(fileType);
       }
@@ -344,6 +415,7 @@ Please identify which columns/fields in the source data map to our target schema
   }
 
   private async processTransactions(
+    fileId: string,
     rawData: any[], 
     mapping: FileSchemaMapping, 
     categories: Category[], 
@@ -351,13 +423,23 @@ Please identify which columns/fields in the source data map to our target schema
     onProgress?: (processed: number) => void
   ): Promise<Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]> {
     const transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [];
+    console.log(`🔍 processTransactions: Processing ${rawData.length} rows`);
 
     for (let i = 0; i < rawData.length; i++) {
+      // Check for cancellation before processing each row
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
       try {
         const row = rawData[i];
+        console.log(`🔍 Processing row ${i}:`, row);
         const transaction = await this.processRow(row, mapping, categories, subcategories);
         if (transaction) {
+          console.log(`✅ Row ${i} created transaction:`, transaction);
           transactions.push(transaction);
+        } else {
+          console.log(`❌ Row ${i} failed to create transaction`);
         }
       } catch (error) {
         console.warn(`Failed to process row ${i}:`, error);
@@ -368,6 +450,7 @@ Please identify which columns/fields in the source data map to our target schema
       }
     }
 
+    console.log(`🔍 processTransactions: Returning ${transactions.length} transactions`);
     return transactions;
   }
 
@@ -384,7 +467,50 @@ Please identify which columns/fields in the source data map to our target schema
       const amount = this.extractAmount(row, mapping.amountColumn);
       const additionalNotes = this.extractString(row, mapping.notesColumn);
 
+      console.log(`🔍 Row extraction - date: ${date}, description: "${description}", amount: ${amount}`);
+      console.log(`🔍 Mapping used:`, mapping);
+
+      // TEMPORARY FIX: Override incorrect AI mapping for this CSV format
+      if (row.Date && row.Text && row.Amount) {
+        console.log(`🔧 Detected object format CSV, overriding mapping...`);
+        const correctedDate = this.extractDate(row, 'Date', 'DD.MM.YYYY');
+        const correctedDescription = this.extractString(row, 'Text');
+        const correctedAmount = this.extractAmount(row, 'Amount');
+        
+        console.log(`🔧 Corrected extraction - date: ${correctedDate}, description: "${correctedDescription}", amount: ${correctedAmount}`);
+        
+        if (correctedDate && correctedDescription && correctedAmount !== null) {
+          console.log(`✅ Using corrected values`);
+          
+          // Get AI categorization
+          const aiClassification = await this.getAIClassification(
+            correctedDescription, 
+            correctedAmount, 
+            correctedDate.toISOString(), 
+            categories, 
+            subcategories
+          );
+
+          const transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'> = {
+            date: correctedDate,
+            description: correctedDescription,
+            additionalNotes,
+            category: aiClassification.category,
+            subcategory: aiClassification.subcategory,
+            amount: correctedAmount,
+            account: 'Imported', // Default account for imported transactions
+            confidence: aiClassification.confidence,
+            reasoning: aiClassification.reasoning,
+            type: correctedAmount >= 0 ? 'income' : 'expense',
+            isVerified: false,
+          };
+
+          return transaction;
+        }
+      }
+
       if (!date || !description || amount === null) {
+        console.log(`❌ Validation failed - date: ${!!date}, description: ${!!description}, amount: ${amount !== null}`);
         return null; // Skip invalid rows
       }
 
@@ -404,6 +530,7 @@ Please identify which columns/fields in the source data map to our target schema
         category: aiClassification.category,
         subcategory: aiClassification.subcategory,
         amount,
+        account: 'Imported', // Default account for imported transactions
         confidence: aiClassification.confidence,
         reasoning: aiClassification.reasoning,
         type: amount >= 0 ? 'income' : 'expense',
@@ -424,26 +551,49 @@ Please identify which columns/fields in the source data map to our target schema
     if (!value) return null;
 
     try {
-      // Handle various date formats
       const dateStr = String(value).trim();
       
-      // Try parsing as-is first
+      // Handle European format DD.MM.YYYY (like "03.07.2024")
+      const europeanMatch = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (europeanMatch) {
+        const [, day, month, year] = europeanMatch;
+        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+      
+      // Try parsing as-is first  
       let date = new Date(dateStr);
       if (!isNaN(date.getTime())) {
         return date;
       }
 
-      // Try common formats
+      // Try other common formats
       const formats = [
-        /(\d{1,2})\/(\d{1,2})\/(\d{4})/, // MM/DD/YYYY
-        /(\d{4})-(\d{1,2})-(\d{1,2})/, // YYYY-MM-DD
-        /(\d{1,2})-(\d{1,2})-(\d{4})/, // DD-MM-YYYY
+        /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, // MM/DD/YYYY
+        /^(\d{4})-(\d{1,2})-(\d{1,2})$/, // YYYY-MM-DD
+        /^(\d{1,2})-(\d{1,2})-(\d{4})$/, // DD-MM-YYYY
       ];
 
       for (const regex of formats) {
         const match = dateStr.match(regex);
         if (match) {
-          date = new Date(match[0]);
+          const [, part1, part2, part3] = match;
+          if (regex.source.includes('YYYY')) {
+            // Handle MM/DD/YYYY and DD-MM-YYYY
+            const month = parseInt(part1) - 1;
+            const day = parseInt(part2);
+            const year = parseInt(part3);
+            date = new Date(year, month, day);
+          } else {
+            // Handle YYYY-MM-DD
+            const year = parseInt(part1);
+            const month = parseInt(part2) - 1;
+            const day = parseInt(part3);
+            date = new Date(year, month, day);
+          }
+          
           if (!isNaN(date.getTime())) {
             return date;
           }
@@ -469,8 +619,20 @@ Please identify which columns/fields in the source data map to our target schema
     if (!value) return null;
 
     try {
-      // Clean the amount string
-      const cleanAmount = String(value)
+      const valueStr = String(value).trim();
+      
+      // Handle European number format (e.g., "500.000,00" or "1.234,56")
+      // Pattern: numbers with periods as thousands separator and comma as decimal
+      if (/^\-?[\d\.]+,\d+$/.test(valueStr)) {
+        const cleanAmount = valueStr
+          .replace(/\./g, '') // Remove thousands separators (periods)
+          .replace(',', '.'); // Convert decimal separator (comma to period)
+        const amount = parseFloat(cleanAmount);
+        return isNaN(amount) ? null : amount;
+      }
+      
+      // Handle standard US format and other formats
+      const cleanAmount = valueStr
         .replace(/[\$,\s]/g, '') // Remove $, commas, spaces
         .replace(/[()]/g, ''); // Remove parentheses
       
@@ -500,6 +662,8 @@ Please identify which columns/fields in the source data map to our target schema
     subcategories: Subcategory[]
   ): Promise<AIClassificationResponse> {
     try {
+      console.log(`🤖 Starting AI classification for: "${description}", amount: ${amount}`);
+      
       const request: AIClassificationRequest = {
         transactionText: description,
         amount,
@@ -522,43 +686,93 @@ ${categories.map(c => `- ${c.name} (${c.type}): ${c.description || 'No descripti
 Available subcategories:
 ${subcategories.map(s => `- ${s.name}: ${s.description || 'No description'}`).join('\n')}
 
-Please return a JSON response with:
+CLASSIFICATION GUIDELINES:
+1. If you can confidently identify the transaction category (confidence >= 0.7), use the most appropriate category from the list
+2. If the transaction description is unclear, ambiguous, or doesn't clearly fit any category (confidence < 0.7), use "Uncategorized" 
+3. For "Uncategorized" transactions, use subcategory "Miscellaneous" for general unclear transactions or "Pending Review" for transactions that might need human attention
+4. Be honest about your confidence level - it's better to mark something as uncategorized than to guess incorrectly
+
+Please return ONLY a clean JSON response without any markdown formatting or code blocks:
 {
   "category": "exact category name from the list above",
   "subcategory": "exact subcategory name from the list above (optional)",
   "confidence": 0.85,
-  "reasoning": "Brief explanation of why this category was chosen",
+  "reasoning": "Brief explanation of why this category was chosen or why it's uncategorized",
   "suggestedVendor": "vendor name if identifiable (optional)",
   "suggestedTags": ["tag1", "tag2"] (optional)
 }
 
-Choose the most appropriate category based on the transaction description. Be confident in your choice.`;
+Choose the most appropriate category based on the transaction description. Be conservative - use "Uncategorized" when in doubt.`;
 
+      console.log(`🤖 Sending classification request to Azure OpenAI...`);
       const response = await azureOpenAIService.makeRequest(prompt);
+      console.log(`🤖 Azure OpenAI response:`, response);
       
       try {
-        const aiResponse = JSON.parse(response);
+        // Clean the response to handle markdown code blocks
+        const cleanedResponse = this.cleanAIResponse(response);
+        console.log(`🤖 Cleaned response:`, cleanedResponse);
+        
+        const aiResponse = JSON.parse(cleanedResponse);
+        console.log(`✅ AI classification successful:`, aiResponse);
+        
+        // Override low-confidence classifications to use 'Uncategorized'
+        let finalCategory = aiResponse.category || 'Uncategorized';
+        let finalSubcategory = aiResponse.subcategory;
+        let finalConfidence = aiResponse.confidence || 0.5;
+        let finalReasoning = aiResponse.reasoning || 'AI classification';
+        
+        // If confidence is below threshold, force to Uncategorized
+        const CONFIDENCE_THRESHOLD = 0.7;
+        if (finalConfidence < CONFIDENCE_THRESHOLD && finalCategory !== 'Uncategorized') {
+          console.log(`🤖 Low confidence (${finalConfidence}) - overriding to Uncategorized`);
+          finalCategory = 'Uncategorized';
+          finalSubcategory = 'Pending Review';
+          finalReasoning = `Low confidence classification (${finalConfidence.toFixed(2)}). Original: ${aiResponse.category}. ${finalReasoning}`;
+        }
+        
         return {
-          category: aiResponse.category || 'Uncategorized',
-          subcategory: aiResponse.subcategory,
-          confidence: aiResponse.confidence || 0.5,
-          reasoning: aiResponse.reasoning || 'AI classification',
+          category: finalCategory,
+          subcategory: finalSubcategory,
+          confidence: finalConfidence,
+          reasoning: finalReasoning,
           suggestedVendor: aiResponse.suggestedVendor,
           suggestedTags: aiResponse.suggestedTags,
         };
       } catch (parseError) {
+        console.error(`❌ Failed to parse AI response:`, parseError, `Raw response:`, response);
         // Fallback if AI response can't be parsed
         return this.getDefaultClassification();
       }
     } catch (error) {
-      console.warn('AI classification failed:', error);
+      console.error('❌ AI classification failed:', error);
       return this.getDefaultClassification();
     }
+  }
+
+  private cleanAIResponse(response: string): string {
+    // Remove markdown code block markers if present
+    let cleaned = response.trim();
+    
+    // Remove opening ```json or ``` markers
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/, '');
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```\s*/, '');
+    }
+    
+    // Remove closing ``` markers
+    if (cleaned.endsWith('```')) {
+      cleaned = cleaned.replace(/\s*```$/, '');
+    }
+    
+    return cleaned.trim();
   }
 
   private getDefaultClassification(): AIClassificationResponse {
     return {
       category: 'Uncategorized',
+      subcategory: 'Miscellaneous',
       confidence: 0.1,
       reasoning: 'AI classification failed, using default category',
     };

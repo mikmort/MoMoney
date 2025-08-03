@@ -32,11 +32,33 @@ const ImportButton = styled.button`
   }
 `;
 
+const StopButton = styled.button`
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  margin-right: 12px;
+
+  &:hover {
+    background: #d32f2f;
+  }
+
+  &:disabled {
+    background: #cccccc;
+    cursor: not-allowed;
+  }
+`;
+
 const FileInput = styled.input`
   display: none;
 `;
 
-const FileDropZone = styled.div<{ isDragOver: boolean }>`
+const FileDropZone = styled.div.withConfig({
+  shouldForwardProp: (prop) => prop !== 'isDragOver',
+})<{ isDragOver: boolean }>`
   border: 2px dashed ${props => props.isDragOver ? '#0066cc' : '#cccccc'};
   border-radius: 8px;
   padding: 40px;
@@ -97,6 +119,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState<FileImportProgress | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get categories and subcategories
@@ -113,6 +136,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const processFile = async (file: File) => {
     setIsImporting(true);
     setProgress(null);
+    setCurrentFileId(null);
 
     try {
       const result = await fileProcessingService.processFile(
@@ -124,18 +148,23 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         }
       );
 
-      if (result.status === 'completed') {
-        onImportComplete(result.transactionCount || 0);
+      setCurrentFileId(result.fileId);
+
+      if (result.statementFile.status === 'completed') {
+        onImportComplete(result.statementFile.transactionCount || 0);
         setTimeout(() => {
           setProgress(null);
           setIsImporting(false);
+          setCurrentFileId(null);
         }, 2000);
       } else {
         setIsImporting(false);
+        setCurrentFileId(null);
       }
     } catch (error) {
       console.error('File import failed:', error);
       setIsImporting(false);
+      setCurrentFileId(null);
       setProgress({
         fileId: '',
         status: 'error',
@@ -144,6 +173,23 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         processedRows: 0,
         totalRows: 0,
         errors: [error instanceof Error ? error.message : 'Unknown error'],
+      });
+    }
+  };
+
+  const handleStopImport = () => {
+    if (currentFileId && isImporting) {
+      fileProcessingService.cancelImport(currentFileId);
+      setIsImporting(false);
+      setCurrentFileId(null);
+      setProgress({
+        fileId: currentFileId,
+        status: 'error',
+        progress: progress?.progress || 0,
+        currentStep: 'Import cancelled by user',
+        processedRows: progress?.processedRows || 0,
+        totalRows: progress?.totalRows || 0,
+        errors: ['Import cancelled by user'],
       });
     }
   };
@@ -203,6 +249,15 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         >
           {isImporting ? 'Processing...' : 'Choose File'}
         </ImportButton>
+
+        {isImporting && currentFileId && (
+          <StopButton 
+            onClick={handleStopImport}
+            title="Cancel the current import"
+          >
+            🛑 Stop Import
+          </StopButton>
+        )}
         
         <SupportedFormats>
           <strong>Supported formats:</strong> CSV, Excel (.xlsx, .xls), OFX, PDF
