@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
-import { FileImportProgress, StatementFile, Category, Subcategory } from '../../types';
+import { FileImportProgress, Category, Subcategory } from '../../types';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { defaultCategories } from '../../data/defaultCategories';
 
@@ -219,10 +219,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     return '.csv,.xlsx,.xls,.ofx,.pdf';
   };
 
-  const isFileSupported = (file: File) => {
-    const extension = file.name.toLowerCase().split('.').pop();
-    return ['csv', 'xlsx', 'xls', 'ofx', 'pdf'].includes(extension || '');
-  };
+
 
   return (
     <ImportContainer>

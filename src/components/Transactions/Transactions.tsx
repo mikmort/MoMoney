@@ -689,6 +689,15 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleDeleteTransaction = useCallback(async (id: string) => {
+    try {
+      await dataService.deleteTransaction(id);
+      await loadTransactions();
+    } catch (error) {
+      console.error('Failed to delete transaction:', error);
+    }
+  }, []);
+
   // Handle action button clicks in grid
   const onGridReady = useCallback((params: GridReadyEvent) => {
     // Add event listeners for action buttons
@@ -717,16 +726,7 @@ const Transactions: React.FC = () => {
         }
       }
     });
-  }, [transactions]);
-
-  const handleDeleteTransaction = async (id: string) => {
-    try {
-      await dataService.deleteTransaction(id);
-      await loadTransactions();
-    } catch (error) {
-      console.error('Failed to delete transaction:', error);
-    }
-  };
+  }, [transactions, handleDeleteTransaction]);
 
   const startEditTransaction = (transaction: Transaction) => {
     setEditingTransaction(transaction);

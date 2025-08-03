@@ -1,4 +1,4 @@
-import { Transaction, Category, Subcategory } from '../types';
+import { Transaction } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 class DataService {
@@ -14,7 +14,6 @@ class DataService {
   }
 
   private initializeSampleData(): void {
-    const now = new Date();
     const sampleTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [
       {
         date: new Date('2025-08-01'),
