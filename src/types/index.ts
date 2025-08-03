@@ -17,6 +17,10 @@ export interface Transaction {
   isVerified?: boolean; // User has verified the categorization
   vendor?: string;
   location?: string;
+  reimbursed?: boolean; // True if this expense has been reimbursed
+  reimbursementId?: string; // ID of the matching reimbursement transaction
+  originalCurrency?: string; // Original currency for foreign transactions
+  exchangeRate?: number; // Exchange rate if converted from foreign currency
 }
 
 export interface Account {
@@ -133,4 +137,41 @@ export interface UserPreferences {
   enableNotifications: boolean;
   budgetAlerts: boolean;
   autoCategorizationEnabled: boolean;
+}
+
+export interface ReimbursementMatch {
+  id: string;
+  expenseTransactionId: string;
+  reimbursementTransactionId: string;
+  confidence: number; // AI confidence in the match (0-1)
+  matchType: 'exact' | 'approximate' | 'manual';
+  dateDifference: number; // Days between expense and reimbursement
+  amountDifference: number; // Difference in amounts (for currency conversion cases)
+  reasoning?: string; // AI explanation for the match
+  isVerified: boolean; // User has verified the match
+}
+
+export interface ReimbursementMatchRequest {
+  transactions: Transaction[];
+  dateRangeStart?: Date;
+  dateRangeEnd?: Date;
+  maxDaysDifference?: number; // Maximum days between expense and reimbursement
+  tolerancePercentage?: number; // Tolerance for amount differences (e.g., 0.05 = 5%)
+}
+
+export interface ReimbursementMatchResponse {
+  matches: ReimbursementMatch[];
+  unmatched: {
+    expenses: Transaction[];
+    reimbursements: Transaction[];
+  };
+  confidence: number;
+}
+
+export interface CurrencyExchangeRate {
+  fromCurrency: string;
+  toCurrency: string;
+  rate: number;
+  date: Date;
+  source: string; // API source used
 }

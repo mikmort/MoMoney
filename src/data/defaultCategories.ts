@@ -26,7 +26,8 @@ export const defaultCategories: Category[] = [
       { id: 'business-revenue', name: 'Revenue', description: 'Business sales revenue' },
       { id: 'business-consulting', name: 'Consulting', description: 'Consulting fees' },
       { id: 'business-freelance', name: 'Freelance', description: 'Freelance work' },
-      { id: 'business-royalties', name: 'Royalties', description: 'Intellectual property royalties' }
+      { id: 'business-royalties', name: 'Royalties', description: 'Intellectual property royalties' },
+      { id: 'business-reimbursement', name: 'Expense Reimbursement', description: 'Work expense reimbursements', keywords: ['reimbursement', 'expense', 'travel reimbursement'] }
     ]
   },
   {
@@ -83,7 +84,8 @@ export const defaultCategories: Category[] = [
       { id: 'transport-insurance', name: 'Car Insurance', description: 'Vehicle insurance', keywords: ['car insurance', 'auto insurance'] },
       { id: 'transport-public', name: 'Public Transit', description: 'Bus, train, subway fares', keywords: ['bus', 'train', 'subway', 'metro', 'transit'] },
       { id: 'transport-parking', name: 'Parking', description: 'Parking fees', keywords: ['parking', 'meter'] },
-      { id: 'transport-rideshare', name: 'Rideshare/Taxi', description: 'Uber, Lyft, taxi', keywords: ['uber', 'lyft', 'taxi', 'rideshare'] }
+      { id: 'transport-rideshare', name: 'Rideshare/Taxi', description: 'Uber, Lyft, taxi', keywords: ['uber', 'lyft', 'taxi', 'rideshare'] },
+      { id: 'transport-business', name: 'Business Travel', description: 'Work-related travel expenses', keywords: ['business travel', 'work travel', 'airline', 'hotel', 'conference'] }
     ]
   },
   {
