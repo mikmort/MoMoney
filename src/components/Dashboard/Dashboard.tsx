@@ -233,7 +233,7 @@ const Dashboard: React.FC = () => {
         </StatsCard>
       </Grid>
 
-      <Grid columns={2} gap="20px">\
+      <Grid columns={2} gap="20px">
         <ChartCard>
           <h3>Spending by Category</h3>
           <div className="chart-container">

@@ -183,6 +183,10 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         accountId, // Pass the selected account ID
         (progress) => {
           setProgress(progress);
+        },
+        (fileId) => {
+          // Store the fileId immediately when it's generated so we can cancel if needed
+          setCurrentFileId(fileId);
         }
       );
 
@@ -201,17 +205,26 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       }
     } catch (error) {
       console.error('File import failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
       setIsImporting(false);
       setCurrentFileId(null);
-      setProgress({
-        fileId: '',
-        status: 'error',
-        progress: 0,
-        currentStep: 'Import failed',
-        processedRows: 0,
-        totalRows: 0,
-        errors: [error instanceof Error ? error.message : 'Unknown error'],
-      });
+      
+      // Check if this was a cancellation
+      if (errorMessage.includes('cancelled')) {
+        console.log('📋 Import was cancelled by user');
+        // Progress is already set by handleStopImport, don't override it
+      } else {
+        setProgress({
+          fileId: '',
+          status: 'error',
+          progress: 0,
+          currentStep: 'Import failed',
+          processedRows: 0,
+          totalRows: 0,
+          errors: [errorMessage],
+        });
+      }
     }
   };
 
@@ -247,6 +260,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
 
   const handleStopImport = () => {
     if (currentFileId && isImporting) {
+      console.log(`🛑 User requested to stop import for file: ${currentFileId}`);
       fileProcessingService.cancelImport(currentFileId);
       setIsImporting(false);
       setCurrentFileId(null);
@@ -259,6 +273,8 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         totalRows: progress?.totalRows || 0,
         errors: ['Import cancelled by user'],
       });
+    } else {
+      console.log('⚠️ Cannot stop import: no active import found');
     }
   };
 
@@ -318,7 +334,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           {isImporting ? 'Processing...' : 'Choose File'}
         </ImportButton>
 
-        {isImporting && currentFileId && (
+        {isImporting && (
           <StopButton 
             onClick={handleStopImport}
             title="Cancel the current import"

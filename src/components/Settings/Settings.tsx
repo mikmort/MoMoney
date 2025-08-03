@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { PageHeader, Card, Button } from '../../styles/globalStyles';
 import { defaultConfig } from '../../config/appConfig';
 import { dataService } from '../../services/dataService';
+import { AccountsManagement } from './AccountsManagement';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -122,14 +123,7 @@ const Settings: React.FC = () => {
       </Card>
 
       <Card>
-        <h3>Account Management</h3>
-        <p>Manage your connected accounts and data.</p>
-        <ul>
-          <li>Connected bank accounts</li>
-          <li>Data export/import</li>
-          <li>Privacy settings</li>
-          <li>Account deletion</li>
-        </ul>
+        <AccountsManagement />
       </Card>
 
       <Card>

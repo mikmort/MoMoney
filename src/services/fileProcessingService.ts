@@ -69,8 +69,8 @@ export class FileProcessingService {
       statementFile.accountDetectionConfidence = detectionResult.confidence;
       statementFile.accountDetectionReasoning = detectionResult.reasoning;
 
-      // If we have high confidence detection (>= 0.8), auto-assign the account
-      if (detectionResult.confidence >= 0.8 && detectionResult.detectedAccountId) {
+      // If we have high confidence detection (> 0.9), auto-assign the account
+      if (detectionResult.confidence > 0.9 && detectionResult.detectedAccountId) {
         statementFile.accountId = detectionResult.detectedAccountId;
         statementFile.status = 'completed';
         
@@ -91,7 +91,7 @@ export class FileProcessingService {
         return {
           file: statementFile,
           needsAccountSelection: true,
-          detectionResult
+          detectionResult: detectionResult.confidence >= 0.6 ? detectionResult : undefined // Only show AI result if confidence is medium or higher
         };
       }
 
@@ -213,9 +213,16 @@ export class FileProcessingService {
     categories: Category[],
     subcategories: Subcategory[],
     accountId: string,
-    onProgress?: (progress: FileImportProgress) => void
+    onProgress?: (progress: FileImportProgress) => void,
+    onFileIdGenerated?: (fileId: string) => void
   ): Promise<{ statementFile: StatementFile; fileId: string }> {
     const fileId = uuidv4();
+    
+    // Notify caller of the fileId immediately so they can cancel if needed
+    if (onFileIdGenerated) {
+      onFileIdGenerated(fileId);
+    }
+    
     const statementFile: StatementFile = {
       id: fileId,
       filename: file.name,
@@ -343,6 +350,15 @@ export class FileProcessingService {
   cancelImport(fileId: string): void {
     console.log(`🚫 Cancelling import for file: ${fileId}`);
     this.cancellationTokens.set(fileId, true);
+    
+    // Also update the progress to reflect cancellation
+    const progress = this.activeImports.get(fileId);
+    if (progress) {
+      progress.status = 'error';
+      progress.currentStep = 'Import cancelled by user';
+      progress.errors.push('Import cancelled by user');
+      console.log(`📋 Updated progress for cancelled import: ${fileId}`);
+    }
   }
 
   // Generate unique file ID
@@ -352,11 +368,16 @@ export class FileProcessingService {
 
   // Method to cancel an active import
   private isCancelled(fileId: string): boolean {
-    return this.cancellationTokens.get(fileId) === true;
+    const cancelled = this.cancellationTokens.get(fileId) === true;
+    if (cancelled) {
+      console.log(`⏹️ Import cancellation detected for file: ${fileId}`);
+    }
+    return cancelled;
   }
 
   // Clean up after import completion or cancellation
   private cleanup(fileId: string): void {
+    console.log(`🧹 Cleaning up resources for file: ${fileId}`);
     this.activeImports.delete(fileId);
     this.cancellationTokens.delete(fileId);
   }
@@ -537,6 +558,7 @@ Return ONLY a clean JSON response:
     
     for (let i = 0; i < rawData.length; i++) {
       if (this.isCancelled(fileId)) {
+        console.log(`🛑 Transaction processing cancelled at row ${i + 1}/${rawData.length}`);
         throw new Error('Import cancelled by user');
       }
 

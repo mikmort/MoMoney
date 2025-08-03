@@ -227,7 +227,7 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
   };
 
   const getConfidenceClass = (confidence: number) => {
-    if (confidence >= 0.8) return 'high';
+    if (confidence > 0.9) return 'high';
     if (confidence >= 0.6) return 'medium';
     return 'low';
   };

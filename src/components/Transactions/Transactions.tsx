@@ -3,15 +3,16 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account } from '../../types';
+import { Transaction, ReimbursementMatch, Account, Category } from '../../types';
 import { dataService } from '../../services/dataService';
+import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
+import { AiConfidencePopup } from './AiConfidencePopup';
+import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
-import { TransactionAnalytics } from './TransactionAnalytics';
-import { TransactionTemplates } from './TransactionTemplates';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -231,6 +232,85 @@ const UploadArea = styled.div`
   }
 `;
 
+// Edit Transaction Modal styles
+const EditModalOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`;
+
+const EditModalContent = styled.div`
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+
+  h2 {
+    margin: 0 0 20px 0;
+    color: #333;
+    font-size: 1.5rem;
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+    
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+      color: #555;
+      font-size: 0.9rem;
+    }
+    
+    input, select, textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      
+      &:focus {
+        outline: none;
+        border-color: #2196f3;
+        box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+      }
+    }
+    
+    textarea {
+      min-height: 60px;
+      resize: vertical;
+    }
+  }
+
+  .form-row {
+    display: flex;
+    gap: 16px;
+    
+    .form-group {
+      flex: 1;
+    }
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+  }
+`;
+
 // Custom cell renderers
 const AmountCellRenderer = (params: any) => {
   const amount = params.value;
@@ -276,48 +356,6 @@ const CategoryCellRenderer = (params: any) => {
   return <span className={reimbursedClass}>{displayText}</span>;
 };
 
-const ConfidenceCellRenderer = (params: any) => {
-  const confidence = params.value;
-  if (!confidence) return '';
-  
-  const percentage = Math.round(confidence * 100);
-  const isLowConfidence = percentage < 70;
-  const className = percentage >= 80 ? 'high' : percentage >= 60 ? 'medium' : 'low';
-  const displayText = `${percentage}%`;
-  
-  if (isLowConfidence) {
-    return (
-      <span 
-        className={`confidence ${className}`}
-        style={{
-          backgroundColor: '#ffebee',
-          color: '#c62828',
-          fontWeight: 'bold',
-          border: '1px solid #f8bbd9'
-        }}
-        title="Low confidence - consider manual review"
-      >
-        ⚠️ {displayText}
-      </span>
-    );
-  }
-  
-  return <span className={`confidence ${className}`}>{displayText}</span>;
-};
-
-const NotesRenderer = (params: any) => {
-  const { reasoning, additionalNotes } = params.data;
-  const displayText = additionalNotes || reasoning || '';
-
-  if (!displayText) return '';
-
-  return (
-    <span title={displayText}>
-      {displayText.length > 50 ? `${displayText.substring(0, 50)}...` : displayText}
-    </span>
-  );
-};
-
 const Transactions: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
@@ -328,6 +366,10 @@ const Transactions: React.FC = () => {
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [accountDetectionResult, setAccountDetectionResult] = useState<AccountDetectionResult | undefined>();
+
+  // AI Confidence popup state
+  const [showConfidencePopup, setShowConfidencePopup] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   
   const [filters, setFilters] = useState({
     category: '',
@@ -336,6 +378,20 @@ const Transactions: React.FC = () => {
     dateTo: '',
     account: '',
     search: ''
+  });
+
+  // Edit transaction modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [transactionForm, setTransactionForm] = useState({
+    description: '',
+    amount: '',
+    category: '',
+    subcategory: '',
+    account: '',
+    type: '',
+    date: '',
+    notes: ''
   });
 
   const { 
@@ -352,136 +408,206 @@ const Transactions: React.FC = () => {
     addAccount
   } = useAccountManagement();
 
-  // Column definitions for AG Grid
-  const columnDefs: ColDef[] = [
-    {
-      headerName: 'Date',
-      field: 'date',
-      sortable: true,
-      filter: 'agDateColumnFilter',
-      width: 120,
-      valueFormatter: (params: any) => {
-        return new Date(params.value).toLocaleDateString();
+  // Category dropdown cell editor
+  const CategoryCellEditor = React.forwardRef<any, any>((props, ref) => {
+    const [value, setValue] = useState(props.value || '');
+    
+    const allCategories = defaultCategories.flatMap(cat => 
+      [cat.name, ...cat.subcategories.map(sub => `${cat.name} > ${sub.name}`)]
+    );
+
+    // AG Grid cell editor interface methods
+    React.useImperativeHandle(ref, () => ({
+      getValue: () => value,
+      isCancelBeforeStart: () => false,
+      isCancelAfterEnd: () => false
+    }));
+
+    const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const newValue = e.target.value;
+      setValue(newValue);
+      props.stopEditing();
+      
+      // Update the transaction
+      const updatedTransaction = { ...props.data, category: newValue };
+      handleUpdateTransaction(updatedTransaction);
+    };
+
+    return (
+      <select 
+        value={value} 
+        onChange={handleChange}
+        style={{ width: '100%', height: '100%', border: 'none', outline: 'none' }}
+        autoFocus
+      >
+        <option value="">Select Category</option>
+        {allCategories.map(cat => (
+          <option key={cat} value={cat}>{cat}</option>
+        ))}
+      </select>
+    );
+  });
+
+  // Account dropdown cell editor
+  const AccountCellEditor = React.forwardRef<any, any>((props, ref) => {
+    const [value, setValue] = useState(props.value || '');
+
+    // AG Grid cell editor interface methods
+    React.useImperativeHandle(ref, () => ({
+      getValue: () => value,
+      isCancelBeforeStart: () => false,
+      isCancelAfterEnd: () => false
+    }));
+
+    const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const newValue = e.target.value;
+      setValue(newValue);
+      props.stopEditing();
+      
+      // Update the transaction
+      const updatedTransaction = { ...props.data, account: newValue };
+      handleUpdateTransaction(updatedTransaction);
+    };
+
+    return (
+      <select 
+        value={value} 
+        onChange={handleChange}
+        style={{ width: '100%', height: '100%', border: 'none', outline: 'none' }}
+        autoFocus
+      >
+        <option value="">Select Account</option>
+        {accounts.map(account => (
+          <option key={account.id} value={account.name}>{account.name}</option>
+        ))}
+      </select>
+    );
+  });
+
+  // Text cell editor for description and amount
+  const TextCellEditor = React.forwardRef<any, any>((props, ref) => {
+    const [value, setValue] = useState(props.value || '');
+
+    // AG Grid cell editor interface methods
+    React.useImperativeHandle(ref, () => ({
+      getValue: () => props.colDef.field === 'amount' ? parseFloat(value) || 0 : value,
+      isCancelBeforeStart: () => false,
+      isCancelAfterEnd: () => false
+    }));
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setValue(e.target.value);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        props.stopEditing();
+        const updatedTransaction = { 
+          ...props.data, 
+          [props.colDef.field]: props.colDef.field === 'amount' ? parseFloat(value) || 0 : value 
+        };
+        handleUpdateTransaction(updatedTransaction);
+      } else if (e.key === 'Escape') {
+        props.stopEditing();
       }
-    },
-    {
-      headerName: 'Description',
-      field: 'description',
-      sortable: true,
-      filter: 'agTextColumnFilter',
-      flex: 2,
-      minWidth: 200
-    },
-    {
-      headerName: 'Category',
-      field: 'category',
-      sortable: true,
-      filter: 'agTextColumnFilter',
-      width: 180,
-      cellRenderer: CategoryCellRenderer
-    },
-    {
-      headerName: 'Account',
-      field: 'account',
-      sortable: true,
-      filter: 'agTextColumnFilter',
-      width: 140
-    },
-    {
-      headerName: 'Amount',
-      field: 'amount',
-      sortable: true,
-      filter: 'agNumberColumnFilter',
-      width: 120,
-      cellRenderer: AmountCellRenderer,
-      type: 'rightAligned'
-    },
-    {
-      headerName: 'AI Confidence',
-      field: 'confidence',
-      sortable: true,
-      width: 130,
-      cellRenderer: ConfidenceCellRenderer
-    },
-    {
-      headerName: 'Notes',
-      field: 'reasoning',
-      sortable: false,
-      filter: 'agTextColumnFilter',
-      width: 200,
-      cellRenderer: NotesRenderer,
-      editable: true,
-      cellEditor: 'agLargeTextCellEditor',
-      cellEditorParams: {
-        maxLength: 500,
-        rows: 3
-      }
-    },
-    {
-      headerName: 'Verified',
-      field: 'isVerified',
-      width: 100,
-      cellRenderer: (params: any) => {
-        return params.value ? '✅' : '⏳';
-      }
-    },
-    {
-      headerName: 'Reimbursed',
-      field: 'reimbursed',
-      width: 110,
-      cellRenderer: (params: any) => {
-        return params.value ? '💰' : '';
-      }
-    },
-    {
-      headerName: 'Actions',
-      width: 120,
-      pinned: 'right',
-      cellRenderer: (params: any) => {
-        return React.createElement('div', {
-          style: { display: 'flex', gap: '4px', height: '100%', alignItems: 'center' }
-        }, [
-          React.createElement('button', {
-            key: 'edit',
-            className: 'edit-btn',
-            'data-id': params.data.id,
-            style: {
-              padding: '4px 8px',
-              fontSize: '12px',
-              border: '1px solid #ddd',
-              background: 'white',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            },
-            title: 'Edit transaction',
-            onClick: (e: any) => {
-              e.stopPropagation();
-              startEditTransaction(params.data);
-            }
-          }, '✏️'),
-          React.createElement('button', {
-            key: 'delete',
-            className: 'delete-btn',
-            'data-id': params.data.id,
-            style: {
-              padding: '4px 8px',
-              fontSize: '12px',
-              border: '1px solid #f44336',
-              background: '#fff5f5',
-              color: '#f44336',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            },
-            title: 'Delete transaction',
-            onClick: (e: any) => {
-              e.stopPropagation();
-              handleDeleteTransaction(params.data.id);
-            }
-          }, '🗑️')
-        ]);
-      }
+    };
+
+    const handleBlur = () => {
+      props.stopEditing();
+      const updatedTransaction = { 
+        ...props.data, 
+        [props.colDef.field]: props.colDef.field === 'amount' ? parseFloat(value) || 0 : value 
+      };
+      handleUpdateTransaction(updatedTransaction);
+    };
+
+    return (
+      <input
+        type={props.colDef.field === 'amount' ? 'number' : 'text'}
+        step={props.colDef.field === 'amount' ? '0.01' : undefined}
+        value={value}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
+        style={{ width: '100%', height: '100%', border: 'none', outline: 'none', padding: '4px' }}
+        autoFocus
+      />
+    );
+  });
+
+  // Function to update transaction
+  const handleUpdateTransaction = async (updatedTransaction: Transaction) => {
+    try {
+      await dataService.updateTransaction(updatedTransaction.id, updatedTransaction);
+      // Refresh transactions list
+      const allTransactions = await dataService.getAllTransactions();
+      setTransactions(allTransactions);
+      setFilteredTransactions(allTransactions);
+    } catch (error) {
+      console.error('Failed to update transaction:', error);
     }
-  ];
+  };
+
+  // Confidence cell renderer with info icon
+  const ConfidenceCellRenderer = (params: any) => {
+    const confidence = params.value;
+    if (!confidence) return '';
+    
+    const percentage = Math.round(confidence * 100);
+    const isLowConfidence = percentage < 60;
+    const className = percentage > 90 ? 'high' : percentage >= 60 ? 'medium' : 'low';
+    const displayText = `${percentage}%`;
+    
+    const handleInfoClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const transaction = params.data as Transaction;
+      setSelectedTransaction(transaction);
+      setShowConfidencePopup(true);
+    };
+    
+    const infoIcon = (
+      <span 
+        style={{
+          marginLeft: '4px',
+          cursor: 'pointer',
+          fontSize: '0.8rem',
+          color: '#666',
+          padding: '2px'
+        }}
+        onClick={handleInfoClick}
+        title="View AI reasoning"
+      >
+        ℹ️
+      </span>
+    );
+    
+    if (isLowConfidence) {
+      return (
+        <span style={{ display: 'flex', alignItems: 'center' }}>
+          <span 
+            className={`confidence ${className}`}
+            style={{
+              backgroundColor: '#ffebee',
+              color: '#c62828',
+              fontWeight: 'bold',
+              border: '1px solid #f8bbd9'
+            }}
+            title="Low confidence - consider manual review"
+          >
+            ⚠️ {displayText}
+          </span>
+          {infoIcon}
+        </span>
+      );
+    }
+    
+    return (
+      <span style={{ display: 'flex', alignItems: 'center' }}>
+        <span className={`confidence ${className}`}>{displayText}</span>
+        {infoIcon}
+      </span>
+    );
+  };
 
   useEffect(() => {
     // Load real transactions from dataService
@@ -524,8 +650,93 @@ const Transactions: React.FC = () => {
 
   const startEditTransaction = (transaction: Transaction) => {
     console.log('Editing transaction:', transaction);
-    // For now, just show an alert since we're using mock data
-    alert(`Edit transaction: ${transaction.description}\nAmount: ${transaction.amount}\nCategory: ${transaction.category}`);
+    
+    // Set the transaction being edited
+    setEditingTransaction(transaction);
+    
+    // Populate the form with current transaction data
+    setTransactionForm({
+      description: transaction.description || '',
+      amount: transaction.amount?.toString() || '',
+      category: transaction.category || '',
+      subcategory: transaction.subcategory || '',
+      account: transaction.account || '',
+      type: transaction.type || '',
+      date: transaction.date ? transaction.date.toISOString().split('T')[0] : '',
+      notes: transaction.notes || ''
+    });
+    
+    // Show the edit modal
+    setShowEditModal(true);
+  };
+
+  const handleEditFormChange = (field: string, value: string) => {
+    setTransactionForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleEditFormSubmit = async () => {
+    if (!editingTransaction) return;
+    
+    try {
+      // Create updated transaction object
+      const updatedTransaction: Transaction = {
+        ...editingTransaction,
+        description: transactionForm.description,
+        amount: parseFloat(transactionForm.amount),
+        category: transactionForm.category,
+        subcategory: transactionForm.subcategory,
+        account: transactionForm.account,
+        type: transactionForm.type as 'income' | 'expense',
+        date: new Date(transactionForm.date),
+        notes: transactionForm.notes,
+        lastModifiedDate: new Date()
+      };
+
+      // Update the transaction
+      await dataService.updateTransaction(editingTransaction.id, {
+        description: updatedTransaction.description,
+        amount: updatedTransaction.amount,
+        category: updatedTransaction.category,
+        subcategory: updatedTransaction.subcategory,
+        account: updatedTransaction.account,
+        type: updatedTransaction.type,
+        date: updatedTransaction.date,
+        notes: updatedTransaction.notes,
+        lastModifiedDate: updatedTransaction.lastModifiedDate
+      });
+      
+      // Refresh the transactions list
+      const updatedTransactions = await dataService.getAllTransactions();
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+      
+      // Close the modal
+      setShowEditModal(false);
+      setEditingTransaction(null);
+      
+      console.log('✅ Transaction updated successfully');
+    } catch (error) {
+      console.error('❌ Error updating transaction:', error);
+      alert('Failed to update transaction. Please try again.');
+    }
+  };
+
+  const handleEditFormCancel = () => {
+    setShowEditModal(false);
+    setEditingTransaction(null);
+    setTransactionForm({
+      description: '',
+      amount: '',
+      category: '',
+      subcategory: '',
+      account: '',
+      type: '',
+      date: '',
+      notes: ''
+    });
   };
 
   const handleImportComplete = async (importedCount: number) => {
@@ -544,35 +755,6 @@ const Transactions: React.FC = () => {
     } catch (error) {
       console.error('❌ Error refreshing transactions after import:', error);
     }
-  };
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      console.log('Processing file:', file.name);
-      const result = await fileProcessingService.processUploadedFile(file);
-      
-      if (result.needsAccountSelection) {
-        // Show account selection dialog
-        setPendingFile(file);
-        setAccountDetectionResult(result.detectionResult);
-        setShowAccountDialog(true);
-      } else {
-        // File processed successfully with auto-detected account
-        if (result.transactions) {
-          setTransactions(prev => [...prev, ...result.transactions!]);
-          console.log(`Successfully imported ${result.transactions.length} transactions to account: ${result.file.accountId}`);
-        }
-      }
-    } catch (error) {
-      console.error('Error processing file:', error);
-      alert('Failed to process file. Please try again.');
-    }
-    
-    // Reset file input
-    event.target.value = '';
   };
 
   const handleAccountSelection = async (accountId: string) => {
@@ -678,6 +860,113 @@ const Transactions: React.FC = () => {
 
   const stats = calculateStats();
 
+  // Actions cell renderer component
+  const ActionsCellRenderer = React.useCallback((params: any) => {
+    const handleEditClick = () => {
+      startEditTransaction(params.data);
+    };
+
+    const handleDeleteClick = () => {
+      handleDeleteTransaction(params.data.id);
+    };
+
+    const actions: MenuAction[] = [
+      {
+        icon: '✏️',
+        label: 'Edit Transaction',
+        onClick: handleEditClick
+      },
+      {
+        icon: '🗑️',
+        label: 'Delete Transaction',
+        onClick: handleDeleteClick,
+        variant: 'danger'
+      }
+    ];
+
+    return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
+  }, [startEditTransaction, handleDeleteTransaction]);
+
+  const columnDefs: ColDef[] = [
+    {
+      headerName: 'Date',
+      field: 'date',
+      sortable: true,
+      filter: 'agDateColumnFilter',
+      width: 120,
+      valueFormatter: (params: any) => {
+        return new Date(params.value).toLocaleDateString();
+      }
+    },
+    {
+      headerName: 'Description',
+      field: 'description',
+      sortable: true,
+      filter: 'agTextColumnFilter',
+      flex: 2,
+      minWidth: 200,
+      editable: true,
+      cellEditor: TextCellEditor
+    },
+    {
+      headerName: 'Category',
+      field: 'category',
+      sortable: true,
+      filter: 'agTextColumnFilter',
+      width: 180,
+      cellRenderer: CategoryCellRenderer,
+      editable: true,
+      cellEditor: CategoryCellEditor
+    },
+    {
+      headerName: 'Account',
+      field: 'account',
+      sortable: true,
+      filter: 'agTextColumnFilter',
+      width: 140,
+      editable: true,
+      cellEditor: AccountCellEditor
+    },
+    {
+      headerName: 'Amount',
+      field: 'amount',
+      sortable: true,
+      filter: 'agNumberColumnFilter',
+      width: 120,
+      cellRenderer: AmountCellRenderer,
+      type: 'rightAligned',
+      editable: true,
+      cellEditor: TextCellEditor
+    },
+    {
+      headerName: 'AI Confidence',
+      field: 'confidence',
+      sortable: true,
+      width: 130,
+      cellRenderer: ConfidenceCellRenderer
+    },
+    {
+      headerName: 'Reimbursed',
+      field: 'reimbursed',
+      width: 110,
+      cellRenderer: (params: any) => {
+        return params.value ? '💰' : '';
+      }
+    },
+    {
+      headerName: 'Actions',
+      width: 80,
+      pinned: 'right',
+      cellRenderer: ActionsCellRenderer,
+      editable: false,
+      suppressHeaderMenuButton: true,
+      sortable: false,
+      filter: false,
+      suppressSizeToFit: true,
+      suppressMovable: true
+    }
+  ];
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -706,7 +995,7 @@ const Transactions: React.FC = () => {
   };
 
   const getConfidenceClass = (confidence: number) => {
-    if (confidence >= 0.8) return 'high';
+    if (confidence > 0.9) return 'high';
     if (confidence >= 0.6) return 'medium';
     return 'low';
   };
@@ -915,6 +1204,9 @@ const Transactions: React.FC = () => {
                 sortable: true,
                 filter: true
               }}
+              editType="fullRow"
+              singleClickEdit={true}
+              reactiveCustomComponents={true}
             />
           </div>
         </TransactionsContainer>
@@ -928,6 +1220,129 @@ const Transactions: React.FC = () => {
         onAccountSelect={handleAccountSelection}
         onNewAccount={handleNewAccount}
         onCancel={handleCancelAccountSelection}
+      />
+
+      {/* Edit Transaction Modal */}
+      {showEditModal && (
+        <EditModalOverlay onClick={handleEditFormCancel}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Edit Transaction</h2>
+            
+            <div className="form-group">
+              <label>Description *</label>
+              <input
+                type="text"
+                value={transactionForm.description}
+                onChange={(e) => handleEditFormChange('description', e.target.value)}
+                placeholder="Transaction description"
+              />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Amount *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={transactionForm.amount}
+                  onChange={(e) => handleEditFormChange('amount', e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Type</label>
+                <select
+                  value={transactionForm.type}
+                  onChange={(e) => handleEditFormChange('type', e.target.value)}
+                >
+                  <option value="">Select Type</option>
+                  <option value="income">Income</option>
+                  <option value="expense">Expense</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Category</label>
+                <select
+                  value={transactionForm.category}
+                  onChange={(e) => handleEditFormChange('category', e.target.value)}
+                >
+                  <option value="">Select Category</option>
+                  {uniqueCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Account</label>
+                <select
+                  value={transactionForm.account}
+                  onChange={(e) => handleEditFormChange('account', e.target.value)}
+                >
+                  <option value="">Select Account</option>
+                  {uniqueAccounts.map(account => (
+                    <option key={account} value={account}>{account}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Subcategory</label>
+                <input
+                  type="text"
+                  value={transactionForm.subcategory}
+                  onChange={(e) => handleEditFormChange('subcategory', e.target.value)}
+                  placeholder="Subcategory (optional)"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={transactionForm.date}
+                  onChange={(e) => handleEditFormChange('date', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Notes</label>
+              <textarea
+                value={transactionForm.notes}
+                onChange={(e) => handleEditFormChange('notes', e.target.value)}
+                placeholder="Additional notes (optional)"
+              />
+            </div>
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={handleEditFormCancel}>
+                Cancel
+              </Button>
+              <Button onClick={handleEditFormSubmit}>
+                Save Changes
+              </Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* AI Confidence Popup */}
+      <AiConfidencePopup
+        isOpen={showConfidencePopup}
+        onClose={() => setShowConfidencePopup(false)}
+        confidence={selectedTransaction?.confidence || 0}
+        reasoning={selectedTransaction?.reasoning}
+        category={selectedTransaction?.category || ''}
+        subcategory={selectedTransaction?.subcategory}
+        description={selectedTransaction?.description || ''}
+        amount={selectedTransaction?.amount || 0}
       />
     </div>
   );

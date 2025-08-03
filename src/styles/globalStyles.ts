@@ -87,7 +87,9 @@ export const Card = styled.div`
   margin-bottom: 20px;
 `;
 
-export const Button = styled.button<{ variant?: 'primary' | 'secondary' | 'outline' }>`
+export const Button = styled.button.withConfig({
+  shouldForwardProp: (prop) => !['variant'].includes(prop)
+})<{ variant?: 'primary' | 'secondary' | 'outline' }>`
   background: ${props => {
     switch (props.variant) {
       case 'secondary': return props.theme.secondary;
@@ -129,13 +131,17 @@ export const PageHeader = styled.div`
   }
 `;
 
-export const Grid = styled.div<{ columns?: number; gap?: string }>`
+export const Grid = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['columns', 'gap'].includes(prop)
+})<{ columns?: number; gap?: string }>`
   display: grid;
   grid-template-columns: repeat(${props => props.columns || 1}, 1fr);
   gap: ${props => props.gap || '20px'};
 `;
 
-export const FlexBox = styled.div<{ 
+export const FlexBox = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['direction', 'justify', 'align', 'gap', 'wrap'].includes(prop)
+})<{ 
   direction?: 'row' | 'column'; 
   justify?: string; 
   align?: string; 
@@ -150,7 +156,9 @@ export const FlexBox = styled.div<{
   flex-wrap: ${props => props.wrap ? 'wrap' : 'nowrap'};
 `;
 
-export const Badge = styled.span<{ variant?: 'success' | 'warning' | 'error' | 'info' }>`
+export const Badge = styled.span.withConfig({
+  shouldForwardProp: (prop) => !['variant'].includes(prop)
+})<{ variant?: 'success' | 'warning' | 'error' | 'info' }>`
   display: inline-block;
   padding: 4px 8px;
   border-radius: 12px;
