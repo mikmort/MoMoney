@@ -156,7 +156,9 @@ Date: ${request.date}`;
         throw new Error('No response from Azure OpenAI');
       }
 
-      const parsed = JSON.parse(responseContent.trim());
+      // Clean the response to handle markdown code blocks
+      const cleanedResponse = this.cleanAIResponse(responseContent);
+      const parsed = JSON.parse(cleanedResponse);
       
       return {
         categoryId: parsed.categoryId || parsed.category || 'uncategorized',
@@ -265,6 +267,22 @@ Date: ${request.date}`;
       console.error('Error making Azure OpenAI request:', error);
       throw error;
     }
+  }
+
+  private cleanAIResponse(response: string): string {
+    let cleaned = response.trim();
+    
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/, '');
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```\s*/, '');
+    }
+    
+    if (cleaned.endsWith('```')) {
+      cleaned = cleaned.replace(/\s*```$/, '');
+    }
+    
+    return cleaned.trim();
   }
 }
 

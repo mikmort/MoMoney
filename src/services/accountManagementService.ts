@@ -161,7 +161,9 @@ ${userPrompt}`;
         throw new Error('No response from Azure OpenAI');
       }
 
-      const suggestions = JSON.parse(responseContent.trim());
+      // Clean the response to handle markdown code blocks
+      const cleanedResponse = this.cleanAIResponse(responseContent);
+      const suggestions = JSON.parse(cleanedResponse);
       
       // Validate suggestions
       return suggestions.filter((s: any) => 
@@ -202,6 +204,22 @@ ${userPrompt}`;
     
     // Sort by confidence (highest first)
     return combined.sort((a, b) => b.confidence - a.confidence);
+  }
+
+  private cleanAIResponse(response: string): string {
+    let cleaned = response.trim();
+    
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/, '');
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```\s*/, '');
+    }
+    
+    if (cleaned.endsWith('```')) {
+      cleaned = cleaned.replace(/\s*```$/, '');
+    }
+    
+    return cleaned.trim();
   }
 
   private generateAccountId(name: string, institution: string): string {

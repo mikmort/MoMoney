@@ -107,37 +107,56 @@ export class FileProcessingService {
     }
   }
 
-  async assignAccountToFile(fileId: string, accountId: string): Promise<Transaction[]> {
+  async assignAccountToFile(fileId: string, accountId: string, file?: File | null): Promise<Transaction[]> {
     // In a real implementation, you would:
     // 1. Retrieve the file from storage
     // 2. Parse transactions from the file
     // 3. Assign the account to all transactions
     // 4. Update the file status
     
-    // For now, we'll simulate this with mock data
-    const mockTransactions = await this.parseFileTransactions(null, accountId);
-    return mockTransactions;
+    console.log(`🏦 assignAccountToFile: Called with fileId=${fileId}, accountId=${accountId}, file=${file?.name || 'null'}`);
+    
+    if (file) {
+      // If we have the file, use our sophisticated parsing
+      const transactions = await this.parseFileTransactions(file, accountId);
+      return transactions;
+    } else {
+      // Fallback: no file provided, return empty array
+      console.log('⚠️ assignAccountToFile: No file provided, returning empty array');
+      return [];
+    }
   }
 
   private async parseFileTransactions(file: File | null, accountId: string): Promise<Transaction[]> {
     if (!file) {
       // For the case where assignAccountToFile calls this with null file
       // Return empty array for now - in production this would load from storage
+      console.log('📝 parseFileTransactions: No file provided, returning empty array');
       return [];
     }
 
+    console.log(`🔍 parseFileTransactions: Starting to parse file "${file.name}" for account "${accountId}"`);
+
     try {
       // Step 1: Read file content
+      console.log('📖 Step 1: Reading file content...');
       const fileContent = await this.readFileContent(file);
+      console.log(`✅ File content read, length: ${fileContent.length} characters`);
       
       // Step 2: Get schema mapping from AI
+      console.log('🤖 Step 2: Getting AI schema mapping...');
       const fileType = this.getFileType(file.name);
+      console.log(`📋 File type detected: ${fileType}`);
       const schemaMapping = await this.getAISchemaMapping(fileContent, fileType);
+      console.log('✅ Schema mapping received:', schemaMapping);
       
       // Step 3: Parse file data
+      console.log('⚙️ Step 3: Parsing file data...');
       const rawData = await this.parseFileData(fileContent, fileType, schemaMapping.mapping);
+      console.log(`✅ Raw data parsed, ${rawData.length} rows found`);
       
       // Step 4: Convert to transactions with AI classification
+      console.log('🏷️ Step 4: Starting AI classification...');
       const categories = defaultCategories;
       const subcategories = defaultCategories.flatMap(cat => cat.subcategories);
       
@@ -150,10 +169,19 @@ export class FileProcessingService {
         accountId
       );
       
+      console.log(`🎉 Successfully processed ${transactions.length} transactions`);
+      console.log('📊 Sample transactions:', transactions.slice(0, 2));
       return transactions;
       
     } catch (error) {
-      console.error('Error parsing file transactions:', error);
+      console.error('💥 Error parsing file transactions:', error);
+      console.error('📊 Error details:', {
+        fileName: file.name,
+        fileSize: file.size,
+        accountId,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : undefined
+      });
       // Return empty array instead of mock data on error
       return [];
     }
@@ -181,53 +209,140 @@ export class FileProcessingService {
 
   // Legacy compatibility method for existing FileImport component
   async processFile(
-    file: File, 
-    categories: any[], 
-    subcategories: any[],
+    file: File,
+    categories: Category[],
+    subcategories: Subcategory[],
     accountId: string,
-    onProgress?: (progress: any) => void
-  ): Promise<{ statementFile: any; fileId: string }> {
-    
-    if (onProgress) {
-      onProgress({
-        fileId: 'temp-id',
-        status: 'processing',
-        progress: 50,
-        currentStep: 'Processing file...',
-        processedRows: 0,
-        totalRows: 0,
-        errors: []
-      });
-    }
-
-    const result = await this.processUploadedFile(file, accountId);
-    
-    if (onProgress) {
-      onProgress({
-        fileId: result.file.id,
-        status: 'completed',
-        progress: 100,
-        currentStep: 'File processing completed',
-        processedRows: result.transactions?.length || 0,
-        totalRows: result.transactions?.length || 0,
-        errors: []
-      });
-    }
-
-    return {
-      statementFile: {
-        ...result.file,
-        status: result.needsAccountSelection ? 'awaiting-account-selection' : 'completed',
-        transactionCount: result.transactions?.length || 0
-      },
-      fileId: result.file.id
+    onProgress?: (progress: FileImportProgress) => void
+  ): Promise<{ statementFile: StatementFile; fileId: string }> {
+    const fileId = uuidv4();
+    const statementFile: StatementFile = {
+      id: fileId,
+      filename: file.name,
+      fileSize: file.size,
+      uploadDate: new Date(),
+      status: 'pending',
+      fileType: this.getFileType(file.name),
+      accountId, // Use the provided accountId
     };
+
+    const progress: FileImportProgress = {
+      fileId,
+      status: 'pending',
+      progress: 0,
+      currentStep: 'Initializing...',
+      processedRows: 0,
+      totalRows: 0,
+      errors: [],
+    };
+
+    // Store progress for tracking
+    this.activeImports.set(fileId, progress);
+    
+    try {
+      // Step 1: Initialize (10%)
+      this.updateProgress(progress, 10, 'processing', 'Reading file content...', onProgress);
+      
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
+      // Step 2: Read file content (20%)
+      const fileContent = await this.readFileContent(file);
+      this.updateProgress(progress, 20, 'processing', 'Analyzing file structure...', onProgress);
+      
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
+      // Step 3: Get AI schema mapping (30%)
+      this.updateProgress(progress, 30, 'processing', 'AI schema detection...', onProgress);
+      const schemaMapping = await this.getAISchemaMapping(fileContent, statementFile.fileType);
+      
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
+      // Step 4: Parse file data (40%)
+      this.updateProgress(progress, 40, 'processing', 'Parsing file data...', onProgress);
+      const rawData = await this.parseFileData(fileContent, statementFile.fileType, schemaMapping.mapping);
+      progress.totalRows = rawData.length;
+      
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
+      // Step 5: Process each row with AI categorization (40-90%)
+      this.updateProgress(progress, 50, 'processing', 'Processing transactions with AI...', onProgress);
+      const transactions = await this.processTransactions(
+        fileId, // Pass fileId for cancellation checks
+        rawData,
+        schemaMapping.mapping,
+        categories,
+        subcategories,
+        accountId,
+        (processed: number) => {
+          // Update progress during transaction processing (50-90%)
+          const transactionProgress = 50 + Math.round((processed / rawData.length) * 40);
+          this.updateProgress(progress, transactionProgress, 'processing', `Processing transaction ${processed}/${rawData.length}...`, onProgress);
+          progress.processedRows = processed;
+        }
+      );
+      
+      if (this.isCancelled(fileId)) {
+        throw new Error('Import cancelled by user');
+      }
+
+      // Step 6: Save to database (95%)
+      this.updateProgress(progress, 95, 'processing', 'Saving transactions...', onProgress);
+      console.log(`💾 Saving ${transactions.length} transactions to dataService`);
+      await dataService.addTransactions(transactions);
+      
+      // Step 7: Complete (100%)
+      statementFile.status = 'completed';
+      statementFile.transactionCount = transactions.length;
+      
+      this.updateProgress(progress, 100, 'completed', `Successfully imported ${transactions.length} transactions!`, onProgress);
+      
+      return { statementFile, fileId };
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error(`💥 Error in processFile for ${file.name}:`, error);
+      
+      statementFile.status = 'error';
+      statementFile.errorMessage = errorMessage;
+      progress.errors.push(errorMessage);
+      this.updateProgress(progress, progress.progress, 'error', `Error: ${errorMessage}`, onProgress);
+    } finally {
+      this.cleanup(fileId);
+    }
+
+    return { statementFile, fileId };
   }
 
-  // Legacy compatibility method
+  private updateProgress(
+    progress: FileImportProgress,
+    progressValue: number,
+    status: 'pending' | 'processing' | 'completed' | 'error',
+    step: string,
+    onProgress?: (progress: FileImportProgress) => void
+  ) {
+    progress.progress = progressValue;
+    progress.status = status;
+    progress.currentStep = step;
+    
+    console.log(`📊 Progress: ${progressValue}% - ${step}`);
+    
+    if (onProgress) {
+      onProgress({ ...progress });
+    }
+  }
+
+  // Cancel import method
   cancelImport(fileId: string): void {
-    console.log(`Cancelling import for file: ${fileId}`);
-    // Implementation would depend on how we want to handle cancellation
+    console.log(`🚫 Cancelling import for file: ${fileId}`);
+    this.cancellationTokens.set(fileId, true);
   }
 
   // Generate unique file ID
