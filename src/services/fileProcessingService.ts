@@ -623,7 +623,7 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
       
       // Handle European number format (e.g., "500.000,00" or "1.234,56")
       // Pattern: numbers with periods as thousands separator and comma as decimal
-      if (/^\-?[\d\.]+,\d+$/.test(valueStr)) {
+      if (/^-?[\d.]+,\d+$/.test(valueStr)) {
         const cleanAmount = valueStr
           .replace(/\./g, '') // Remove thousands separators (periods)
           .replace(',', '.'); // Convert decimal separator (comma to period)
@@ -633,7 +633,7 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
       
       // Handle standard US format and other formats
       const cleanAmount = valueStr
-        .replace(/[\$,\s]/g, '') // Remove $, commas, spaces
+        .replace(/[$,\s]/g, '') // Remove $, commas, spaces
         .replace(/[()]/g, ''); // Remove parentheses
       
       const amount = parseFloat(cleanAmount);
@@ -664,6 +664,7 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
     try {
       console.log(`🤖 Starting AI classification for: "${description}", amount: ${amount}`);
       
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const request: AIClassificationRequest = {
         transactionText: description,
         amount,

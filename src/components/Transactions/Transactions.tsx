@@ -3,9 +3,8 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch } from '../../types';
+import { Transaction } from '../../types';
 import { dataService } from '../../services/dataService';
-import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { FileImport } from './FileImport';
 import { TransactionAnalytics } from './TransactionAnalytics';
 import { TransactionTemplates } from './TransactionTemplates';
@@ -486,12 +485,7 @@ const Transactions: React.FC = () => {
     }
   ];
 
-  // Load transactions on component mount
-  useEffect(() => {
-    loadTransactions();
-  }, []);
-
-  const loadTransactions = async () => {
+  const loadTransactions = useCallback(async () => {
     console.log('📥 loadTransactions started...');
     setLoading(true);
     try {
@@ -506,7 +500,12 @@ const Transactions: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Load transactions on component mount
+  useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
 
   // Apply filters when filters or transactions change
   useEffect(() => {
@@ -690,6 +689,15 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleDeleteTransaction = useCallback(async (id: string) => {
+    try {
+      await dataService.deleteTransaction(id);
+      await loadTransactions();
+    } catch (error) {
+      console.error('Failed to delete transaction:', error);
+    }
+  }, [loadTransactions]);
+
   // Handle action button clicks in grid
   const onGridReady = useCallback((params: GridReadyEvent) => {
     // Add event listeners for action buttons
@@ -718,16 +726,7 @@ const Transactions: React.FC = () => {
         }
       }
     });
-  }, [transactions]);
-
-  const handleDeleteTransaction = async (id: string) => {
-    try {
-      await dataService.deleteTransaction(id);
-      await loadTransactions();
-    } catch (error) {
-      console.error('Failed to delete transaction:', error);
-    }
-  };
+  }, [transactions, handleDeleteTransaction]);
 
   const startEditTransaction = (transaction: Transaction) => {
     setEditingTransaction(transaction);
