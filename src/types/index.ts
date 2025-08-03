@@ -11,20 +11,19 @@ export interface Transaction {
   type: 'income' | 'expense';
   isRecurring?: boolean;
   tags?: string[];
-  notes?: string; // User-added notes (main branch)
-  additionalNotes?: string; // User-added notes (feature branch compatibility)
-  addedDate: Date; // When it was added to the app (feature branch)
-  lastModifiedDate: Date; // When the row was last changed (feature branch)
+  notes?: string;
+  addedDate?: Date; // When it was added to the app
+  lastModifiedDate?: Date; // When the row was last changed
   originalText?: string; // Raw text from statement
   confidence?: number; // AI classification confidence (0-1)
-  reasoning?: string; // AI explanation for categorization (feature branch)
+  reasoning?: string; // AI explanation for categorization
   isVerified?: boolean; // User has verified the categorization
   vendor?: string;
   location?: string;
-  reimbursed?: boolean; // True if this expense has been reimbursed (main branch)
-  reimbursementId?: string; // ID of the matching reimbursement transaction (main branch)
-  originalCurrency?: string; // Original currency for foreign transactions (main branch)
-  exchangeRate?: number; // Exchange rate if converted from foreign currency (main branch)
+  reimbursed?: boolean; // True if this expense has been reimbursed
+  reimbursementId?: string; // ID of the matching reimbursement transaction
+  originalCurrency?: string; // Original currency for foreign transactions
+  exchangeRate?: number; // Exchange rate if converted from foreign currency
 }
 
 export interface Account {
@@ -72,37 +71,14 @@ export interface StatementFile {
   filename: string;
   fileSize: number;
   uploadDate: Date;
-  accountId?: string;
-  status: 'pending' | 'processing' | 'mapping' | 'importing' | 'completed' | 'error';
+  accountId?: string; // Optional until user selects an account
+  status: 'pending' | 'processing' | 'completed' | 'error' | 'awaiting-account-selection';
   transactionCount?: number;
-  processedCount?: number;
   errorMessage?: string;
-  fileType: 'pdf' | 'csv' | 'xlsx' | 'ofx';
-  schemaMapping?: FileSchemaMapping;
-  progress?: number; // 0-100
-}
-
-export interface FileSchemaMapping {
-  dateColumn?: string;
-  descriptionColumn?: string;
-  amountColumn?: string;
-  categoryColumn?: string;
-  subcategoryColumn?: string;
-  notesColumn?: string;
-  dateFormat?: string;
-  amountFormat?: string;
-  hasHeaders?: boolean;
-  skipRows?: number;
-}
-
-export interface FileImportProgress {
-  fileId: string;
-  status: StatementFile['status'];
-  progress: number;
-  currentStep: string;
-  processedRows: number;
-  totalRows: number;
-  errors: string[];
+  fileType: 'pdf' | 'csv' | 'excel' | 'image';
+  detectedAccountId?: string; // AI-detected account
+  accountDetectionConfidence?: number; // Confidence in account detection
+  accountDetectionReasoning?: string; // Why this account was suggested
 }
 
 export interface AIClassificationRequest {
@@ -110,29 +86,15 @@ export interface AIClassificationRequest {
   amount: number;
   date: string;
   availableCategories: Category[];
-  availableSubcategories: Subcategory[];
 }
 
 export interface AIClassificationResponse {
-  category: string;
-  subcategory?: string;
+  categoryId: string;
+  subcategoryId?: string;
   confidence: number;
-  reasoning: string;
+  reasoning?: string;
   suggestedVendor?: string;
   suggestedTags?: string[];
-}
-
-export interface AISchemaMappingRequest {
-  fileContent: string; // Sample content from the file
-  fileType: 'pdf' | 'csv' | 'xlsx' | 'ofx';
-  targetSchema: string[]; // Our expected columns
-}
-
-export interface AISchemaMappingResponse {
-  mapping: FileSchemaMapping;
-  confidence: number;
-  reasoning: string;
-  suggestions: string[];
 }
 
 export interface DashboardStats {

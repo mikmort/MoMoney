@@ -157,7 +157,6 @@ ${userPrompt}`;
 
     try {
       const responseContent = await this.azureOpenAIService.makeRequest(combinedPrompt, 300);
-      
       if (!responseContent) {
         throw new Error('No response from Azure OpenAI');
       }

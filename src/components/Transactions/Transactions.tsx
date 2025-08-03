@@ -3,9 +3,12 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch } from '../../types';
+import { Transaction, ReimbursementMatch, Account } from '../../types';
 import { dataService } from '../../services/dataService';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
+import { useAccountManagement } from '../../hooks/useAccountManagement';
+import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
+import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { TransactionAnalytics } from './TransactionAnalytics';
 import { TransactionTemplates } from './TransactionTemplates';
@@ -29,6 +32,12 @@ const TransactionsContainer = styled.div`
       font-weight: 600;
     }
     
+    .reimbursed {
+      color: #666;
+      text-decoration: line-through;
+      opacity: 0.7;
+    }
+    
     .confidence {
       padding: 2px 6px;
       border-radius: 4px;
@@ -49,6 +58,89 @@ const TransactionsContainer = styled.div`
         background: #f8d7da;
         color: #721c24;
       }
+    }
+  }
+`;
+
+const ReimbursementPanel = styled(Card)`
+  margin-bottom: 20px;
+  
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h3 {
+      margin: 0;
+      color: #333;
+    }
+  }
+  
+  .matches-list {
+    .match-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+      
+      .match-info {
+        flex: 1;
+        
+        .expense {
+          font-weight: 600;
+          color: #f44336;
+        }
+        
+        .reimbursement {
+          font-weight: 600;
+          color: #4caf50;
+        }
+        
+        .match-details {
+          font-size: 0.9rem;
+          color: #666;
+          margin-top: 4px;
+        }
+      }
+      
+      .match-actions {
+        display: flex;
+        gap: 8px;
+      }
+      
+      .confidence-badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        
+        &.high {
+          background: #e8f5e8;
+          color: #2e7d32;
+        }
+        
+        &.medium {
+          background: #fff3cd;
+          color: #856404;
+        }
+        
+        &.low {
+          background: #f8d7da;
+          color: #721c24;
+        }
+      }
+    }
+    
+    .no-matches {
+      text-align: center;
+      color: #666;
+      padding: 20px;
+      font-style: italic;
     }
   }
 `;
@@ -76,10 +168,6 @@ const FilterBar = styled(Card)`
     
     select, input {
       min-width: 150px;
-      padding: 8px 12px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
     }
   }
 `;
@@ -116,242 +204,30 @@ const StatsBar = styled.div`
   }
 `;
 
-const ActionsBar = styled.div`
-  display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
-  align-items: center;
-  flex-wrap: wrap;
-`;
-
-const ExportButton = styled(Button)`
-  background: #28a745;
-  
-  &:hover {
-    background: #218838;
-  }
-`;
-
-const BulkActionsBar = styled.div`
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 12px;
-  background: #f8f9fa;
+const UploadArea = styled.div`
+  border: 2px dashed #ddd;
   border-radius: 8px;
-  align-items: center;
-  
-  .selection-info {
-    font-weight: 500;
-    color: #495057;
-  }
-`;
-
-const QuickAddModal = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  
-  .modal-content {
-    background: white;
-    padding: 24px;
-    border-radius: 12px;
-    width: 500px;
-    max-width: 90vw;
-    max-height: 90vh;
-    overflow-y: auto;
-    
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      
-      h3 {
-        margin: 0;
-      }
-    }
-    
-    .form-group {
-      margin-bottom: 16px;
-      
-      label {
-        display: block;
-        margin-bottom: 4px;
-        font-weight: 500;
-        color: #333;
-      }
-      
-      input, select, textarea {
-        width: 100%;
-        padding: 8px 12px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 14px;
-        
-        &:focus {
-          outline: none;
-          border-color: #2196f3;
-          box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
-        }
-      }
-      
-      textarea {
-        resize: vertical;
-        min-height: 60px;
-      }
-    }
-    
-    .form-row {
-      display: flex;
-      gap: 16px;
-      
-      .form-group {
-        flex: 1;
-      }
-    }
-    
-    .modal-actions {
-      display: flex;
-      gap: 12px;
-      justify-content: flex-end;
-      margin-top: 24px;
-    }
-  }
-`;
-
-const ReimbursementPanel = styled.div`
-  background: white;
-  border-radius: 8px;
-  padding: 20px;
+  padding: 40px;
+  text-align: center;
+  background: #fafafa;
   margin-bottom: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: all 0.2s ease;
   
-  .panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    
-    h3 {
-      margin: 0;
-      color: #333;
-    }
+  &:hover, &.dragover {
+    border-color: #2196f3;
+    background: #f0f8ff;
   }
   
-  .matches-list {
-    max-height: 400px;
-    overflow-y: auto;
+  .upload-text {
+    font-size: 1.1rem;
+    color: #666;
+    margin-bottom: 8px;
   }
   
-  .match-item {
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    padding: 16px;
-    margin-bottom: 12px;
-    background: #f9f9f9;
-    
-    .match-header {
-      display: flex;
-      justify-content: between;
-      align-items: center;
-      margin-bottom: 8px;
-      
-      .confidence {
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: bold;
-        
-        &.high {
-          background: #e8f5e8;
-          color: #4caf50;
-        }
-        
-        &.medium {
-          background: #fff3e0;
-          color: #ff9800;
-        }
-        
-        &.low {
-          background: #ffebee;
-          color: #f44336;
-        }
-      }
-    }
-    
-    .match-details {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-bottom: 12px;
-      
-      .transaction-info {
-        .label {
-          font-size: 12px;
-          color: #666;
-          margin-bottom: 4px;
-        }
-        
-        .amount {
-          font-weight: bold;
-          
-          &.expense {
-            color: #f44336;
-          }
-          
-          &.income {
-            color: #4caf50;
-          }
-        }
-      }
-    }
-    
-    .match-actions {
-      display: flex;
-      gap: 8px;
-      
-      button {
-        padding: 4px 12px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-        
-        &.apply {
-          background: #4caf50;
-          color: white;
-          
-          &:hover {
-            background: #45a049;
-          }
-        }
-        
-        &.reject {
-          background: #f44336;
-          color: white;
-          
-          &:hover {
-            background: #da190b;
-          }
-        }
-      }
-    }
-  }
-  
-  .panel-actions {
-    display: flex;
-    gap: 12px;
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid #eee;
+  .upload-subtext {
+    font-size: 0.9rem;
+    color: #999;
   }
 `;
 
@@ -360,47 +236,23 @@ const AmountCellRenderer = (params: any) => {
   const amount = params.value;
   const isReimbursed = params.data.reimbursed;
   const className = amount >= 0 ? 'positive' : 'negative';
+  const reimbursedClass = isReimbursed ? ' reimbursed' : '';
   const formatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD'
   }).format(amount);
   
-  const style = isReimbursed ? { 
-    textDecoration: 'line-through',
-    opacity: 0.7,
-    position: 'relative' as const
-  } : {};
-  
-  return (
-    <span className={className} style={style} title={isReimbursed ? 'This transaction has been reimbursed' : ''}>
-      {formatted}
-      {isReimbursed && <span style={{ marginLeft: '4px', fontSize: '12px' }}>💰</span>}
-    </span>
-  );
+  return <span className={className + reimbursedClass}>{formatted}</span>;
 };
 
 const CategoryCellRenderer = (params: any) => {
   const category = params.value;
   const subcategory = params.data.subcategory;
-  const isUncategorized = category === 'Uncategorized';
+  const isReimbursed = params.data.reimbursed;
+  const reimbursedClass = isReimbursed ? ' reimbursed' : '';
   
   const displayText = subcategory ? `${category} → ${subcategory}` : category;
-  
-  if (isUncategorized) {
-    return React.createElement('span', {
-      style: {
-        color: '#ff9800',
-        fontWeight: 'bold',
-        backgroundColor: '#fff3e0',
-        padding: '2px 6px',
-        borderRadius: '4px',
-        fontSize: '0.9em'
-      },
-      title: 'This transaction needs manual categorization'
-    }, `⚠️ ${displayText}`);
-  }
-  
-  return displayText;
+  return <span className={reimbursedClass}>{displayText}</span>;
 };
 
 const ConfidenceCellRenderer = (params: any) => {
@@ -408,51 +260,22 @@ const ConfidenceCellRenderer = (params: any) => {
   if (!confidence) return '';
   
   const percentage = Math.round(confidence * 100);
-  const isLowConfidence = percentage < 70;
   const className = percentage >= 80 ? 'high' : percentage >= 60 ? 'medium' : 'low';
   
-  const displayText = `${percentage}%`;
-  
-  if (isLowConfidence) {
-    return React.createElement('span', {
-      className: `confidence ${className}`,
-      style: {
-        backgroundColor: '#ffebee',
-        color: '#c62828',
-        fontWeight: 'bold',
-        border: '1px solid #f8bbd9'
-      },
-      title: 'Low confidence - consider manual review'
-    }, `⚠️ ${displayText}`);
-  }
-  
-  return React.createElement('span', {
-    className: `confidence ${className}`
-  }, displayText);
-};
-
-const NotesRenderer = (params: any) => {
-  const { reasoning, additionalNotes } = params.data;
-  const displayText = additionalNotes || reasoning || '';
-  
-  if (!displayText) return '';
-  
-  return (
-    <span title={displayText}>
-      {displayText.length > 50 ? `${displayText.substring(0, 50)}...` : displayText}
-    </span>
-  );
+  return <span className={`confidence ${className}`}>{percentage}%</span>;
 };
 
 const Transactions: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
-  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [showAnalytics, setShowAnalytics] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false);
+  const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
+  const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
+  
+  // Account selection dialog state
+  const [showAccountDialog, setShowAccountDialog] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [accountDetectionResult, setAccountDetectionResult] = useState<AccountDetectionResult | undefined>();
+  
   const [filters, setFilters] = useState({
     category: '',
     type: '',
@@ -462,56 +285,30 @@ const Transactions: React.FC = () => {
     search: ''
   });
 
-  // Form state for adding/editing transactions
-  const [transactionForm, setTransactionForm] = useState({
-    description: '',
-    amount: '',
-    category: '',
-    subcategory: '',
-    account: '',
-    type: 'expense' as 'income' | 'expense',
-    date: new Date().toISOString().split('T')[0],
-    notes: ''
-  });
-
-  // Reimbursement functionality
-  const [showReimbursements, setShowReimbursements] = useState(true);
-  const [reimbursementMatches, setReimbursementMatches] = useState<ReimbursementMatch[]>([]);
-  const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
-  
-  // Initialize reimbursement matching hook
-  const {
-    isLoading: isReimbursementLoading,
-    error: reimbursementError,
-    matches,
-    findMatches,
+  const { 
+    isLoading: isMatchingLoading, 
+    error: matchingError, 
+    matches, 
+    findMatches, 
     applyMatches,
-    filterNonReimbursed
+    filterNonReimbursed 
   } = useReimbursementMatching();
+
+  const {
+    accounts,
+    addAccount
+  } = useAccountManagement();
 
   // Column definitions for AG Grid
   const columnDefs: ColDef[] = [
-    {
-      headerName: '',
-      width: 50,
-      checkboxSelection: true,
-      headerCheckboxSelection: true,
-      pinned: 'left'
-    },
     {
       headerName: 'Date',
       field: 'date',
       sortable: true,
       filter: 'agDateColumnFilter',
       width: 120,
-      editable: true,
-      cellEditor: 'agDateCellEditor',
       valueFormatter: (params: any) => {
         return new Date(params.value).toLocaleDateString();
-      },
-      valueSetter: (params: any) => {
-        params.data.date = new Date(params.newValue);
-        return true;
       }
     },
     {
@@ -520,9 +317,7 @@ const Transactions: React.FC = () => {
       sortable: true,
       filter: 'agTextColumnFilter',
       flex: 2,
-      minWidth: 200,
-      editable: true,
-      cellEditor: 'agTextCellEditor'
+      minWidth: 200
     },
     {
       headerName: 'Category',
@@ -530,21 +325,14 @@ const Transactions: React.FC = () => {
       sortable: true,
       filter: 'agTextColumnFilter',
       width: 180,
-      cellRenderer: CategoryCellRenderer,
-      editable: true,
-      cellEditor: 'agSelectCellEditor',
-      cellEditorParams: {
-        values: [] // Will be populated dynamically
-      }
+      cellRenderer: CategoryCellRenderer
     },
     {
       headerName: 'Account',
       field: 'account',
       sortable: true,
       filter: 'agTextColumnFilter',
-      width: 140,
-      editable: true,
-      cellEditor: 'agTextCellEditor'
+      width: 140
     },
     {
       headerName: 'Amount',
@@ -553,12 +341,7 @@ const Transactions: React.FC = () => {
       filter: 'agNumberColumnFilter',
       width: 120,
       cellRenderer: AmountCellRenderer,
-      type: 'rightAligned',
-      editable: true,
-      cellEditor: 'agNumberCellEditor',
-      cellEditorParams: {
-        precision: 2
-      }
+      type: 'rightAligned'
     },
     {
       headerName: 'AI Confidence',
@@ -568,156 +351,299 @@ const Transactions: React.FC = () => {
       cellRenderer: ConfidenceCellRenderer
     },
     {
-      headerName: 'Notes',
-      field: 'reasoning',
-      sortable: false,
-      filter: 'agTextColumnFilter',
-      width: 200,
-      cellRenderer: NotesRenderer,
-      editable: true,
-      cellEditor: 'agLargeTextCellEditor',
-      cellEditorParams: {
-        maxLength: 500,
-        rows: 3
-      }
-    },
-    {
       headerName: 'Verified',
       field: 'isVerified',
       width: 100,
       cellRenderer: (params: any) => {
         return params.value ? '✅' : '⏳';
-      },
-      editable: true,
-      cellEditor: 'agCheckboxCellEditor'
+      }
     },
     {
-      headerName: 'Actions',
-      width: 120,
-      pinned: 'right',
+      headerName: 'Reimbursed',
+      field: 'reimbursed',
+      width: 110,
       cellRenderer: (params: any) => {
-        return React.createElement('div', {
-          style: { display: 'flex', gap: '4px', height: '100%', alignItems: 'center' }
-        }, [
-          React.createElement('button', {
-            key: 'edit',
-            className: 'edit-btn',
-            'data-id': params.data.id,
-            style: {
-              padding: '4px 8px',
-              fontSize: '12px',
-              border: '1px solid #ddd',
-              background: 'white',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            },
-            title: 'Edit transaction',
-            onClick: (e: any) => {
-              e.stopPropagation();
-              startEditTransaction(params.data);
-            }
-          }, '✏️'),
-          React.createElement('button', {
-            key: 'delete',
-            className: 'delete-btn',
-            'data-id': params.data.id,
-            style: {
-              padding: '4px 8px',
-              fontSize: '12px',
-              border: '1px solid #f44336',
-              background: '#fff5f5',
-              color: '#f44336',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            },
-            title: 'Delete transaction',
-            onClick: (e: any) => {
-              e.stopPropagation();
-              handleDeleteTransaction(params.data.id);
-            }
-          }, '🗑️')
-        ]);
+        return params.value ? '💰' : '';
       }
     }
   ];
 
-  // Load transactions on component mount
   useEffect(() => {
-    loadTransactions();
+    // Mock data - replace with actual API calls
+    const mockTransactions: Transaction[] = [
+      {
+        id: '1',
+        date: new Date('2025-08-01'),
+        amount: -125.50,
+        description: 'Whole Foods Market #123',
+        category: 'Food & Dining',
+        subcategory: 'Groceries',
+        account: 'Chase Checking',
+        type: 'expense',
+        confidence: 0.95,
+        isVerified: true,
+        vendor: 'Whole Foods'
+      },
+      {
+        id: '2',
+        date: new Date('2025-08-01'),
+        amount: 2750.00,
+        description: 'Direct Deposit - ACME Corp',
+        category: 'Salary & Wages',
+        subcategory: 'Primary Job',
+        account: 'Chase Checking',
+        type: 'income',
+        confidence: 0.99,
+        isVerified: true
+      },
+      {
+        id: '3',
+        date: new Date('2025-07-31'),
+        amount: -45.30,
+        description: 'Shell Service Station',
+        category: 'Transportation',
+        subcategory: 'Fuel/Gas',
+        account: 'Chase Checking',
+        type: 'expense',
+        confidence: 0.92,
+        isVerified: false,
+        vendor: 'Shell'
+      },
+      {
+        id: '4',
+        date: new Date('2025-07-30'),
+        amount: -89.99,
+        description: 'Amazon.com Purchase',
+        category: 'Shopping',
+        subcategory: 'Miscellaneous',
+        account: 'Chase Credit',
+        type: 'expense',
+        confidence: 0.78,
+        isVerified: false,
+        vendor: 'Amazon'
+      },
+      {
+        id: '5',
+        date: new Date('2025-07-30'),
+        amount: -12.50,
+        description: 'Netflix Monthly Subscription',
+        category: 'Entertainment',
+        subcategory: 'Streaming Services',
+        account: 'Chase Credit',
+        type: 'expense',
+        confidence: 0.98,
+        isVerified: true,
+        vendor: 'Netflix'
+      },
+      {
+        id: '6',
+        date: new Date('2025-07-28'),
+        amount: -245.75,
+        description: 'CVS Pharmacy - Prescription Medication',
+        category: 'Healthcare',
+        subcategory: 'Pharmacy',
+        account: 'Chase Checking',
+        type: 'expense',
+        confidence: 0.92,
+        isVerified: true,
+        vendor: 'CVS'
+      },
+      {
+        id: '7',
+        date: new Date('2025-08-02'),
+        amount: 245.75,
+        description: 'HSA Reimbursement - Medical Expenses',
+        category: 'Other Income',
+        subcategory: 'Insurance Claims',
+        account: 'Chase Checking',
+        type: 'income',
+        confidence: 0.95,
+        isVerified: true
+      },
+      {
+        id: '8',
+        date: new Date('2025-07-25'),
+        amount: -550.00,
+        description: 'United Airlines - Business Travel LAX-JFK',
+        category: 'Transportation',
+        subcategory: 'Business Travel',
+        account: 'Chase Credit',
+        type: 'expense',
+        confidence: 0.89,
+        isVerified: false,
+        vendor: 'United Airlines'
+      },
+      {
+        id: '9',
+        date: new Date('2025-07-30'),
+        amount: 550.00,
+        description: 'Expense Reimbursement - ACME Corp',
+        category: 'Business Income',
+        subcategory: 'Expense Reimbursement',
+        account: 'Chase Checking',
+        type: 'income',
+        confidence: 0.94,
+        isVerified: true
+      },
+      {
+        id: '10',
+        date: new Date('2025-07-22'),
+        amount: -89.45,
+        description: 'London Hotel - Business Trip',
+        category: 'Transportation',
+        subcategory: 'Business Travel',
+        account: 'Chase Credit',
+        type: 'expense',
+        confidence: 0.87,
+        isVerified: false,
+        originalCurrency: 'GBP',
+        exchangeRate: 1.27
+      },
+      {
+        id: '11',
+        date: new Date('2025-08-01'),
+        amount: 113.60,
+        description: 'Payroll - Travel Reimbursement',
+        category: 'Business Income',
+        subcategory: 'Expense Reimbursement',
+        account: 'Chase Checking',
+        type: 'income',
+        confidence: 0.91,
+        isVerified: true
+      }
+    ];
+
+    setTimeout(() => {
+      setTransactions(mockTransactions);
+      setFilteredTransactions(mockTransactions);
+    }, 1000);
   }, []);
 
-  const loadTransactions = async () => {
-    console.log('📥 loadTransactions started...');
-    setLoading(true);
+  const onGridReady = useCallback((params: GridReadyEvent) => {
+    params.api.sizeColumnsToFit();
+  }, []);
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
     try {
-      const data = await dataService.getAllTransactions();
-      console.log(`📊 loadTransactions: Retrieved ${data.length} transactions from dataService`);
-      console.log(`📊 Sample transactions:`, data.slice(0, 2).map(t => ({ id: t.id, description: t.description, amount: t.amount })));
-      setTransactions(data);
-      setFilteredTransactions(data);
-      console.log(`✅ loadTransactions: State updated with ${data.length} transactions`);
+      console.log('Processing file:', file.name);
+      const result = await fileProcessingService.processUploadedFile(file);
+      
+      if (result.needsAccountSelection) {
+        // Show account selection dialog
+        setPendingFile(file);
+        setAccountDetectionResult(result.detectionResult);
+        setShowAccountDialog(true);
+      } else {
+        // File processed successfully with auto-detected account
+        if (result.transactions) {
+          setTransactions(prev => [...prev, ...result.transactions!]);
+          console.log(`Successfully imported ${result.transactions.length} transactions to account: ${result.file.accountId}`);
+        }
+      }
     } catch (error) {
-      console.error('❌ Failed to load transactions:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error processing file:', error);
+      alert('Failed to process file. Please try again.');
+    }
+    
+    // Reset file input
+    event.target.value = '';
+  };
+
+  const handleAccountSelection = async (accountId: string) => {
+    if (!pendingFile) return;
+
+    try {
+      const newTransactions = await fileProcessingService.assignAccountToFile('temp-id', accountId);
+      setTransactions(prev => [...prev, ...newTransactions]);
+      console.log(`Successfully imported ${newTransactions.length} transactions to account: ${accountId}`);
+      
+      // Close dialog and reset state
+      setShowAccountDialog(false);
+      setPendingFile(null);
+      setAccountDetectionResult(undefined);
+    } catch (error) {
+      console.error('Error assigning account to file:', error);
+      alert('Failed to import transactions. Please try again.');
     }
   };
 
-  // Apply filters when filters or transactions change
-  useEffect(() => {
-    let filtered = [...transactions];
+  const handleNewAccount = async (newAccountData: Omit<Account, 'id'>) => {
+    try {
+      const newAccount = await addAccount(newAccountData);
+      
+      // Now assign the file to this new account
+      await handleAccountSelection(newAccount.id);
+    } catch (error) {
+      console.error('Error creating new account:', error);
+      alert('Failed to create new account. Please try again.');
+    }
+  };
 
-    // Apply category filter
+  const handleCancelAccountSelection = () => {
+    setShowAccountDialog(false);
+    setPendingFile(null);
+    setAccountDetectionResult(undefined);
+  };
+
+  const applyFilters = useCallback(() => {
+    let filtered = transactions.slice(); // Use slice() instead of spread
+
+    // Filter out reimbursed transactions if the toggle is off
+    if (!showReimbursedTransactions) {
+      filtered = filterNonReimbursed(filtered);
+    }
+
     if (filters.category) {
-      filtered = filtered.filter(t => t.category === filters.category);
+      filtered = filtered.filter((t: Transaction) => t.category === filters.category);
     }
-
-    // Apply type filter
     if (filters.type) {
-      filtered = filtered.filter(t => t.type === filters.type);
+      filtered = filtered.filter((t: Transaction) => t.type === filters.type);
     }
-
-    // Apply account filter
     if (filters.account) {
-      filtered = filtered.filter(t => t.account === filters.account);
+      filtered = filtered.filter((t: Transaction) => t.account === filters.account);
     }
-
-    // Apply date filters
-    if (filters.dateFrom) {
-      const fromDate = new Date(filters.dateFrom);
-      filtered = filtered.filter(t => t.date >= fromDate);
-    }
-
-    if (filters.dateTo) {
-      const toDate = new Date(filters.dateTo);
-      filtered = filtered.filter(t => t.date <= toDate);
-    }
-
-    // Apply search filter
     if (filters.search) {
-      const searchTerm = filters.search.toLowerCase();
-      filtered = filtered.filter(t => 
-        t.description.toLowerCase().includes(searchTerm) ||
-        t.category.toLowerCase().includes(searchTerm) ||
-        t.subcategory?.toLowerCase().includes(searchTerm) ||
-        t.additionalNotes?.toLowerCase().includes(searchTerm)
+      filtered = filtered.filter((t: Transaction) => 
+        t.description.toLowerCase().includes(filters.search.toLowerCase())
       );
+    }
+    if (filters.dateFrom) {
+      filtered = filtered.filter((t: Transaction) => t.date >= new Date(filters.dateFrom));
+    }
+    if (filters.dateTo) {
+      filtered = filtered.filter((t: Transaction) => t.date <= new Date(filters.dateTo));
     }
 
     setFilteredTransactions(filtered);
-  }, [transactions, filters]);
+  }, [transactions, filters, showReimbursedTransactions, filterNonReimbursed]);
 
-  // Get unique values for filter dropdowns
-  const uniqueCategories = Array.from(new Set(transactions.map(t => t.category))).sort();
-  const uniqueAccounts = Array.from(new Set(transactions.map(t => t.account).filter(Boolean))).sort() as string[];
+  useEffect(() => {
+    applyFilters();
+  }, [applyFilters]);
 
-  // Calculate statistics
-  const stats = {
-    totalIncome: filteredTransactions.filter(t => t.type === 'income' || t.amount > 0).reduce((sum, t) => sum + Math.abs(t.amount), 0),
-    totalExpenses: filteredTransactions.filter(t => t.type === 'expense' || t.amount < 0).reduce((sum, t) => sum + Math.abs(t.amount), 0),
-    count: filteredTransactions.length,
-    get netAmount() { return this.totalIncome - this.totalExpenses; }
+  const calculateStats = () => {
+    const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
+    
+    const totalIncome = transactionsToCalculate
+      .filter((t: Transaction) => t.type === 'income')
+      .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
+    
+    const totalExpenses = transactionsToCalculate
+      .filter((t: Transaction) => t.type === 'expense')
+      .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount), 0);
+
+    return {
+      totalIncome,
+      totalExpenses,
+      netAmount: totalIncome - totalExpenses,
+      count: transactionsToCalculate.length
+    };
   };
+
+  const stats = calculateStats();
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -726,409 +652,57 @@ const Transactions: React.FC = () => {
     }).format(amount);
   };
 
-  const handleImportComplete = async (importedCount: number) => {
-    console.log(`🔄 handleImportComplete called with ${importedCount} transactions`);
-    
-    // Add a small delay to ensure the dataService has completed saving
-    setTimeout(async () => {
-      try {
-        console.log(`📊 Before reload - Current state has ${transactions.length} transactions`);
-        
-        await loadTransactions();
-        console.log(`🔄 loadTransactions completed`);
-        
-        // Force a re-render by updating state
-        const freshData = await dataService.getAllTransactions();
-        console.log(`📊 Fresh data from dataService: ${freshData.length} transactions`);
-        console.log(`📊 First few transactions:`, freshData.slice(0, 3).map(t => ({ id: t.id, description: t.description })));
-        
-        setTransactions(freshData);
-        setFilteredTransactions(freshData);
-        
-        console.log(`✅ State updated - should now show ${freshData.length} transactions`);
-      } catch (error) {
-        console.error('❌ Failed to reload transactions after import:', error);
-      }
-    }, 500);
-  };
+  const uniqueCategories = Array.from(new Set(transactions.map((t: Transaction) => t.category)));
+  const uniqueAccounts = Array.from(new Set(transactions.map((t: Transaction) => t.account)));
 
-  // Reimbursement functions
   const handleFindReimbursements = async () => {
-    if (transactions.length === 0) return;
+    const result = await findMatches({
+      transactions,
+      maxDaysDifference: 90,
+      tolerancePercentage: 0.05
+    });
     
-    try {
-      const result = await findMatches({
-        transactions,
-        maxDaysDifference: 90,
-        tolerancePercentage: 0.05
-      });
-      
-      if (result) {
-        setReimbursementMatches(result.matches);
-        setShowReimbursementPanel(true);
-      }
-    } catch (error) {
-      console.error('Failed to find reimbursement matches:', error);
+    if (result) {
+      setShowReimbursementPanel(true);
     }
   };
 
-  const handleApplyReimbursementMatches = async (matchesToApply: ReimbursementMatch[]) => {
-    try {
-      const updatedTransactions = await applyMatches(transactions, matchesToApply);
-      setTransactions(updatedTransactions);
-      setFilteredTransactions(updatedTransactions);
-      setReimbursementMatches([]);
-      setShowReimbursementPanel(false);
-    } catch (error) {
-      console.error('Failed to apply reimbursement matches:', error);
-    }
+  const handleApplyMatch = async (match: ReimbursementMatch) => {
+    const updatedTransactions = await applyMatches(transactions, [match]);
+    setTransactions(updatedTransactions);
   };
 
-  const toggleShowReimbursed = () => {
-    setShowReimbursements(!showReimbursements);
-    if (!showReimbursements) {
-      // Show all transactions
-      setFilteredTransactions(transactions);
-    } else {
-      // Hide reimbursed transactions
-      const nonReimbursed = filterNonReimbursed(transactions);
-      setFilteredTransactions(nonReimbursed);
-    }
+  const getConfidenceClass = (confidence: number) => {
+    if (confidence >= 0.8) return 'high';
+    if (confidence >= 0.6) return 'medium';
+    return 'low';
   };
 
-  // Handle cell value changes (inline editing)
-  const onCellValueChanged = async (params: any) => {
-    try {
-      await dataService.updateTransaction(params.data.id, {
-        [params.colDef.field]: params.newValue
-      });
-      console.log(`Updated ${params.colDef.field} for transaction ${params.data.id}`);
-    } catch (error) {
-      console.error('Failed to update transaction:', error);
-      // Revert the change
-      params.node.setDataValue(params.colDef.field, params.oldValue);
-    }
-  };
+  const renderReimbursementPanel = () => {
+    if (!showReimbursementPanel) return null;
 
-  // Handle row selection
-  const onSelectionChanged = (params: any) => {
-    const selectedNodes = params.api.getSelectedNodes();
-    const selectedIds = selectedNodes.map((node: any) => node.data.id);
-    setSelectedTransactions(selectedIds);
-  };
-
-  // Bulk operations
-  const handleBulkDelete = async () => {
-    if (selectedTransactions.length === 0) return;
-    
-    if (window.confirm(`Delete ${selectedTransactions.length} selected transactions?`)) {
-      try {
-        await dataService.deleteTransactions(selectedTransactions);
-        await loadTransactions();
-        setSelectedTransactions([]);
-      } catch (error) {
-        console.error('Failed to delete transactions:', error);
-      }
-    }
-  };
-
-  const handleBulkCategoryChange = async (newCategory: string) => {
-    if (selectedTransactions.length === 0) return;
-    
-    try {
-      for (const id of selectedTransactions) {
-        await dataService.updateTransaction(id, { category: newCategory });
-      }
-      await loadTransactions();
-      setSelectedTransactions([]);
-    } catch (error) {
-      console.error('Failed to update transaction categories:', error);
-    }
-  };
-
-  // Quick add functionality
-  const handleQuickAdd = async () => {
-    if (!transactionForm.description || !transactionForm.amount) {
-      alert('Please fill in required fields');
-      return;
-    }
-
-    try {
-      const newTransaction = {
-        description: transactionForm.description,
-        amount: transactionForm.type === 'expense' ? -Math.abs(Number(transactionForm.amount)) : Math.abs(Number(transactionForm.amount)),
-        category: transactionForm.category || 'Uncategorized',
-        subcategory: transactionForm.subcategory,
-        account: transactionForm.account || 'Default',
-        type: transactionForm.type,
-        date: new Date(transactionForm.date),
-        additionalNotes: transactionForm.notes,
-        confidence: 1.0, // Manual entry gets full confidence
-        reasoning: 'Manually entered transaction',
-        isVerified: true
-      };
-
-      await dataService.addTransaction(newTransaction);
-      await loadTransactions();
-      
-      // Reset form
-      setTransactionForm({
-        description: '',
-        amount: '',
-        category: '',
-        subcategory: '',
-        account: '',
-        type: 'expense',
-        date: new Date().toISOString().split('T')[0],
-        notes: ''
-      });
-      
-      setShowQuickAddModal(false);
-    } catch (error) {
-      console.error('Failed to add transaction:', error);
-    }
-  };
-
-  // Handle action button clicks in grid
-  const onGridReady = useCallback((params: GridReadyEvent) => {
-    // Add event listeners for action buttons
-    params.api.addEventListener('cellClicked', (event: any) => {
-      if (event.event.target.classList.contains('edit-btn')) {
-        const transactionId = event.event.target.dataset.id;
-        const transaction = transactions.find(t => t.id === transactionId);
-        if (transaction) {
-          setEditingTransaction(transaction);
-          setTransactionForm({
-            description: transaction.description,
-            amount: Math.abs(transaction.amount).toString(),
-            category: transaction.category,
-            subcategory: transaction.subcategory || '',
-            account: transaction.account || '',
-            type: transaction.type || 'expense',
-            date: new Date(transaction.date).toISOString().split('T')[0],
-            notes: transaction.additionalNotes || ''
-          });
-          setShowQuickAddModal(true);
-        }
-      } else if (event.event.target.classList.contains('delete-btn')) {
-        const transactionId = event.event.target.dataset.id;
-        if (window.confirm('Delete this transaction?')) {
-          handleDeleteTransaction(transactionId);
-        }
-      }
-    });
-  }, [transactions]);
-
-  const handleDeleteTransaction = async (id: string) => {
-    try {
-      await dataService.deleteTransaction(id);
-      await loadTransactions();
-    } catch (error) {
-      console.error('Failed to delete transaction:', error);
-    }
-  };
-
-  const startEditTransaction = (transaction: Transaction) => {
-    setEditingTransaction(transaction);
-    setTransactionForm({
-      description: transaction.description,
-      amount: Math.abs(transaction.amount).toString(),
-      category: transaction.category,
-      subcategory: transaction.subcategory || '',
-      account: transaction.account || '',
-      type: transaction.type || 'expense',
-      date: new Date(transaction.date).toISOString().split('T')[0],
-      notes: transaction.additionalNotes || ''
-    });
-    setShowQuickAddModal(true);
-  };
-
-  const handleEditTransaction = async () => {
-    if (!editingTransaction || !transactionForm.description || !transactionForm.amount) {
-      alert('Please fill in required fields');
-      return;
-    }
-
-    try {
-      const updates = {
-        description: transactionForm.description,
-        amount: transactionForm.type === 'expense' ? -Math.abs(Number(transactionForm.amount)) : Math.abs(Number(transactionForm.amount)),
-        category: transactionForm.category || 'Uncategorized',
-        subcategory: transactionForm.subcategory,
-        account: transactionForm.account || 'Default',
-        type: transactionForm.type,
-        date: new Date(transactionForm.date),
-        additionalNotes: transactionForm.notes,
-      };
-
-      await dataService.updateTransaction(editingTransaction.id, updates);
-      await loadTransactions();
-      
-      setEditingTransaction(null);
-      setShowQuickAddModal(false);
-    } catch (error) {
-      console.error('Failed to update transaction:', error);
-    }
-  };
-
-  // Handle template usage
-  const handleUseTemplate = (template: any) => {
-    setTransactionForm({
-      description: template.description,
-      amount: Math.abs(template.amount).toString(),
-      category: template.category,
-      subcategory: template.subcategory || '',
-      account: template.account,
-      type: template.type,
-      date: new Date().toISOString().split('T')[0],
-      notes: ''
-    });
-    setShowQuickAddModal(true);
-  };
-
-  const handleExportCSV = async () => {
-    try {
-      const csvData = await dataService.exportToCSV();
-      const blob = new Blob([csvData], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `transactions-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Failed to export transactions:', error);
-    }
-  };
-
-  const handleExportJSON = async () => {
-    try {
-      const jsonData = await dataService.exportToJSON();
-      const blob = new Blob([jsonData], { type: 'application/json' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `transactions-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Failed to export transactions:', error);
-    }
-  };
-
-  const clearFilters = () => {
-    setFilters({
-      category: '',
-      type: '',
-      dateFrom: '',
-      dateTo: '',
-      account: '',
-      search: ''
-    });
-  };
-
-  if (loading) {
     return (
-      <div>
-        <PageHeader>
-          <h1>💳 Transactions</h1>
-        </PageHeader>
-        <Card>
-          <p>Loading transactions...</p>
-        </Card>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <PageHeader>
-        <h1>💳 Transactions (Updated)</h1>
-        <FlexBox>
-          <span>{transactions.length} total transactions</span>
-        </FlexBox>
-      </PageHeader>
-
-      <FileImport onImportComplete={handleImportComplete} />
-
-      <ActionsBar>
-        <ExportButton onClick={handleExportCSV}>
-          📄 Export CSV
-        </ExportButton>
-        <ExportButton onClick={handleExportJSON}>
-          📄 Export JSON
-        </ExportButton>
-        <Button onClick={() => setShowQuickAddModal(true)}>
-          ➕ Add Transaction
-        </Button>
-        <Button onClick={handleFindReimbursements} disabled={isReimbursementLoading}>
-          💰 {isReimbursementLoading ? 'Finding...' : 'Find Reimbursements'}
-        </Button>
-        <Button onClick={toggleShowReimbursed}>
-          👁️ {showReimbursements ? 'Hide' : 'Show'} Reimbursed
-        </Button>
-        <Button onClick={() => setShowAnalytics(!showAnalytics)}>
-          📊 {showAnalytics ? 'Hide' : 'Show'} Analytics
-        </Button>
-        <Button onClick={() => setShowTemplates(!showTemplates)}>
-          🔖 {showTemplates ? 'Hide' : 'Show'} Templates
-        </Button>
-        <Button onClick={clearFilters}>
-          🗑️ Clear Filters
-        </Button>
-      </ActionsBar>
-
-      {selectedTransactions.length > 0 && (
-        <BulkActionsBar>
-          <span className="selection-info">
-            {selectedTransactions.length} transactions selected
-          </span>
-          <Button onClick={handleBulkDelete} variant="outline">
-            🗑️ Delete Selected
+      <ReimbursementPanel>
+        <div className="panel-header">
+          <h3>Reimbursement Matches ({matches.length})</h3>
+          <Button variant="outline" onClick={() => setShowReimbursementPanel(false)}>
+            Close
           </Button>
-          <select onChange={(e) => e.target.value && handleBulkCategoryChange(e.target.value)}>
-            <option value="">Change Category...</option>
-            {uniqueCategories.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
-        </BulkActionsBar>
-      )}
-
-      {showAnalytics && (
-        <TransactionAnalytics transactions={transactions} />
-      )}
-
-      {showTemplates && (
-        <TransactionTemplates 
-          onUseTemplate={handleUseTemplate}
-          uniqueCategories={uniqueCategories}
-          uniqueAccounts={uniqueAccounts}
-        />
-      )}
-
-      {/* Reimbursement Panel */}
-      {showReimbursementPanel && reimbursementMatches.length > 0 && (
-        <ReimbursementPanel>
-          <div className="panel-header">
-            <h3>💰 Reimbursement Matches Found ({reimbursementMatches.length})</h3>
-            <Button onClick={() => setShowReimbursementPanel(false)}>✖️</Button>
+        </div>
+        
+        {matchingError && (
+          <div style={{ color: '#f44336', marginBottom: '16px' }}>
+            Error: {matchingError}
           </div>
-          
-          {reimbursementError && (
-            <div style={{ color: '#f44336', marginBottom: '16px', padding: '8px', background: '#ffebee', borderRadius: '4px' }}>
-              Error: {reimbursementError}
+        )}
+        
+        <div className="matches-list">
+          {matches.length === 0 ? (
+            <div className="no-matches">
+              No reimbursement matches found. Try adjusting the date range or tolerance settings.
             </div>
-          )}
-          
-          <div className="matches-list">
-            {reimbursementMatches.map((match) => {
+          ) : (
+            matches.map((match) => {
               const expense = transactions.find(t => t.id === match.expenseTransactionId);
               const reimbursement = transactions.find(t => t.id === match.reimbursementTransactionId);
               
@@ -1136,73 +710,71 @@ const Transactions: React.FC = () => {
               
               return (
                 <div key={match.id} className="match-item">
-                  <div className="match-header">
-                    <span>Match #{match.id.substring(0, 8)}</span>
-                    <span className={`confidence ${match.confidence > 0.8 ? 'high' : match.confidence > 0.5 ? 'medium' : 'low'}`}>
-                      {Math.round(match.confidence * 100)}% confidence
-                    </span>
-                  </div>
-                  
-                  <div className="match-details">
-                    <div className="transaction-info">
-                      <div className="label">Expense</div>
-                      <div className="amount expense">
-                        ${Math.abs(expense.amount).toFixed(2)}
-                      </div>
-                      <div>{expense.description}</div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>
-                        {new Date(expense.date).toLocaleDateString()}
-                      </div>
+                  <div className="match-info">
+                    <div className="expense">
+                      Expense: {expense.description} ({formatCurrency(expense.amount)})
                     </div>
-                    
-                    <div className="transaction-info">
-                      <div className="label">Reimbursement</div>
-                      <div className="amount income">
-                        ${reimbursement.amount.toFixed(2)}
-                      </div>
-                      <div>{reimbursement.description}</div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>
-                        {new Date(reimbursement.date).toLocaleDateString()}
-                      </div>
+                    <div className="reimbursement">
+                      Reimbursement: {reimbursement.description} ({formatCurrency(reimbursement.amount)})
+                    </div>
+                    <div className="match-details">
+                      {match.reasoning} • {match.dateDifference} days apart
+                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} difference`}
                     </div>
                   </div>
-                  
-                  <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
-                    {match.reasoning}
-                  </div>
-                  
                   <div className="match-actions">
-                    <button 
-                      className="apply"
-                      onClick={() => handleApplyReimbursementMatches([match])}
+                    <span className={`confidence-badge ${getConfidenceClass(match.confidence)}`}>
+                      {Math.round(match.confidence * 100)}%
+                    </span>
+                    <Button 
+                      onClick={() => handleApplyMatch(match)}
+                      disabled={expense.reimbursed}
+                      style={{ fontSize: '0.8rem', padding: '4px 8px' }}
                     >
-                      ✓ Apply Match
-                    </button>
-                    <button 
-                      className="reject"
-                      onClick={() => setReimbursementMatches(prev => prev.filter(m => m.id !== match.id))}
-                    >
-                      ✗ Reject
-                    </button>
+                      {expense.reimbursed ? 'Applied' : 'Apply'}
+                    </Button>
                   </div>
                 </div>
               );
-            })}
-          </div>
-          
-          <div className="panel-actions">
-            <Button onClick={() => handleApplyReimbursementMatches(reimbursementMatches)}>
-              ✓ Apply All Matches
-            </Button>
-            <Button onClick={() => {
-              setReimbursementMatches([]);
-              setShowReimbursementPanel(false);
-            }}>
-              ✗ Reject All
-            </Button>
-          </div>
-        </ReimbursementPanel>
-      )}
+            })
+          )}
+        </div>
+      </ReimbursementPanel>
+    );
+  };
+
+  return (
+    <div>
+      <PageHeader>
+        <h1>Transactions</h1>
+        <FlexBox gap="12px">
+          <Button 
+            variant="outline" 
+            onClick={handleFindReimbursements}
+            disabled={isMatchingLoading}
+          >
+            {isMatchingLoading ? 'Finding...' : 'Find Reimbursements'}
+          </Button>
+          <Button variant="outline">Export</Button>
+          <Button>Add Transaction</Button>
+        </FlexBox>
+      </PageHeader>
+
+      {renderReimbursementPanel()}
+
+      <UploadArea>
+        <input
+          type="file"
+          accept=".pdf,.csv,.xlsx,.png,.jpg,.jpeg"
+          onChange={handleFileUpload}
+          style={{ display: 'none' }}
+          id="file-upload"
+        />
+        <label htmlFor="file-upload">
+          <div className="upload-text">📄 Drop bank statements here or click to upload</div>
+          <div className="upload-subtext">Supports PDF, CSV, Excel, and image files</div>
+        </label>
+      </UploadArea>
 
       <FilterBar>
         <div className="filter-row">
@@ -1243,24 +815,6 @@ const Transactions: React.FC = () => {
               ))}
             </select>
           </div>
-
-          <div className="filter-group">
-            <label>From Date</label>
-            <input
-              type="date"
-              value={filters.dateFrom}
-              onChange={(e) => setFilters({...filters, dateFrom: e.target.value})}
-            />
-          </div>
-
-          <div className="filter-group">
-            <label>To Date</label>
-            <input
-              type="date"
-              value={filters.dateTo}
-              onChange={(e) => setFilters({...filters, dateTo: e.target.value})}
-            />
-          </div>
           
           <div className="filter-group">
             <label>Search</label>
@@ -1271,41 +825,18 @@ const Transactions: React.FC = () => {
               onChange={(e) => setFilters({...filters, search: e.target.value})}
             />
           </div>
-        </div>
-        
-        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button
-            style={{
-              padding: '6px 12px',
-              fontSize: '14px',
-              border: filters.category === 'Uncategorized' ? '2px solid #ff9800' : '1px solid #ddd',
-              background: filters.category === 'Uncategorized' ? '#fff3e0' : 'white',
-              color: filters.category === 'Uncategorized' ? '#ff9800' : '#666',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontWeight: filters.category === 'Uncategorized' ? 'bold' : 'normal'
-            }}
-            onClick={() => setFilters({...filters, category: filters.category === 'Uncategorized' ? '' : 'Uncategorized'})}
-            title="Show only transactions that need manual categorization"
-          >
-            ⚠️ Uncategorized ({transactions.filter(t => t.category === 'Uncategorized').length})
-          </button>
           
-          <button
-            style={{
-              padding: '6px 12px',
-              fontSize: '14px',
-              border: '1px solid #ddd',
-              background: 'white',
-              color: '#666',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-            onClick={() => setFilters({ category: '', type: '', account: '', dateFrom: '', dateTo: '', search: '' })}
-            title="Clear all filters"
-          >
-            Clear Filters
-          </button>
+          <div className="filter-group">
+            <label>
+              <input
+                type="checkbox"
+                checked={showReimbursedTransactions}
+                onChange={(e) => setShowReimbursedTransactions(e.target.checked)}
+                style={{ marginRight: '8px' }}
+              />
+              Show Reimbursed
+            </label>
+          </div>
         </div>
       </FilterBar>
 
@@ -1325,7 +856,7 @@ const Transactions: React.FC = () => {
           </div>
         </div>
         <div className="stat">
-          <div className="label">Filtered Results</div>
+          <div className="label">Transactions</div>
           <div className="value">{stats.count}</div>
         </div>
       </StatsBar>
@@ -1337,9 +868,6 @@ const Transactions: React.FC = () => {
               columnDefs={columnDefs}
               rowData={filteredTransactions}
               onGridReady={onGridReady}
-              onCellValueChanged={onCellValueChanged}
-              onSelectionChanged={onSelectionChanged}
-              rowSelection="multiple"
               pagination={true}
               paginationPageSize={50}
               defaultColDef={{
@@ -1352,120 +880,17 @@ const Transactions: React.FC = () => {
         </TransactionsContainer>
       </Card>
 
-      {/* Quick Add/Edit Modal */}
-      {showQuickAddModal && (
-        <QuickAddModal onClick={(e) => e.target === e.currentTarget && setShowQuickAddModal(false)}>
-          <div className="modal-content">
-            <div className="modal-header">
-              <h3>{editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}</h3>
-              <Button onClick={() => {
-                setShowQuickAddModal(false);
-                setEditingTransaction(null);
-              }}>
-                ✕
-              </Button>
-            </div>
-            
-            <div className="form-group">
-              <label>Description *</label>
-              <input
-                type="text"
-                value={transactionForm.description}
-                onChange={(e) => setTransactionForm({...transactionForm, description: e.target.value})}
-                placeholder="Enter transaction description"
-              />
-            </div>
-            
-            <div className="form-row">
-              <div className="form-group">
-                <label>Amount *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={transactionForm.amount}
-                  onChange={(e) => setTransactionForm({...transactionForm, amount: e.target.value})}
-                  placeholder="0.00"
-                />
-              </div>
-              <div className="form-group">
-                <label>Type</label>
-                <select
-                  value={transactionForm.type}
-                  onChange={(e) => setTransactionForm({...transactionForm, type: e.target.value as 'income' | 'expense'})}
-                >
-                  <option value="expense">Expense</option>
-                  <option value="income">Income</option>
-                </select>
-              </div>
-            </div>
-            
-            <div className="form-row">
-              <div className="form-group">
-                <label>Category</label>
-                <select
-                  value={transactionForm.category}
-                  onChange={(e) => setTransactionForm({...transactionForm, category: e.target.value})}
-                >
-                  <option value="">Select Category</option>
-                  {uniqueCategories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Account</label>
-                <select
-                  value={transactionForm.account}
-                  onChange={(e) => setTransactionForm({...transactionForm, account: e.target.value})}
-                >
-                  <option value="">Select Account</option>
-                  {uniqueAccounts.map(acc => (
-                    <option key={acc} value={acc}>{acc}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            
-            <div className="form-group">
-              <label>Date</label>
-              <input
-                type="date"
-                value={transactionForm.date}
-                onChange={(e) => setTransactionForm({...transactionForm, date: e.target.value})}
-              />
-            </div>
-            
-            <div className="form-group">
-              <label>Notes</label>
-              <textarea
-                value={transactionForm.notes}
-                onChange={(e) => setTransactionForm({...transactionForm, notes: e.target.value})}
-                placeholder="Optional notes..."
-              />
-            </div>
-            
-            <div className="modal-actions">
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  setShowQuickAddModal(false);
-                  setEditingTransaction(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button onClick={editingTransaction ? handleEditTransaction : handleQuickAdd}>
-                {editingTransaction ? 'Update' : 'Add'} Transaction
-              </Button>
-            </div>
-          </div>
-        </QuickAddModal>
-      )}
+      <AccountSelectionDialog
+        isOpen={showAccountDialog}
+        fileName={pendingFile?.name || ''}
+        detectionResult={accountDetectionResult}
+        accounts={accounts}
+        onAccountSelect={handleAccountSelection}
+        onNewAccount={handleNewAccount}
+        onCancel={handleCancelAccountSelection}
+      />
     </div>
   );
 };
 
 export default Transactions;
-
-// Explicit module marker for TypeScript isolatedModules
-export type {};
