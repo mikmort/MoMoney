@@ -305,11 +305,18 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
     const mapping: FileSchemaMapping = {
       hasHeaders: true,
       skipRows: 0,
-      dateFormat: 'MM/DD/YYYY',
+      dateFormat: 'DD.MM.YYYY', // European format as default
       amountFormat: 'negative for debits',
     };
 
     if (fileType === 'csv') {
+      // For CSV with headers, use column names
+      mapping.dateColumn = 'Date';
+      mapping.descriptionColumn = 'Description';
+      mapping.amountColumn = 'Amount';
+      mapping.notesColumn = 'Account'; // Use Account as notes for now
+    } else {
+      // For files without headers, use indices
       mapping.dateColumn = '0';
       mapping.descriptionColumn = '1';
       mapping.amountColumn = '2';
@@ -318,8 +325,8 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
     return {
       mapping,
       confidence: 0.5,
-      reasoning: 'Using default mapping due to AI analysis failure',
-      suggestions: ['Please verify the column mappings are correct'],
+      reasoning: 'Using enhanced default mapping with European format support',
+      suggestions: ['Please verify the column mappings are correct', 'European date format (DD.MM.YYYY) assumed'],
     };
   }
 
@@ -362,48 +369,100 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
 
   private async parseExcel(content: string, mapping: FileSchemaMapping): Promise<any[]> {
     try {
-      const workbook = XLSX.read(content, { type: 'string' });
+      // Handle both string content and ArrayBuffer
+      let workbook: any;
+      
+      if (typeof content === 'string') {
+        // Try to detect if it's base64 encoded
+        if (content.startsWith('data:')) {
+          const base64 = content.split(',')[1];
+          workbook = XLSX.read(base64, { type: 'base64' });
+        } else {
+          workbook = XLSX.read(content, { type: 'string' });
+        }
+      } else {
+        workbook = XLSX.read(content, { type: 'array' });
+      }
+      
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      
+      // Enhanced Excel parsing options
       let data = XLSX.utils.sheet_to_json(firstSheet, { 
-        header: mapping.hasHeaders ? 1 : undefined 
+        header: mapping.hasHeaders ? 1 : undefined,
+        raw: false, // Convert dates to strings to handle them manually
+        dateNF: 'DD.MM.YYYY', // European date format preference
+        defval: '' // Default value for empty cells
       });
       
       if (mapping.skipRows && mapping.skipRows > 0) {
         data = data.slice(mapping.skipRows);
       }
       
+      // Filter out completely empty rows
+      data = data.filter(row => {
+        if (typeof row === 'object' && row !== null) {
+          return Object.values(row as Record<string, any>).some(val => val !== '' && val !== null && val !== undefined);
+        }
+        return false;
+      });
+      
       return data;
     } catch (error) {
+      console.error('Excel parsing error:', error);
       throw new Error(`Failed to parse Excel file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   private async parseOFX(content: string, mapping: FileSchemaMapping): Promise<any[]> {
-    // Basic OFX parsing - this is simplified and may need enhancement
+    // Enhanced OFX parsing with better European format support
     const transactions: any[] = [];
     const lines = content.split('\n');
     let currentTransaction: any = {};
+    let inTransaction = false;
     
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.includes('<STMTTRN>')) {
+      
+      if (trimmed.includes('<STMTTRN>') || trimmed.includes('<BANKTRANLIST>')) {
         currentTransaction = {};
-      } else if (trimmed.includes('</STMTTRN>')) {
-        if (Object.keys(currentTransaction).length > 0) {
+        inTransaction = true;
+      } else if (trimmed.includes('</STMTTRN>') || trimmed.includes('</BANKTRANLIST>')) {
+        if (inTransaction && Object.keys(currentTransaction).length > 0) {
+          // Convert OFX date format (YYYYMMDD) to proper date
+          if (currentTransaction.date && /^\d{8}/.test(currentTransaction.date)) {
+            const dateStr = currentTransaction.date.substring(0, 8);
+            const year = dateStr.substring(0, 4);
+            const month = dateStr.substring(4, 6);
+            const day = dateStr.substring(6, 8);
+            currentTransaction.date = `${day}.${month}.${year}`; // European format
+          }
+          
           transactions.push(currentTransaction);
         }
-      } else if (trimmed.includes('<DTPOSTED>')) {
-        currentTransaction.date = trimmed.replace(/<\/?DTPOSTED>/g, '').substring(0, 8);
-      } else if (trimmed.includes('<TRNAMT>')) {
-        currentTransaction.amount = parseFloat(trimmed.replace(/<\/?TRNAMT>/g, ''));
-      } else if (trimmed.includes('<NAME>') || trimmed.includes('<MEMO>')) {
-        const desc = trimmed.replace(/<\/?(?:NAME|MEMO)>/g, '');
-        currentTransaction.description = currentTransaction.description 
-          ? `${currentTransaction.description} ${desc}` 
-          : desc;
+        inTransaction = false;
+      } else if (inTransaction) {
+        // Extract transaction data
+        if (trimmed.includes('<DTPOSTED>')) {
+          currentTransaction.date = trimmed.replace(/<\/?DTPOSTED>/g, '');
+        } else if (trimmed.includes('<TRNAMT>')) {
+          const amountStr = trimmed.replace(/<\/?TRNAMT>/g, '');
+          currentTransaction.amount = parseFloat(amountStr);
+        } else if (trimmed.includes('<NAME>')) {
+          currentTransaction.description = trimmed.replace(/<\/?NAME>/g, '');
+        } else if (trimmed.includes('<MEMO>')) {
+          const memo = trimmed.replace(/<\/?MEMO>/g, '');
+          currentTransaction.description = currentTransaction.description 
+            ? `${currentTransaction.description} - ${memo}` 
+            : memo;
+        } else if (trimmed.includes('<FITID>')) {
+          currentTransaction.id = trimmed.replace(/<\/?FITID>/g, '');
+        } else if (trimmed.includes('<TRNTYPE>')) {
+          currentTransaction.type = trimmed.replace(/<\/?TRNTYPE>/g, '');
+        }
       }
     }
     
+    console.log(`📄 OFX Parser: Extracted ${transactions.length} transactions`);
     return transactions;
   }
 
@@ -620,9 +679,9 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
     try {
       const valueStr = String(value).trim();
       
-      // Handle European number format (e.g., "500.000,00" or "1.234,56")
-      // Pattern: numbers with periods as thousands separator and comma as decimal
-      if (/^-?[\d.]+,\d+$/.test(valueStr)) {
+      // Handle European number format with explicit pattern matching
+      // Pattern 1: "1.500,00" (thousands with periods, decimal with comma)
+      if (/^-?\d{1,3}(?:\.\d{3})*,\d{2}$/.test(valueStr)) {
         const cleanAmount = valueStr
           .replace(/\./g, '') // Remove thousands separators (periods)
           .replace(',', '.'); // Convert decimal separator (comma to period)
@@ -630,10 +689,25 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
         return isNaN(amount) ? null : amount;
       }
       
-      // Handle standard US format and other formats
+      // Pattern 2: "500,50" (simple comma decimal, no thousands separator)
+      if (/^-?\d{1,4},\d{1,2}$/.test(valueStr)) {
+        const cleanAmount = valueStr.replace(',', '.'); // Convert decimal separator
+        const amount = parseFloat(cleanAmount);
+        return isNaN(amount) ? null : amount;
+      }
+      
+      // Handle standard US/international format (12,345.67 or 1234.56)
+      if (/^-?\d{1,3}(?:,\d{3})*\.?\d*$/.test(valueStr)) {
+        const cleanAmount = valueStr.replace(/,/g, ''); // Remove thousands separators (commas)
+        const amount = parseFloat(cleanAmount);
+        return isNaN(amount) ? null : amount;
+      }
+      
+      // Handle other formats (remove currency symbols, spaces, parentheses)
       const cleanAmount = valueStr
-        .replace(/[$,\s]/g, '') // Remove $, commas, spaces
-        .replace(/[()]/g, ''); // Remove parentheses
+        .replace(/[$€£¥₹,\s]/g, '') // Remove currency symbols, commas, spaces
+        .replace(/[()]/g, '') // Remove parentheses
+        .replace(/,/g, '.'); // Convert any remaining commas to periods
       
       const amount = parseFloat(cleanAmount);
       return isNaN(amount) ? null : amount;

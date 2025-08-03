@@ -128,18 +128,31 @@ export class AzureOpenAIService {
     }
 
     try {
-      const systemPrompt = `You are a financial transaction classifier. Analyze transactions and return ONLY a JSON object with this structure:
+      const systemPrompt = `You are an expert financial transaction classifier with knowledge of European banking formats. 
+Analyze transactions and return ONLY a clean JSON object with this exact structure:
 {
-  "categoryId": "category_id",
-  "subcategoryId": "subcategory_id_or_null",
-  "confidence": 0.95,
+  "category": "exact_category_name",
+  "subcategory": "exact_subcategory_name_or_null",
+  "confidence": 0.85,
   "reasoning": "brief explanation"
-}`;
+}
 
-      const userPrompt = `Classify this transaction:
-Description: ${request.transactionText}
-Amount: $${request.amount}
-Date: ${request.date}`;
+CLASSIFICATION GUIDELINES:
+1. If you can confidently identify the transaction category (confidence >= 0.7), use the most appropriate category
+2. If unclear, ambiguous, or confidence < 0.7, use "Uncategorized" 
+3. For "Uncategorized": use subcategory "Miscellaneous" for unclear transactions or "Pending Review" for those needing human attention
+4. European formats: DD.MM.YYYY dates, amounts with periods as thousands separators and commas as decimals
+5. Be conservative - better to mark as uncategorized than guess incorrectly
+
+Available categories: ${request.availableCategories.map(c => `${c.name} (${c.type})`).join(', ')}
+Available subcategories: ${request.availableSubcategories.map(s => s.name).join(', ')}`;
+
+      const userPrompt = `Classify this European banking transaction:
+Description: "${request.transactionText}"
+Amount: ${request.amount}
+Date: ${request.date}
+
+Return ONLY the JSON object without any markdown formatting or code blocks.`;
 
       const completion = await this.client.chat.completions.create({
         model: this.deploymentName,
@@ -147,7 +160,7 @@ Date: ${request.date}`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 200,
+        max_tokens: 300,
         temperature: 0.1
       });
 
@@ -156,23 +169,65 @@ Date: ${request.date}`;
         throw new Error('No response from Azure OpenAI');
       }
 
-      const parsed = JSON.parse(responseContent.trim());
+      // Use enhanced cleanAIResponse method
+      const cleanedResponse = this.cleanAIResponse(responseContent);
+      const parsed = JSON.parse(cleanedResponse);
+      
+      // Apply 70% confidence threshold
+      const confidence = parsed.confidence || 0.5;
+      if (confidence < 0.7) {
+        return {
+          category: 'Uncategorized',
+          subcategory: 'Pending Review',
+          confidence: confidence,
+          reasoning: `Low confidence (${Math.round(confidence * 100)}%) - requires manual review: ${parsed.reasoning || 'AI classification uncertain'}`
+        };
+      }
       
       return {
-        category: parsed.categoryId || parsed.category || 'Uncategorized',
-        subcategory: parsed.subcategoryId || parsed.subcategory,
-        confidence: parsed.confidence || 0.5,
-        reasoning: parsed.reasoning || 'AI classification'
+        category: parsed.category || 'Uncategorized',
+        subcategory: parsed.subcategory || null,
+        confidence: confidence,
+        reasoning: parsed.reasoning || 'AI classification with high confidence'
       };
     } catch (error) {
       console.error('Error classifying transaction:', error);
       
       return {
         category: 'Uncategorized',
+        subcategory: 'Miscellaneous',
         confidence: 0.1,
-        reasoning: 'Failed to classify using AI - using fallback'
+        reasoning: 'AI classification failed - using fallback'
       };
     }
+  }
+
+  // Enhanced method to clean AI responses that may have markdown formatting
+  private cleanAIResponse(response: string): string {
+    let cleaned = response.trim();
+    
+    // Remove markdown code block formatting
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/, '');
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```\s*/, '');
+    }
+    
+    // Remove closing ``` markers
+    if (cleaned.endsWith('```')) {
+      cleaned = cleaned.replace(/\s*```$/, '');
+    }
+    
+    // Remove any additional whitespace or newlines
+    cleaned = cleaned.trim();
+    
+    // Find JSON object in response if there's extra text
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleaned = jsonMatch[0];
+    }
+    
+    return cleaned;
   }
 
   async testConnection(): Promise<boolean> {

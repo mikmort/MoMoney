@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { PageHeader, Card, Button } from '../../styles/globalStyles';
 import { defaultConfig } from '../../config/appConfig';
 import { dataService } from '../../services/dataService';
+import { azureOpenAIService } from '../../services/azureOpenAIService';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -71,6 +72,30 @@ const ConfirmContent = styled.div`
 const Settings: React.FC = () => {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setConnectionStatus('idle');
+    
+    try {
+      const isConnected = await azureOpenAIService.testConnection();
+      setConnectionStatus(isConnected ? 'success' : 'error');
+      
+      if (isConnected) {
+        alert('✅ Azure OpenAI connection successful! Ready for AI-powered classification.');
+      } else {
+        alert('❌ Azure OpenAI connection failed. Please check your configuration.');
+      }
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      setConnectionStatus('error');
+      alert('❌ Connection test failed. Please check your Azure OpenAI configuration.');
+    } finally {
+      setTestingConnection(false);
+    }
+  };
 
   const handleResetData = async () => {
     setIsResetting(true);
@@ -105,7 +130,23 @@ const Settings: React.FC = () => {
           <div style={{ marginBottom: '12px' }}>
             <strong>API Version:</strong> {defaultConfig.azure.openai.apiVersion}
           </div>
-          <Button variant="outline">Test Connection</Button>
+          <Button 
+            variant="outline" 
+            onClick={handleTestConnection}
+            disabled={testingConnection}
+            style={{
+              backgroundColor: connectionStatus === 'success' ? '#e8f5e8' : 
+                             connectionStatus === 'error' ? '#ffebee' : undefined,
+              borderColor: connectionStatus === 'success' ? '#4caf50' : 
+                          connectionStatus === 'error' ? '#f44336' : undefined,
+              color: connectionStatus === 'success' ? '#2e7d32' : 
+                    connectionStatus === 'error' ? '#c62828' : undefined
+            }}
+          >
+            {testingConnection ? '🔄 Testing...' : 
+             connectionStatus === 'success' ? '✅ Connected' :
+             connectionStatus === 'error' ? '❌ Failed' : 'Test Connection'}
+          </Button>
         </div>
       </Card>
 
