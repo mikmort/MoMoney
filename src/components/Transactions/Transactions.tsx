@@ -4,10 +4,14 @@ import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Transaction, ReimbursementMatch, Account } from '../../types';
+import { dataService } from '../../services/dataService';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
+import { FileImport } from './FileImport';
+import { TransactionAnalytics } from './TransactionAnalytics';
+import { TransactionTemplates } from './TransactionTemplates';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -245,9 +249,30 @@ const CategoryCellRenderer = (params: any) => {
   const category = params.value;
   const subcategory = params.data.subcategory;
   const isReimbursed = params.data.reimbursed;
+  const isUncategorized = category === 'Uncategorized';
   const reimbursedClass = isReimbursed ? ' reimbursed' : '';
   
   const displayText = subcategory ? `${category} → ${subcategory}` : category;
+  
+  if (isUncategorized) {
+    return (
+      <span 
+        className={reimbursedClass}
+        style={{
+          color: '#ff9800',
+          fontWeight: 'bold',
+          backgroundColor: '#fff3e0',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          fontSize: '0.9em'
+        }}
+        title="This transaction needs manual categorization"
+      >
+        ⚠️ {displayText}
+      </span>
+    );
+  }
+  
   return <span className={reimbursedClass}>{displayText}</span>;
 };
 
@@ -256,9 +281,41 @@ const ConfidenceCellRenderer = (params: any) => {
   if (!confidence) return '';
   
   const percentage = Math.round(confidence * 100);
+  const isLowConfidence = percentage < 70;
   const className = percentage >= 80 ? 'high' : percentage >= 60 ? 'medium' : 'low';
+  const displayText = `${percentage}%`;
   
-  return <span className={`confidence ${className}`}>{percentage}%</span>;
+  if (isLowConfidence) {
+    return (
+      <span 
+        className={`confidence ${className}`}
+        style={{
+          backgroundColor: '#ffebee',
+          color: '#c62828',
+          fontWeight: 'bold',
+          border: '1px solid #f8bbd9'
+        }}
+        title="Low confidence - consider manual review"
+      >
+        ⚠️ {displayText}
+      </span>
+    );
+  }
+  
+  return <span className={`confidence ${className}`}>{displayText}</span>;
+};
+
+const NotesRenderer = (params: any) => {
+  const { reasoning, additionalNotes } = params.data;
+  const displayText = additionalNotes || reasoning || '';
+
+  if (!displayText) return '';
+
+  return (
+    <span title={displayText}>
+      {displayText.length > 50 ? `${displayText.substring(0, 50)}...` : displayText}
+    </span>
+  );
 };
 
 const Transactions: React.FC = () => {
@@ -347,6 +404,20 @@ const Transactions: React.FC = () => {
       cellRenderer: ConfidenceCellRenderer
     },
     {
+      headerName: 'Notes',
+      field: 'reasoning',
+      sortable: false,
+      filter: 'agTextColumnFilter',
+      width: 200,
+      cellRenderer: NotesRenderer,
+      editable: true,
+      cellEditor: 'agLargeTextCellEditor',
+      cellEditorParams: {
+        maxLength: 500,
+        rows: 3
+      }
+    },
+    {
       headerName: 'Verified',
       field: 'isVerified',
       width: 100,
@@ -361,163 +432,119 @@ const Transactions: React.FC = () => {
       cellRenderer: (params: any) => {
         return params.value ? '💰' : '';
       }
+    },
+    {
+      headerName: 'Actions',
+      width: 120,
+      pinned: 'right',
+      cellRenderer: (params: any) => {
+        return React.createElement('div', {
+          style: { display: 'flex', gap: '4px', height: '100%', alignItems: 'center' }
+        }, [
+          React.createElement('button', {
+            key: 'edit',
+            className: 'edit-btn',
+            'data-id': params.data.id,
+            style: {
+              padding: '4px 8px',
+              fontSize: '12px',
+              border: '1px solid #ddd',
+              background: 'white',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            },
+            title: 'Edit transaction',
+            onClick: (e: any) => {
+              e.stopPropagation();
+              startEditTransaction(params.data);
+            }
+          }, '✏️'),
+          React.createElement('button', {
+            key: 'delete',
+            className: 'delete-btn',
+            'data-id': params.data.id,
+            style: {
+              padding: '4px 8px',
+              fontSize: '12px',
+              border: '1px solid #f44336',
+              background: '#fff5f5',
+              color: '#f44336',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            },
+            title: 'Delete transaction',
+            onClick: (e: any) => {
+              e.stopPropagation();
+              handleDeleteTransaction(params.data.id);
+            }
+          }, '🗑️')
+        ]);
+      }
     }
   ];
 
   useEffect(() => {
-    // Mock data - replace with actual API calls
-    const mockTransactions: Transaction[] = [
-      {
-        id: '1',
-        date: new Date('2025-08-01'),
-        amount: -125.50,
-        description: 'Whole Foods Market #123',
-        category: 'Food & Dining',
-        subcategory: 'Groceries',
-        account: 'Chase Checking',
-        type: 'expense',
-        confidence: 0.95,
-        isVerified: true,
-        vendor: 'Whole Foods'
-      },
-      {
-        id: '2',
-        date: new Date('2025-08-01'),
-        amount: 2750.00,
-        description: 'Direct Deposit - ACME Corp',
-        category: 'Salary & Wages',
-        subcategory: 'Primary Job',
-        account: 'Chase Checking',
-        type: 'income',
-        confidence: 0.99,
-        isVerified: true
-      },
-      {
-        id: '3',
-        date: new Date('2025-07-31'),
-        amount: -45.30,
-        description: 'Shell Service Station',
-        category: 'Transportation',
-        subcategory: 'Fuel/Gas',
-        account: 'Chase Checking',
-        type: 'expense',
-        confidence: 0.92,
-        isVerified: false,
-        vendor: 'Shell'
-      },
-      {
-        id: '4',
-        date: new Date('2025-07-30'),
-        amount: -89.99,
-        description: 'Amazon.com Purchase',
-        category: 'Shopping',
-        subcategory: 'Miscellaneous',
-        account: 'Chase Credit',
-        type: 'expense',
-        confidence: 0.78,
-        isVerified: false,
-        vendor: 'Amazon'
-      },
-      {
-        id: '5',
-        date: new Date('2025-07-30'),
-        amount: -12.50,
-        description: 'Netflix Monthly Subscription',
-        category: 'Entertainment',
-        subcategory: 'Streaming Services',
-        account: 'Chase Credit',
-        type: 'expense',
-        confidence: 0.98,
-        isVerified: true,
-        vendor: 'Netflix'
-      },
-      {
-        id: '6',
-        date: new Date('2025-07-28'),
-        amount: -245.75,
-        description: 'CVS Pharmacy - Prescription Medication',
-        category: 'Healthcare',
-        subcategory: 'Pharmacy',
-        account: 'Chase Checking',
-        type: 'expense',
-        confidence: 0.92,
-        isVerified: true,
-        vendor: 'CVS'
-      },
-      {
-        id: '7',
-        date: new Date('2025-08-02'),
-        amount: 245.75,
-        description: 'HSA Reimbursement - Medical Expenses',
-        category: 'Other Income',
-        subcategory: 'Insurance Claims',
-        account: 'Chase Checking',
-        type: 'income',
-        confidence: 0.95,
-        isVerified: true
-      },
-      {
-        id: '8',
-        date: new Date('2025-07-25'),
-        amount: -550.00,
-        description: 'United Airlines - Business Travel LAX-JFK',
-        category: 'Transportation',
-        subcategory: 'Business Travel',
-        account: 'Chase Credit',
-        type: 'expense',
-        confidence: 0.89,
-        isVerified: false,
-        vendor: 'United Airlines'
-      },
-      {
-        id: '9',
-        date: new Date('2025-07-30'),
-        amount: 550.00,
-        description: 'Expense Reimbursement - ACME Corp',
-        category: 'Business Income',
-        subcategory: 'Expense Reimbursement',
-        account: 'Chase Checking',
-        type: 'income',
-        confidence: 0.94,
-        isVerified: true
-      },
-      {
-        id: '10',
-        date: new Date('2025-07-22'),
-        amount: -89.45,
-        description: 'London Hotel - Business Trip',
-        category: 'Transportation',
-        subcategory: 'Business Travel',
-        account: 'Chase Credit',
-        type: 'expense',
-        confidence: 0.87,
-        isVerified: false,
-        originalCurrency: 'GBP',
-        exchangeRate: 1.27
-      },
-      {
-        id: '11',
-        date: new Date('2025-08-01'),
-        amount: 113.60,
-        description: 'Payroll - Travel Reimbursement',
-        category: 'Business Income',
-        subcategory: 'Expense Reimbursement',
-        account: 'Chase Checking',
-        type: 'income',
-        confidence: 0.91,
-        isVerified: true
+    // Load real transactions from dataService
+    const loadTransactions = async () => {
+      try {
+        console.log('🔄 Loading transactions from dataService...');
+        const allTransactions = await dataService.getAllTransactions();
+        console.log(`📊 Loaded ${allTransactions.length} transactions`);
+        setTransactions(allTransactions);
+        setFilteredTransactions(allTransactions);
+      } catch (error) {
+        console.error('❌ Error loading transactions:', error);
+        // Fall back to empty array if loading fails
+        setTransactions([]);
+        setFilteredTransactions([]);
       }
-    ];
+    };
 
-    setTimeout(() => {
-      setTransactions(mockTransactions);
-      setFilteredTransactions(mockTransactions);
-    }, 1000);
+    loadTransactions();
   }, []);
 
   const onGridReady = useCallback((params: GridReadyEvent) => {
-    params.api.sizeColumnsToFit();
+    // Use setTimeout to avoid ResizeObserver conflicts
+    setTimeout(() => {
+      params.api.sizeColumnsToFit();
+    }, 0);
   }, []);
+
+  const handleDeleteTransaction = async (id: string) => {
+    try {
+      console.log('Deleting transaction:', id);
+      // For now, just remove from state since we're using mock data
+      const updatedTransactions = transactions.filter(t => t.id !== id);
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+    } catch (error) {
+      console.error('Failed to delete transaction:', error);
+    }
+  };
+
+  const startEditTransaction = (transaction: Transaction) => {
+    console.log('Editing transaction:', transaction);
+    // For now, just show an alert since we're using mock data
+    alert(`Edit transaction: ${transaction.description}\nAmount: ${transaction.amount}\nCategory: ${transaction.category}`);
+  };
+
+  const handleImportComplete = async (importedCount: number) => {
+    console.log(`🎉 Import completed! ${importedCount} transactions imported`);
+    
+    // Refresh the transactions list to show the newly imported data
+    try {
+      console.log('🔄 Refreshing transactions after import...');
+      const allTransactions = await dataService.getAllTransactions();
+      console.log(`📊 Refreshed data: ${allTransactions.length} total transactions`);
+      setTransactions(allTransactions);
+      setFilteredTransactions(allTransactions);
+      
+      // Show success message
+      console.log(`✅ Successfully refreshed UI with ${importedCount} new transactions`);
+    } catch (error) {
+      console.error('❌ Error refreshing transactions after import:', error);
+    }
+  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -549,17 +576,27 @@ const Transactions: React.FC = () => {
   };
 
   const handleAccountSelection = async (accountId: string) => {
-    if (!pendingFile) return;
+    console.log('🏦 handleAccountSelection called with accountId:', accountId);
+    if (!pendingFile) {
+      console.log('❌ No pending file, returning early');
+      return;
+    }
+
+    console.log('📁 Processing pending file:', pendingFile.name);
+
+    // Close dialog immediately for better UX
+    console.log('🔄 Closing dialog immediately...');
+    setShowAccountDialog(false);
+    const fileToProcess = pendingFile; // Store reference before clearing
+    setPendingFile(null);
+    setAccountDetectionResult(undefined);
+    console.log('✅ Dialog closed, starting background processing...');
 
     try {
-      const newTransactions = await fileProcessingService.assignAccountToFile('temp-id', accountId);
+      console.log(`🎯 Starting background processing for account: ${accountId}`);
+      const newTransactions = await fileProcessingService.assignAccountToFile('temp-id', accountId, fileToProcess);
       setTransactions(prev => [...prev, ...newTransactions]);
       console.log(`Successfully imported ${newTransactions.length} transactions to account: ${accountId}`);
-      
-      // Close dialog and reset state
-      setShowAccountDialog(false);
-      setPendingFile(null);
-      setAccountDetectionResult(undefined);
     } catch (error) {
       console.error('Error assigning account to file:', error);
       alert('Failed to import transactions. Please try again.');
@@ -758,19 +795,7 @@ const Transactions: React.FC = () => {
 
       {renderReimbursementPanel()}
 
-      <UploadArea>
-        <input
-          type="file"
-          accept=".pdf,.csv,.xlsx,.png,.jpg,.jpeg"
-          onChange={handleFileUpload}
-          style={{ display: 'none' }}
-          id="file-upload"
-        />
-        <label htmlFor="file-upload">
-          <div className="upload-text">📄 Drop bank statements here or click to upload</div>
-          <div className="upload-subtext">Supports PDF, CSV, Excel, and image files</div>
-        </label>
-      </UploadArea>
+      <FileImport onImportComplete={handleImportComplete} />
 
       <FilterBar>
         <div className="filter-row">
@@ -820,6 +845,25 @@ const Transactions: React.FC = () => {
               value={filters.search}
               onChange={(e) => setFilters({...filters, search: e.target.value})}
             />
+          </div>
+
+          <div className="filter-group">
+            <label>Quick Filters</label>
+            <button
+              style={{
+                padding: '8px 12px',
+                border: filters.category === 'Uncategorized' ? '2px solid #ff9800' : '1px solid #ddd',
+                borderRadius: '4px',
+                background: filters.category === 'Uncategorized' ? '#fff3e0' : 'white',
+                color: filters.category === 'Uncategorized' ? '#ff9800' : '#666',
+                fontWeight: filters.category === 'Uncategorized' ? 'bold' : 'normal',
+                cursor: 'pointer',
+                fontSize: '14px'
+              }}
+              onClick={() => setFilters({...filters, category: filters.category === 'Uncategorized' ? '' : 'Uncategorized'})}
+            >
+              ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
+            </button>
           </div>
           
           <div className="filter-group">

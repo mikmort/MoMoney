@@ -12,8 +12,11 @@ export interface Transaction {
   isRecurring?: boolean;
   tags?: string[];
   notes?: string;
+  addedDate?: Date; // When it was added to the app
+  lastModifiedDate?: Date; // When the row was last changed
   originalText?: string; // Raw text from statement
   confidence?: number; // AI classification confidence (0-1)
+  reasoning?: string; // AI explanation for categorization
   isVerified?: boolean; // User has verified the categorization
   vendor?: string;
   location?: string;
@@ -76,6 +79,42 @@ export interface StatementFile {
   detectedAccountId?: string; // AI-detected account
   accountDetectionConfidence?: number; // Confidence in account detection
   accountDetectionReasoning?: string; // Why this account was suggested
+}
+
+export interface FileImportProgress {
+  fileId: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  progress: number; // 0-100 percentage
+  currentStep: string;
+  processedRows: number;
+  totalRows: number;
+  errors: string[];
+}
+
+export interface FileSchemaMapping {
+  hasHeaders: boolean;
+  skipRows: number;
+  dateFormat: string;
+  amountFormat: string;
+  dateColumn?: string;
+  descriptionColumn?: string;
+  amountColumn?: string;
+  categoryColumn?: string;
+  subcategoryColumn?: string;
+  notesColumn?: string;
+}
+
+export interface AISchemaMappingRequest {
+  fileContent: string;
+  fileType: StatementFile['fileType'];
+  targetSchema: string[];
+}
+
+export interface AISchemaMappingResponse {
+  mapping: FileSchemaMapping;
+  confidence: number;
+  reasoning: string;
+  suggestions: string[];
 }
 
 export interface AIClassificationRequest {
