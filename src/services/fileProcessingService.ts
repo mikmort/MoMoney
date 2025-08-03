@@ -198,6 +198,58 @@ export class FileProcessingService {
     }
   }
 
+  // Legacy compatibility method for existing FileImport component
+  async processFile(
+    file: File, 
+    categories: any[], 
+    subcategories: any[],
+    accountId: string,
+    onProgress?: (progress: any) => void
+  ): Promise<{ statementFile: any; fileId: string }> {
+    
+    if (onProgress) {
+      onProgress({
+        fileId: 'temp-id',
+        status: 'processing',
+        progress: 50,
+        currentStep: 'Processing file...',
+        processedRows: 0,
+        totalRows: 0,
+        errors: []
+      });
+    }
+
+    const result = await this.processUploadedFile(file, accountId);
+    
+    if (onProgress) {
+      onProgress({
+        fileId: result.file.id,
+        status: 'completed',
+        progress: 100,
+        currentStep: 'File processing completed',
+        processedRows: result.transactions?.length || 0,
+        totalRows: result.transactions?.length || 0,
+        errors: []
+      });
+    }
+
+    return {
+      statementFile: {
+        ...result.file,
+        status: result.needsAccountSelection ? 'awaiting-account-selection' : 'completed',
+        transactionCount: result.transactions?.length || 0
+      },
+      fileId: result.file.id
+    };
+  }
+
+  // Legacy compatibility method
+  cancelImport(fileId: string): void {
+    console.log(`Cancelling import for file: ${fileId}`);
+    // Implementation would depend on how we want to handle cancellation
+  }
+
+  // Generate unique file ID
   private generateFileId(): string {
     return `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }

@@ -81,6 +81,16 @@ export interface StatementFile {
   accountDetectionReasoning?: string; // Why this account was suggested
 }
 
+export interface FileImportProgress {
+  fileId: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  progress: number; // 0-100 percentage
+  currentStep: string;
+  processedRows: number;
+  totalRows: number;
+  errors: string[];
+}
+
 export interface AIClassificationRequest {
   transactionText: string;
   amount: number;

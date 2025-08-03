@@ -159,8 +159,8 @@ Date: ${request.date}`;
       const parsed = JSON.parse(responseContent.trim());
       
       return {
-        category: parsed.categoryId || parsed.category || 'Uncategorized',
-        subcategory: parsed.subcategoryId || parsed.subcategory,
+        categoryId: parsed.categoryId || parsed.category || 'uncategorized',
+        subcategoryId: parsed.subcategoryId || parsed.subcategory,
         confidence: parsed.confidence || 0.5,
         reasoning: parsed.reasoning || 'AI classification'
       };
@@ -168,7 +168,7 @@ Date: ${request.date}`;
       console.error('Error classifying transaction:', error);
       
       return {
-        category: 'Uncategorized',
+        categoryId: 'uncategorized',
         confidence: 0.1,
         reasoning: 'Failed to classify using AI - using fallback'
       };

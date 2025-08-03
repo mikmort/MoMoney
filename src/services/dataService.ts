@@ -19,7 +19,7 @@ class DataService {
       {
         date: new Date('2025-08-01'),
         description: 'Whole Foods Market #123',
-        additionalNotes: 'Weekly grocery shopping',
+        notes: 'Weekly grocery shopping',
         category: 'Food & Dining',
         subcategory: 'Groceries',
         amount: -125.50,
@@ -69,7 +69,7 @@ class DataService {
       {
         date: new Date('2025-07-30'),
         description: 'Rent Payment - Apartment Complex',
-        additionalNotes: 'Monthly rent payment',
+        notes: 'Monthly rent payment',
         category: 'Housing',
         subcategory: 'Rent',
         amount: -1200.00,
@@ -182,7 +182,7 @@ class DataService {
       t.description.toLowerCase().includes(lowerQuery) ||
       t.category.toLowerCase().includes(lowerQuery) ||
       t.subcategory?.toLowerCase().includes(lowerQuery) ||
-      t.additionalNotes?.toLowerCase().includes(lowerQuery) ||
+      t.notes?.toLowerCase().includes(lowerQuery) ||
       t.vendor?.toLowerCase().includes(lowerQuery)
     );
   }
@@ -212,7 +212,7 @@ class DataService {
         transaction.id,
         transaction.date.toISOString().split('T')[0],
         `"${transaction.description.replace(/"/g, '""')}"`,
-        `"${(transaction.additionalNotes || '').replace(/"/g, '""')}"`,
+        `"${(transaction.notes || '').replace(/"/g, '""')}"`,
         transaction.category,
         transaction.subcategory || '',
         transaction.amount,
@@ -220,8 +220,8 @@ class DataService {
         transaction.type || '',
         transaction.confidence || '',
         `"${(transaction.reasoning || '').replace(/"/g, '""')}"`,
-        transaction.addedDate.toISOString(),
-        transaction.lastModifiedDate.toISOString(),
+        transaction.addedDate?.toISOString() || '',
+        transaction.lastModifiedDate?.toISOString() || '',
       ];
       csvRows.push(row.join(','));
     });
@@ -252,7 +252,7 @@ class DataService {
           const validTransaction = {
             date: new Date(transaction.date),
             description: transaction.description,
-            additionalNotes: transaction.additionalNotes,
+            notes: transaction.additionalNotes || transaction.notes,
             category: transaction.category,
             subcategory: transaction.subcategory,
             amount: Number(transaction.amount),
