@@ -173,7 +173,10 @@ const ActionsMenuComponent: React.FC<ActionsMenuProps> = ({ actions, menuId }) =
     <MenuContainer ref={menuRef}>
       <MenuButton 
         onClick={handleMenuClick}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => {
+          // Only stop propagation for the menu button itself
+          e.stopPropagation();
+        }}
         type="button"
       >
         ⋯

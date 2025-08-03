@@ -1204,8 +1204,9 @@ const Transactions: React.FC = () => {
                 sortable: true,
                 filter: true
               }}
-              editType="fullRow"
               singleClickEdit={true}
+              stopEditingWhenCellsLoseFocus={true}
+              undoRedoCellEditing={true}
               reactiveCustomComponents={true}
             />
           </div>
