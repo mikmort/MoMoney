@@ -662,15 +662,15 @@ const Transactions: React.FC = () => {
 
       // Update the transaction
       await dataService.updateTransaction(editingTransaction.id, {
-        description: transactionForm.description,
-        amount: parseFloat(transactionForm.amount),
-        category: transactionForm.category,
-        subcategory: transactionForm.subcategory,
-        account: transactionForm.account,
-        type: transactionForm.type as 'income' | 'expense',
-        date: new Date(transactionForm.date),
-        notes: transactionForm.notes,
-        lastModifiedDate: new Date()
+        description: updatedTransaction.description,
+        amount: updatedTransaction.amount,
+        category: updatedTransaction.category,
+        subcategory: updatedTransaction.subcategory,
+        account: updatedTransaction.account,
+        type: updatedTransaction.type,
+        date: updatedTransaction.date,
+        notes: updatedTransaction.notes,
+        lastModifiedDate: updatedTransaction.lastModifiedDate
       });
       
       // Refresh the transactions list
@@ -720,35 +720,6 @@ const Transactions: React.FC = () => {
     } catch (error) {
       console.error('❌ Error refreshing transactions after import:', error);
     }
-  };
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      console.log('Processing file:', file.name);
-      const result = await fileProcessingService.processUploadedFile(file);
-      
-      if (result.needsAccountSelection) {
-        // Show account selection dialog
-        setPendingFile(file);
-        setAccountDetectionResult(result.detectionResult);
-        setShowAccountDialog(true);
-      } else {
-        // File processed successfully with auto-detected account
-        if (result.transactions) {
-          setTransactions(prev => [...prev, ...result.transactions!]);
-          console.log(`Successfully imported ${result.transactions.length} transactions to account: ${result.file.accountId}`);
-        }
-      }
-    } catch (error) {
-      console.error('Error processing file:', error);
-      alert('Failed to process file. Please try again.');
-    }
-    
-    // Reset file input
-    event.target.value = '';
   };
 
   const handleAccountSelection = async (accountId: string) => {
