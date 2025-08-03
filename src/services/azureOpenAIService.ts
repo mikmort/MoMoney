@@ -130,6 +130,27 @@ Date: ${request.date}`;
     }
   }
 
+  async generateChatCompletion(
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    options?: {
+      maxTokens?: number;
+      temperature?: number;
+    }
+  ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+    await this.initializeClient();
+    
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
+    return await this.client.chat.completions.create({
+      model: this.deploymentName,
+      messages,
+      max_tokens: options?.maxTokens || 500,
+      temperature: options?.temperature || 0.1
+    });
+  }
+
   async getServiceInfo(): Promise<{ status: string; model: string; initialized: boolean }> {
     return {
       status: this.initialized ? 'ready' : 'not initialized',

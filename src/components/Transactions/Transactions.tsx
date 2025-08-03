@@ -3,8 +3,11 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch } from '../../types';
+import { Transaction, ReimbursementMatch, Account } from '../../types';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
+import { useAccountManagement } from '../../hooks/useAccountManagement';
+import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
+import { fileProcessingService } from '../../services/fileProcessingService';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -263,6 +266,12 @@ const Transactions: React.FC = () => {
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
+  
+  // Account selection dialog state
+  const [showAccountDialog, setShowAccountDialog] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [accountDetectionResult, setAccountDetectionResult] = useState<AccountDetectionResult | undefined>();
+  
   const [filters, setFilters] = useState({
     category: '',
     type: '',
@@ -280,6 +289,11 @@ const Transactions: React.FC = () => {
     applyMatches,
     filterNonReimbursed 
   } = useReimbursementMatching();
+
+  const {
+    accounts,
+    addAccount
+  } = useAccountManagement();
 
   // Column definitions for AG Grid
   const columnDefs: ColDef[] = [
@@ -505,12 +519,69 @@ const Transactions: React.FC = () => {
     params.api.sizeColumnsToFit();
   }, []);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      console.log('File selected:', file.name);
-      // TODO: Implement file upload and AI parsing
+    if (!file) return;
+
+    try {
+      console.log('Processing file:', file.name);
+      const result = await fileProcessingService.processUploadedFile(file);
+      
+      if (result.needsAccountSelection) {
+        // Show account selection dialog
+        setPendingFile(file);
+        setAccountDetectionResult(result.detectionResult);
+        setShowAccountDialog(true);
+      } else {
+        // File processed successfully with auto-detected account
+        if (result.transactions) {
+          setTransactions(prev => [...prev, ...result.transactions!]);
+          console.log(`Successfully imported ${result.transactions.length} transactions to account: ${result.file.accountId}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error processing file:', error);
+      alert('Failed to process file. Please try again.');
     }
+    
+    // Reset file input
+    event.target.value = '';
+  };
+
+  const handleAccountSelection = async (accountId: string) => {
+    if (!pendingFile) return;
+
+    try {
+      const newTransactions = await fileProcessingService.assignAccountToFile('temp-id', accountId);
+      setTransactions(prev => [...prev, ...newTransactions]);
+      console.log(`Successfully imported ${newTransactions.length} transactions to account: ${accountId}`);
+      
+      // Close dialog and reset state
+      setShowAccountDialog(false);
+      setPendingFile(null);
+      setAccountDetectionResult(undefined);
+    } catch (error) {
+      console.error('Error assigning account to file:', error);
+      alert('Failed to import transactions. Please try again.');
+    }
+  };
+
+  const handleNewAccount = async (newAccountData: Omit<Account, 'id'>) => {
+    try {
+      const newAccount = await addAccount(newAccountData);
+      
+      // Now assign the file to this new account
+      await handleAccountSelection(newAccount.id);
+    } catch (error) {
+      console.error('Error creating new account:', error);
+      alert('Failed to create new account. Please try again.');
+    }
+  };
+
+  const handleCancelAccountSelection = () => {
+    setShowAccountDialog(false);
+    setPendingFile(null);
+    setAccountDetectionResult(undefined);
   };
 
   const applyFilters = useCallback(() => {
@@ -804,6 +875,16 @@ const Transactions: React.FC = () => {
           </div>
         </TransactionsContainer>
       </Card>
+
+      <AccountSelectionDialog
+        isOpen={showAccountDialog}
+        fileName={pendingFile?.name || ''}
+        detectionResult={accountDetectionResult}
+        accounts={accounts}
+        onAccountSelect={handleAccountSelection}
+        onNewAccount={handleNewAccount}
+        onCancel={handleCancelAccountSelection}
+      />
     </div>
   );
 };
