@@ -275,11 +275,11 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
       } catch (parseError) {
         console.warn('Failed to parse AI schema mapping response:', parseError, 'Raw response:', response);
         // Fallback to default mapping if AI response can't be parsed
-        return this.getDefaultSchemaMapping(fileType);
+        return this.getDefaultSchemaMapping(fileType, fileContent);
       }
     } catch (error) {
       console.warn('AI schema mapping failed, using default:', error);
-      return this.getDefaultSchemaMapping(fileType);
+      return this.getDefaultSchemaMapping(fileType, fileContent);
     }
   }
 
@@ -302,13 +302,25 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
     return content.substring(0, 2000); // First 2000 characters for other types
   }
 
-  private getDefaultSchemaMapping(fileType: StatementFile['fileType']): AISchemaMappingResponse {
+  private getDefaultSchemaMapping(fileType: StatementFile['fileType'], content?: string): AISchemaMappingResponse {
     const mapping: FileSchemaMapping = {
       hasHeaders: true,
       skipRows: 0,
       dateFormat: 'MM/DD/YYYY',
       amountFormat: 'negative for debits',
     };
+
+    // Try to detect European date format in the content
+    if (content) {
+      const sampleLines = content.split('\n').slice(0, 5);
+      const europeanDatePattern = /\d{1,2}\.\d{1,2}\.\d{4}/;
+      const hasEuropeanDates = sampleLines.some(line => europeanDatePattern.test(line));
+      
+      if (hasEuropeanDates) {
+        console.log('🇪🇺 Detected European date format (DD.MM.YYYY) in content');
+        mapping.dateFormat = 'DD.MM.YYYY';
+      }
+    }
 
     if (fileType === 'csv') {
       mapping.dateColumn = '0';
@@ -319,7 +331,7 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
     return {
       mapping,
       confidence: 0.5,
-      reasoning: 'Using default mapping due to AI analysis failure',
+      reasoning: `Using default mapping with ${mapping.dateFormat} format due to AI analysis failure`,
       suggestions: ['Please verify the column mappings are correct'],
     };
   }
@@ -470,17 +482,34 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
       console.log(`🔍 Row extraction - date: ${date}, description: "${description}", amount: ${amount}`);
       console.log(`🔍 Mapping used:`, mapping);
 
-      // TEMPORARY FIX: Override incorrect AI mapping for this CSV format
-      if (row.Date && row.Text && row.Amount) {
-        console.log(`🔧 Detected object format CSV, overriding mapping...`);
-        const correctedDate = this.extractDate(row, 'Date', 'DD.MM.YYYY');
-        const correctedDescription = this.extractString(row, 'Text');
-        const correctedAmount = this.extractAmount(row, 'Amount');
+      // Enhanced fallback: Detect European CSV format and override incorrect AI mapping
+      const hasDateColumn = row.Date || row.date;
+      const hasDescriptionColumn = row.Description || row.description || row.Text || row.text;
+      const hasAmountColumn = row.Amount || row.amount;
+      
+      if (hasDateColumn && hasDescriptionColumn && hasAmountColumn) {
+        console.log(`🔧 Detected object format CSV with European-style data, overriding mapping...`);
+        
+        // Determine the correct column names
+        const dateColumnName = row.Date ? 'Date' : 'date';
+        const descriptionColumnName = row.Description ? 'Description' : (row.description ? 'description' : (row.Text ? 'Text' : 'text'));
+        const amountColumnName = row.Amount ? 'Amount' : 'amount';
+        
+        // Check if it looks like European date format (DD.MM.YYYY)
+        const dateValue = String(row[dateColumnName] || '');
+        const isEuropeanDate = /^\d{1,2}\.\d{1,2}\.\d{4}$/.test(dateValue);
+        const dateFormat = isEuropeanDate ? 'DD.MM.YYYY' : 'MM/DD/YYYY';
+        
+        console.log(`🔧 Using columns: date=${dateColumnName}, description=${descriptionColumnName}, amount=${amountColumnName}, format=${dateFormat}`);
+        
+        const correctedDate = this.extractDate(row, dateColumnName, dateFormat);
+        const correctedDescription = this.extractString(row, descriptionColumnName);
+        const correctedAmount = this.extractAmount(row, amountColumnName);
         
         console.log(`🔧 Corrected extraction - date: ${correctedDate}, description: "${correctedDescription}", amount: ${correctedAmount}`);
         
         if (correctedDate && correctedDescription && correctedAmount !== null) {
-          console.log(`✅ Using corrected values`);
+          console.log(`✅ Using corrected values with ${dateFormat} format`);
           
           // Get AI categorization
           const aiClassification = await this.getAIClassification(
