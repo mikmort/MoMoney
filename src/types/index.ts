@@ -2,18 +2,23 @@
 
 export interface Transaction {
   id: string;
-  date: Date;
-  amount: number;
+  date: Date; // Transaction date
   description: string;
+  additionalNotes?: string; // User-added notes
   category: string;
   subcategory?: string;
-  account: string;
-  type: 'income' | 'expense';
+  amount: number;
+  addedDate: Date; // When it was added to the app
+  lastModifiedDate: Date; // When the row was last changed in the app
+  
+  // Additional fields for functionality
+  account?: string;
+  type?: 'income' | 'expense';
   isRecurring?: boolean;
   tags?: string[];
-  notes?: string;
   originalText?: string; // Raw text from statement
   confidence?: number; // AI classification confidence (0-1)
+  reasoning?: string; // AI explanation for categorization
   isVerified?: boolean; // User has verified the categorization
   vendor?: string;
   location?: string;
@@ -64,11 +69,37 @@ export interface StatementFile {
   filename: string;
   fileSize: number;
   uploadDate: Date;
-  accountId: string;
-  status: 'pending' | 'processing' | 'completed' | 'error';
+  accountId?: string;
+  status: 'pending' | 'processing' | 'mapping' | 'importing' | 'completed' | 'error';
   transactionCount?: number;
+  processedCount?: number;
   errorMessage?: string;
-  fileType: 'pdf' | 'csv' | 'excel' | 'image';
+  fileType: 'pdf' | 'csv' | 'xlsx' | 'ofx';
+  schemaMapping?: FileSchemaMapping;
+  progress?: number; // 0-100
+}
+
+export interface FileSchemaMapping {
+  dateColumn?: string;
+  descriptionColumn?: string;
+  amountColumn?: string;
+  categoryColumn?: string;
+  subcategoryColumn?: string;
+  notesColumn?: string;
+  dateFormat?: string;
+  amountFormat?: string;
+  hasHeaders?: boolean;
+  skipRows?: number;
+}
+
+export interface FileImportProgress {
+  fileId: string;
+  status: StatementFile['status'];
+  progress: number;
+  currentStep: string;
+  processedRows: number;
+  totalRows: number;
+  errors: string[];
 }
 
 export interface AIClassificationRequest {
@@ -76,15 +107,29 @@ export interface AIClassificationRequest {
   amount: number;
   date: string;
   availableCategories: Category[];
+  availableSubcategories: Subcategory[];
 }
 
 export interface AIClassificationResponse {
-  categoryId: string;
-  subcategoryId?: string;
+  category: string;
+  subcategory?: string;
   confidence: number;
-  reasoning?: string;
+  reasoning: string;
   suggestedVendor?: string;
   suggestedTags?: string[];
+}
+
+export interface AISchemaMappingRequest {
+  fileContent: string; // Sample content from the file
+  fileType: 'pdf' | 'csv' | 'xlsx' | 'ofx';
+  targetSchema: string[]; // Our expected columns
+}
+
+export interface AISchemaMappingResponse {
+  mapping: FileSchemaMapping;
+  confidence: number;
+  reasoning: string;
+  suggestions: string[];
 }
 
 export interface DashboardStats {

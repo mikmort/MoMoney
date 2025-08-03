@@ -89,17 +89,16 @@ Date: ${request.date}`;
       const parsed = JSON.parse(responseContent.trim());
       
       return {
-        categoryId: parsed.categoryId,
-        subcategoryId: parsed.subcategoryId,
-        confidence: parsed.confidence,
-        reasoning: parsed.reasoning
+        category: parsed.categoryId || parsed.category || 'Uncategorized',
+        subcategory: parsed.subcategoryId || parsed.subcategory,
+        confidence: parsed.confidence || 0.5,
+        reasoning: parsed.reasoning || 'AI classification'
       };
     } catch (error) {
       console.error('Error classifying transaction:', error);
       
       return {
-        categoryId: 'other',
-        subcategoryId: 'misc',
+        category: 'Uncategorized',
         confidence: 0.1,
         reasoning: 'Failed to classify using AI - using fallback'
       };
@@ -136,6 +135,35 @@ Date: ${request.date}`;
       model: this.deploymentName,
       initialized: this.initialized
     };
+  }
+
+  async makeRequest(prompt: string, maxTokens: number = 1000): Promise<string> {
+    await this.initializeClient();
+    
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: this.deploymentName,
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: maxTokens,
+        temperature: 0.1
+      });
+
+      const responseContent = completion.choices[0]?.message?.content;
+      if (!responseContent) {
+        throw new Error('No response from Azure OpenAI');
+      }
+
+      return responseContent.trim();
+    } catch (error) {
+      console.error('Error making Azure OpenAI request:', error);
+      throw error;
+    }
   }
 }
 

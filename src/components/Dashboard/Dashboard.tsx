@@ -141,57 +141,9 @@ const Dashboard: React.FC = () => {
       ]
     };
 
-    const mockTransactions: Transaction[] = [
-      {
-        id: '1',
-        date: new Date('2025-08-01'),
-        amount: -125.50,
-        description: 'Whole Foods Market',
-        category: 'Food & Dining',
-        account: 'Chase Checking',
-        type: 'expense'
-      },
-      {
-        id: '2',
-        date: new Date('2025-08-01'),
-        amount: 2750.00,
-        description: 'Salary Deposit',
-        category: 'Salary & Wages',
-        account: 'Chase Checking',
-        type: 'income'
-      },
-      {
-        id: '3',
-        date: new Date('2025-07-31'),
-        amount: -45.30,
-        description: 'Shell Gas Station',
-        category: 'Transportation',
-        account: 'Chase Checking',
-        type: 'expense'
-      },
-      {
-        id: '4',
-        date: new Date('2025-07-30'),
-        amount: -89.99,
-        description: 'Amazon Purchase',
-        category: 'Shopping',
-        account: 'Chase Credit',
-        type: 'expense'
-      },
-      {
-        id: '5',
-        date: new Date('2025-07-30'),
-        amount: -12.50,
-        description: 'Netflix Subscription',
-        category: 'Entertainment',
-        account: 'Chase Credit',
-        type: 'expense'
-      }
-    ];
-
     setTimeout(() => {
       setStats(mockStats);
-      setRecentTransactions(mockTransactions);
+      setRecentTransactions([]);
       setLoading(false);
     }, 1000);
   }, []);

@@ -15,16 +15,20 @@
     "chartjs-adapter-date-fns": "^3.0.0",
     "date-fns": "^2.30.0",
     "openai": "^5.11.0",
+    "papaparse": "^5.5.3",
+    "pdf-parse": "^1.1.1",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.1",
     "react-scripts": "5.0.1",
     "styled-components": "^6.1.6",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^16.18.68",
+    "@types/papaparse": "^5.3.16",
     "@types/react": "^18.2.42",
     "@types/react-dom": "^18.2.17",
     "@types/styled-components": "^5.1.34",
