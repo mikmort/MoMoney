@@ -68,11 +68,14 @@ export interface StatementFile {
   filename: string;
   fileSize: number;
   uploadDate: Date;
-  accountId: string;
-  status: 'pending' | 'processing' | 'completed' | 'error';
+  accountId?: string; // Optional until user selects an account
+  status: 'pending' | 'processing' | 'completed' | 'error' | 'awaiting-account-selection';
   transactionCount?: number;
   errorMessage?: string;
   fileType: 'pdf' | 'csv' | 'excel' | 'image';
+  detectedAccountId?: string; // AI-detected account
+  accountDetectionConfidence?: number; // Confidence in account detection
+  accountDetectionReasoning?: string; // Why this account was suggested
 }
 
 export interface AIClassificationRequest {
