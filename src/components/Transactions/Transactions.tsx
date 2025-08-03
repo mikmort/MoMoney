@@ -3,7 +3,8 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction } from '../../types';
+import { Transaction, ReimbursementMatch } from '../../types';
+import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -22,6 +23,12 @@ const TransactionsContainer = styled.div`
     .negative {
       color: #f44336;
       font-weight: 600;
+    }
+    
+    .reimbursed {
+      color: #666;
+      text-decoration: line-through;
+      opacity: 0.7;
     }
     
     .confidence {
@@ -44,6 +51,89 @@ const TransactionsContainer = styled.div`
         background: #f8d7da;
         color: #721c24;
       }
+    }
+  }
+`;
+
+const ReimbursementPanel = styled(Card)`
+  margin-bottom: 20px;
+  
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h3 {
+      margin: 0;
+      color: #333;
+    }
+  }
+  
+  .matches-list {
+    .match-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+      
+      .match-info {
+        flex: 1;
+        
+        .expense {
+          font-weight: 600;
+          color: #f44336;
+        }
+        
+        .reimbursement {
+          font-weight: 600;
+          color: #4caf50;
+        }
+        
+        .match-details {
+          font-size: 0.9rem;
+          color: #666;
+          margin-top: 4px;
+        }
+      }
+      
+      .match-actions {
+        display: flex;
+        gap: 8px;
+      }
+      
+      .confidence-badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        
+        &.high {
+          background: #e8f5e8;
+          color: #2e7d32;
+        }
+        
+        &.medium {
+          background: #fff3cd;
+          color: #856404;
+        }
+        
+        &.low {
+          background: #f8d7da;
+          color: #721c24;
+        }
+      }
+    }
+    
+    .no-matches {
+      text-align: center;
+      color: #666;
+      padding: 20px;
+      font-style: italic;
     }
   }
 `;
@@ -137,20 +227,25 @@ const UploadArea = styled.div`
 // Custom cell renderers
 const AmountCellRenderer = (params: any) => {
   const amount = params.value;
+  const isReimbursed = params.data.reimbursed;
   const className = amount >= 0 ? 'positive' : 'negative';
+  const reimbursedClass = isReimbursed ? ' reimbursed' : '';
   const formatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD'
   }).format(amount);
   
-  return <span className={className}>{formatted}</span>;
+  return <span className={className + reimbursedClass}>{formatted}</span>;
 };
 
 const CategoryCellRenderer = (params: any) => {
   const category = params.value;
   const subcategory = params.data.subcategory;
+  const isReimbursed = params.data.reimbursed;
+  const reimbursedClass = isReimbursed ? ' reimbursed' : '';
   
-  return subcategory ? `${category} → ${subcategory}` : category;
+  const displayText = subcategory ? `${category} → ${subcategory}` : category;
+  return <span className={reimbursedClass}>{displayText}</span>;
 };
 
 const ConfidenceCellRenderer = (params: any) => {
@@ -166,6 +261,8 @@ const ConfidenceCellRenderer = (params: any) => {
 const Transactions: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
+  const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
+  const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
   const [filters, setFilters] = useState({
     category: '',
     type: '',
@@ -174,6 +271,15 @@ const Transactions: React.FC = () => {
     account: '',
     search: ''
   });
+
+  const { 
+    isLoading: isMatchingLoading, 
+    error: matchingError, 
+    matches, 
+    findMatches, 
+    applyMatches,
+    filterNonReimbursed 
+  } = useReimbursementMatching();
 
   // Column definitions for AG Grid
   const columnDefs: ColDef[] = [
@@ -232,6 +338,14 @@ const Transactions: React.FC = () => {
       width: 100,
       cellRenderer: (params: any) => {
         return params.value ? '✅' : '⏳';
+      }
+    },
+    {
+      headerName: 'Reimbursed',
+      field: 'reimbursed',
+      width: 110,
+      cellRenderer: (params: any) => {
+        return params.value ? '💰' : '';
       }
     }
   ];
@@ -302,6 +416,82 @@ const Transactions: React.FC = () => {
         confidence: 0.98,
         isVerified: true,
         vendor: 'Netflix'
+      },
+      {
+        id: '6',
+        date: new Date('2025-07-28'),
+        amount: -245.75,
+        description: 'CVS Pharmacy - Prescription Medication',
+        category: 'Healthcare',
+        subcategory: 'Pharmacy',
+        account: 'Chase Checking',
+        type: 'expense',
+        confidence: 0.92,
+        isVerified: true,
+        vendor: 'CVS'
+      },
+      {
+        id: '7',
+        date: new Date('2025-08-02'),
+        amount: 245.75,
+        description: 'HSA Reimbursement - Medical Expenses',
+        category: 'Other Income',
+        subcategory: 'Insurance Claims',
+        account: 'Chase Checking',
+        type: 'income',
+        confidence: 0.95,
+        isVerified: true
+      },
+      {
+        id: '8',
+        date: new Date('2025-07-25'),
+        amount: -550.00,
+        description: 'United Airlines - Business Travel LAX-JFK',
+        category: 'Transportation',
+        subcategory: 'Business Travel',
+        account: 'Chase Credit',
+        type: 'expense',
+        confidence: 0.89,
+        isVerified: false,
+        vendor: 'United Airlines'
+      },
+      {
+        id: '9',
+        date: new Date('2025-07-30'),
+        amount: 550.00,
+        description: 'Expense Reimbursement - ACME Corp',
+        category: 'Business Income',
+        subcategory: 'Expense Reimbursement',
+        account: 'Chase Checking',
+        type: 'income',
+        confidence: 0.94,
+        isVerified: true
+      },
+      {
+        id: '10',
+        date: new Date('2025-07-22'),
+        amount: -89.45,
+        description: 'London Hotel - Business Trip',
+        category: 'Transportation',
+        subcategory: 'Business Travel',
+        account: 'Chase Credit',
+        type: 'expense',
+        confidence: 0.87,
+        isVerified: false,
+        originalCurrency: 'GBP',
+        exchangeRate: 1.27
+      },
+      {
+        id: '11',
+        date: new Date('2025-08-01'),
+        amount: 113.60,
+        description: 'Payroll - Travel Reimbursement',
+        category: 'Business Income',
+        subcategory: 'Expense Reimbursement',
+        account: 'Chase Checking',
+        type: 'income',
+        confidence: 0.91,
+        isVerified: true
       }
     ];
 
@@ -326,6 +516,11 @@ const Transactions: React.FC = () => {
   const applyFilters = useCallback(() => {
     let filtered = transactions.slice(); // Use slice() instead of spread
 
+    // Filter out reimbursed transactions if the toggle is off
+    if (!showReimbursedTransactions) {
+      filtered = filterNonReimbursed(filtered);
+    }
+
     if (filters.category) {
       filtered = filtered.filter((t: Transaction) => t.category === filters.category);
     }
@@ -348,18 +543,20 @@ const Transactions: React.FC = () => {
     }
 
     setFilteredTransactions(filtered);
-  }, [transactions, filters]);
+  }, [transactions, filters, showReimbursedTransactions, filterNonReimbursed]);
 
   useEffect(() => {
     applyFilters();
   }, [applyFilters]);
 
   const calculateStats = () => {
-    const totalIncome = filteredTransactions
+    const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
+    
+    const totalIncome = transactionsToCalculate
       .filter((t: Transaction) => t.type === 'income')
       .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
     
-    const totalExpenses = filteredTransactions
+    const totalExpenses = transactionsToCalculate
       .filter((t: Transaction) => t.type === 'expense')
       .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount), 0);
 
@@ -367,7 +564,7 @@ const Transactions: React.FC = () => {
       totalIncome,
       totalExpenses,
       netAmount: totalIncome - totalExpenses,
-      count: filteredTransactions.length
+      count: transactionsToCalculate.length
     };
   };
 
@@ -383,15 +580,112 @@ const Transactions: React.FC = () => {
   const uniqueCategories = Array.from(new Set(transactions.map((t: Transaction) => t.category)));
   const uniqueAccounts = Array.from(new Set(transactions.map((t: Transaction) => t.account)));
 
+  const handleFindReimbursements = async () => {
+    const result = await findMatches({
+      transactions,
+      maxDaysDifference: 90,
+      tolerancePercentage: 0.05
+    });
+    
+    if (result) {
+      setShowReimbursementPanel(true);
+    }
+  };
+
+  const handleApplyMatch = async (match: ReimbursementMatch) => {
+    const updatedTransactions = await applyMatches(transactions, [match]);
+    setTransactions(updatedTransactions);
+  };
+
+  const getConfidenceClass = (confidence: number) => {
+    if (confidence >= 0.8) return 'high';
+    if (confidence >= 0.6) return 'medium';
+    return 'low';
+  };
+
+  const renderReimbursementPanel = () => {
+    if (!showReimbursementPanel) return null;
+
+    return (
+      <ReimbursementPanel>
+        <div className="panel-header">
+          <h3>Reimbursement Matches ({matches.length})</h3>
+          <Button variant="outline" onClick={() => setShowReimbursementPanel(false)}>
+            Close
+          </Button>
+        </div>
+        
+        {matchingError && (
+          <div style={{ color: '#f44336', marginBottom: '16px' }}>
+            Error: {matchingError}
+          </div>
+        )}
+        
+        <div className="matches-list">
+          {matches.length === 0 ? (
+            <div className="no-matches">
+              No reimbursement matches found. Try adjusting the date range or tolerance settings.
+            </div>
+          ) : (
+            matches.map((match) => {
+              const expense = transactions.find(t => t.id === match.expenseTransactionId);
+              const reimbursement = transactions.find(t => t.id === match.reimbursementTransactionId);
+              
+              if (!expense || !reimbursement) return null;
+              
+              return (
+                <div key={match.id} className="match-item">
+                  <div className="match-info">
+                    <div className="expense">
+                      Expense: {expense.description} ({formatCurrency(expense.amount)})
+                    </div>
+                    <div className="reimbursement">
+                      Reimbursement: {reimbursement.description} ({formatCurrency(reimbursement.amount)})
+                    </div>
+                    <div className="match-details">
+                      {match.reasoning} • {match.dateDifference} days apart
+                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} difference`}
+                    </div>
+                  </div>
+                  <div className="match-actions">
+                    <span className={`confidence-badge ${getConfidenceClass(match.confidence)}`}>
+                      {Math.round(match.confidence * 100)}%
+                    </span>
+                    <Button 
+                      onClick={() => handleApplyMatch(match)}
+                      disabled={expense.reimbursed}
+                      style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                    >
+                      {expense.reimbursed ? 'Applied' : 'Apply'}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </ReimbursementPanel>
+    );
+  };
+
   return (
     <div>
       <PageHeader>
         <h1>Transactions</h1>
         <FlexBox gap="12px">
+          <Button 
+            variant="outline" 
+            onClick={handleFindReimbursements}
+            disabled={isMatchingLoading}
+          >
+            {isMatchingLoading ? 'Finding...' : 'Find Reimbursements'}
+          </Button>
           <Button variant="outline">Export</Button>
           <Button>Add Transaction</Button>
         </FlexBox>
       </PageHeader>
+
+      {renderReimbursementPanel()}
 
       <UploadArea>
         <input
@@ -455,6 +749,18 @@ const Transactions: React.FC = () => {
               value={filters.search}
               onChange={(e) => setFilters({...filters, search: e.target.value})}
             />
+          </div>
+          
+          <div className="filter-group">
+            <label>
+              <input
+                type="checkbox"
+                checked={showReimbursedTransactions}
+                onChange={(e) => setShowReimbursedTransactions(e.target.checked)}
+                style={{ marginRight: '8px' }}
+              />
+              Show Reimbursed
+            </label>
           </div>
         </div>
       </FilterBar>
