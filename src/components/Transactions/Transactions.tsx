@@ -227,16 +227,156 @@ const QuickAddModal = styled.div`
   }
 `;
 
+const ReimbursementPanel = styled.div`
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h3 {
+      margin: 0;
+      color: #333;
+    }
+  }
+  
+  .matches-list {
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  
+  .match-item {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 12px;
+    background: #f9f9f9;
+    
+    .match-header {
+      display: flex;
+      justify-content: between;
+      align-items: center;
+      margin-bottom: 8px;
+      
+      .confidence {
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        
+        &.high {
+          background: #e8f5e8;
+          color: #4caf50;
+        }
+        
+        &.medium {
+          background: #fff3e0;
+          color: #ff9800;
+        }
+        
+        &.low {
+          background: #ffebee;
+          color: #f44336;
+        }
+      }
+    }
+    
+    .match-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 12px;
+      
+      .transaction-info {
+        .label {
+          font-size: 12px;
+          color: #666;
+          margin-bottom: 4px;
+        }
+        
+        .amount {
+          font-weight: bold;
+          
+          &.expense {
+            color: #f44336;
+          }
+          
+          &.income {
+            color: #4caf50;
+          }
+        }
+      }
+    }
+    
+    .match-actions {
+      display: flex;
+      gap: 8px;
+      
+      button {
+        padding: 4px 12px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        
+        &.apply {
+          background: #4caf50;
+          color: white;
+          
+          &:hover {
+            background: #45a049;
+          }
+        }
+        
+        &.reject {
+          background: #f44336;
+          color: white;
+          
+          &:hover {
+            background: #da190b;
+          }
+        }
+      }
+    }
+  }
+  
+  .panel-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #eee;
+  }
+`;
+
 // Custom cell renderers
 const AmountCellRenderer = (params: any) => {
   const amount = params.value;
+  const isReimbursed = params.data.reimbursed;
   const className = amount >= 0 ? 'positive' : 'negative';
   const formatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD'
   }).format(amount);
   
-  return <span className={className}>{formatted}</span>;
+  const style = isReimbursed ? { 
+    textDecoration: 'line-through',
+    opacity: 0.7,
+    position: 'relative' as const
+  } : {};
+  
+  return (
+    <span className={className} style={style} title={isReimbursed ? 'This transaction has been reimbursed' : ''}>
+      {formatted}
+      {isReimbursed && <span style={{ marginLeft: '4px', fontSize: '12px' }}>💰</span>}
+    </span>
+  );
 };
 
 const CategoryCellRenderer = (params: any) => {
@@ -333,6 +473,21 @@ const Transactions: React.FC = () => {
     date: new Date().toISOString().split('T')[0],
     notes: ''
   });
+
+  // Reimbursement functionality
+  const [showReimbursements, setShowReimbursements] = useState(true);
+  const [reimbursementMatches, setReimbursementMatches] = useState<ReimbursementMatch[]>([]);
+  const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
+  
+  // Initialize reimbursement matching hook
+  const {
+    isLoading: isReimbursementLoading,
+    error: reimbursementError,
+    matches,
+    findMatches,
+    applyMatches,
+    filterNonReimbursed
+  } = useReimbursementMatching();
 
   // Column definitions for AG Grid
   const columnDefs: ColDef[] = [
@@ -595,6 +750,50 @@ const Transactions: React.FC = () => {
         console.error('❌ Failed to reload transactions after import:', error);
       }
     }, 500);
+  };
+
+  // Reimbursement functions
+  const handleFindReimbursements = async () => {
+    if (transactions.length === 0) return;
+    
+    try {
+      const result = await findMatches({
+        transactions,
+        maxDaysDifference: 90,
+        tolerancePercentage: 0.05
+      });
+      
+      if (result) {
+        setReimbursementMatches(result.matches);
+        setShowReimbursementPanel(true);
+      }
+    } catch (error) {
+      console.error('Failed to find reimbursement matches:', error);
+    }
+  };
+
+  const handleApplyReimbursementMatches = async (matchesToApply: ReimbursementMatch[]) => {
+    try {
+      const updatedTransactions = await applyMatches(transactions, matchesToApply);
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+      setReimbursementMatches([]);
+      setShowReimbursementPanel(false);
+    } catch (error) {
+      console.error('Failed to apply reimbursement matches:', error);
+    }
+  };
+
+  const toggleShowReimbursed = () => {
+    setShowReimbursements(!showReimbursements);
+    if (!showReimbursements) {
+      // Show all transactions
+      setFilteredTransactions(transactions);
+    } else {
+      // Hide reimbursed transactions
+      const nonReimbursed = filterNonReimbursed(transactions);
+      setFilteredTransactions(nonReimbursed);
+    }
   };
 
   // Handle cell value changes (inline editing)
@@ -868,6 +1067,12 @@ const Transactions: React.FC = () => {
         <Button onClick={() => setShowQuickAddModal(true)}>
           ➕ Add Transaction
         </Button>
+        <Button onClick={handleFindReimbursements} disabled={isReimbursementLoading}>
+          💰 {isReimbursementLoading ? 'Finding...' : 'Find Reimbursements'}
+        </Button>
+        <Button onClick={toggleShowReimbursed}>
+          👁️ {showReimbursements ? 'Hide' : 'Show'} Reimbursed
+        </Button>
         <Button onClick={() => setShowAnalytics(!showAnalytics)}>
           📊 {showAnalytics ? 'Hide' : 'Show'} Analytics
         </Button>
@@ -906,6 +1111,97 @@ const Transactions: React.FC = () => {
           uniqueCategories={uniqueCategories}
           uniqueAccounts={uniqueAccounts}
         />
+      )}
+
+      {/* Reimbursement Panel */}
+      {showReimbursementPanel && reimbursementMatches.length > 0 && (
+        <ReimbursementPanel>
+          <div className="panel-header">
+            <h3>💰 Reimbursement Matches Found ({reimbursementMatches.length})</h3>
+            <Button onClick={() => setShowReimbursementPanel(false)}>✖️</Button>
+          </div>
+          
+          {reimbursementError && (
+            <div style={{ color: '#f44336', marginBottom: '16px', padding: '8px', background: '#ffebee', borderRadius: '4px' }}>
+              Error: {reimbursementError}
+            </div>
+          )}
+          
+          <div className="matches-list">
+            {reimbursementMatches.map((match) => {
+              const expense = transactions.find(t => t.id === match.expenseTransactionId);
+              const reimbursement = transactions.find(t => t.id === match.reimbursementTransactionId);
+              
+              if (!expense || !reimbursement) return null;
+              
+              return (
+                <div key={match.id} className="match-item">
+                  <div className="match-header">
+                    <span>Match #{match.id.substring(0, 8)}</span>
+                    <span className={`confidence ${match.confidence > 0.8 ? 'high' : match.confidence > 0.5 ? 'medium' : 'low'}`}>
+                      {Math.round(match.confidence * 100)}% confidence
+                    </span>
+                  </div>
+                  
+                  <div className="match-details">
+                    <div className="transaction-info">
+                      <div className="label">Expense</div>
+                      <div className="amount expense">
+                        ${Math.abs(expense.amount).toFixed(2)}
+                      </div>
+                      <div>{expense.description}</div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>
+                        {new Date(expense.date).toLocaleDateString()}
+                      </div>
+                    </div>
+                    
+                    <div className="transaction-info">
+                      <div className="label">Reimbursement</div>
+                      <div className="amount income">
+                        ${reimbursement.amount.toFixed(2)}
+                      </div>
+                      <div>{reimbursement.description}</div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>
+                        {new Date(reimbursement.date).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
+                    {match.reasoning}
+                  </div>
+                  
+                  <div className="match-actions">
+                    <button 
+                      className="apply"
+                      onClick={() => handleApplyReimbursementMatches([match])}
+                    >
+                      ✓ Apply Match
+                    </button>
+                    <button 
+                      className="reject"
+                      onClick={() => setReimbursementMatches(prev => prev.filter(m => m.id !== match.id))}
+                    >
+                      ✗ Reject
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div className="panel-actions">
+            <Button onClick={() => handleApplyReimbursementMatches(reimbursementMatches)}>
+              ✓ Apply All Matches
+            </Button>
+            <Button onClick={() => {
+              setReimbursementMatches([]);
+              setShowReimbursementPanel(false);
+            }}>
+              ✗ Reject All
+            </Button>
+          </div>
+        </ReimbursementPanel>
       )}
 
       <FilterBar>

@@ -151,16 +151,13 @@ Sample transactions:
 ${request.sampleTransactions.map(t => `- ${t.description} | $${t.amount} | ${t.date}`).join('\n')}
 ` : ''}`;
 
-    try {
-      const completion = await this.azureOpenAIService.generateChatCompletion([
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ], {
-        maxTokens: 300,
-        temperature: 0.1
-      });
+    const combinedPrompt = `${systemPrompt}
 
-      const responseContent = completion.choices[0]?.message?.content;
+${userPrompt}`;
+
+    try {
+      const responseContent = await this.azureOpenAIService.makeRequest(combinedPrompt, 300);
+      
       if (!responseContent) {
         throw new Error('No response from Azure OpenAI');
       }

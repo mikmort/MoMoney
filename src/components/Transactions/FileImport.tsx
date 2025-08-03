@@ -1,8 +1,11 @@
 import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
-import { FileImportProgress, StatementFile, Category, Subcategory } from '../../types';
+import { FileImportProgress, StatementFile, Category, Subcategory, Account } from '../../types';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { defaultCategories } from '../../data/defaultCategories';
+import { useAccountManagement } from '../../hooks/useAccountManagement';
+import { AccountSelectionDialog } from './AccountSelectionDialog';
+import { AccountDetectionResponse } from '../../services/accountManagementService';
 
 const ImportContainer = styled.div`
   background: white;
@@ -120,7 +123,13 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const [progress, setProgress] = useState<FileImportProgress | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [showAccountSelection, setShowAccountSelection] = useState(false);
+  const [accountDetectionResult, setAccountDetectionResult] = useState<AccountDetectionResponse | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Account management hook
+  const { accounts, detectAccount, addAccount } = useAccountManagement();
 
   // Get categories and subcategories
   const categories: Category[] = defaultCategories;
@@ -134,6 +143,34 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   };
 
   const processFile = async (file: File) => {
+    try {
+      // First, try to detect the account
+      const detectionRequest = {
+        fileName: file.name,
+        // We could add sample content here if needed
+      };
+
+      const detectionResult = await detectAccount(detectionRequest);
+      setAccountDetectionResult(detectionResult);
+
+      // If detection confidence is high enough, proceed directly
+      const CONFIDENCE_THRESHOLD = 0.7;
+      if (detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD) {
+        await startFileProcessing(file, detectionResult.detectedAccountId);
+      } else {
+        // Show account selection dialog
+        setPendingFile(file);
+        setShowAccountSelection(true);
+      }
+    } catch (error) {
+      console.error('Account detection failed:', error);
+      // Fallback to showing account selection
+      setPendingFile(file);
+      setShowAccountSelection(true);
+    }
+  };
+
+  const startFileProcessing = async (file: File, accountId: string) => {
     setIsImporting(true);
     setProgress(null);
     setCurrentFileId(null);
@@ -143,6 +180,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         file,
         categories,
         subcategories,
+        accountId, // Pass the selected account ID
         (progress) => {
           setProgress(progress);
         }
@@ -175,6 +213,36 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         errors: [error instanceof Error ? error.message : 'Unknown error'],
       });
     }
+  };
+
+  const handleAccountSelection = async (accountId: string, isNewAccount?: boolean, newAccountData?: Omit<Account, 'id'>) => {
+    setShowAccountSelection(false);
+    
+    let finalAccountId = accountId;
+    
+    // If creating a new account, add it first
+    if (isNewAccount && newAccountData) {
+      try {
+        const newAccount = await addAccount(newAccountData);
+        finalAccountId = newAccount.id;
+      } catch (error) {
+        console.error('Failed to create new account:', error);
+        return;
+      }
+    }
+
+    // Start processing with the selected/created account
+    if (pendingFile) {
+      await startFileProcessing(pendingFile, finalAccountId);
+      setPendingFile(null);
+    }
+    setAccountDetectionResult(null);
+  };
+
+  const handleCancelAccountSelection = () => {
+    setShowAccountSelection(false);
+    setPendingFile(null);
+    setAccountDetectionResult(null);
   };
 
   const handleStopImport = () => {
@@ -314,6 +382,19 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             </details>
           )}
         </ProgressContainer>
+      )}
+
+      {/* Account Selection Dialog */}
+      {showAccountSelection && pendingFile && (
+        <AccountSelectionDialog
+          isOpen={showAccountSelection}
+          fileName={pendingFile.name}
+          detectionResult={accountDetectionResult || undefined}
+          accounts={accounts}
+          onAccountSelect={(accountId) => handleAccountSelection(accountId)}
+          onNewAccount={(newAccountData) => handleAccountSelection('new', true, newAccountData)}
+          onCancel={handleCancelAccountSelection}
+        />
       )}
     </ImportContainer>
   );

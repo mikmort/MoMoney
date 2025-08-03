@@ -46,6 +46,7 @@ export class FileProcessingService {
     file: File, 
     categories: Category[], 
     subcategories: Subcategory[],
+    accountId: string,
     onProgress?: (progress: FileImportProgress) => void
   ): Promise<{ statementFile: StatementFile; fileId: string }> {
     const fileId = uuidv4();
@@ -114,6 +115,7 @@ export class FileProcessingService {
         schemaMapping.mapping, 
         categories, 
         subcategories,
+        accountId, // Pass the account ID
         (processed) => {
           progress.processedRows = processed;
           const progressPercent = 50 + (processed / rawData.length) * 40;
@@ -420,6 +422,7 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
     mapping: FileSchemaMapping, 
     categories: Category[], 
     subcategories: Subcategory[],
+    accountId: string,
     onProgress?: (processed: number) => void
   ): Promise<Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]> {
     const transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [];
@@ -434,7 +437,7 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
       try {
         const row = rawData[i];
         console.log(`🔍 Processing row ${i}:`, row);
-        const transaction = await this.processRow(row, mapping, categories, subcategories);
+        const transaction = await this.processRow(row, mapping, categories, subcategories, accountId);
         if (transaction) {
           console.log(`✅ Row ${i} created transaction:`, transaction);
           transactions.push(transaction);
@@ -458,7 +461,8 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
     row: any, 
     mapping: FileSchemaMapping, 
     categories: Category[], 
-    subcategories: Subcategory[]
+    subcategories: Subcategory[],
+    accountId: string
   ): Promise<Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'> | null> {
     try {
       // Extract basic fields
@@ -498,7 +502,7 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
             category: aiClassification.category,
             subcategory: aiClassification.subcategory,
             amount: correctedAmount,
-            account: 'Imported', // Default account for imported transactions
+            account: accountId, // Use the selected account ID
             confidence: aiClassification.confidence,
             reasoning: aiClassification.reasoning,
             type: correctedAmount >= 0 ? 'income' : 'expense',
@@ -530,7 +534,7 @@ Return ONLY a clean JSON response without any markdown formatting or code blocks
         category: aiClassification.category,
         subcategory: aiClassification.subcategory,
         amount,
-        account: 'Imported', // Default account for imported transactions
+        account: accountId, // Use the selected account ID
         confidence: aiClassification.confidence,
         reasoning: aiClassification.reasoning,
         type: amount >= 0 ? 'income' : 'expense',
