@@ -5,6 +5,7 @@ import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Category, Subcategory } from '../../types';
 import { defaultCategories } from '../../data/defaultCategories';
+import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -202,6 +203,27 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     setGridData(flatData);
   }, [categories]);
 
+  // Actions cell renderer component
+  const ActionsCellRenderer = (params: any) => {
+    if (params.data.type === 'category') {
+      const actions: MenuAction[] = [
+        {
+          icon: '✏️',
+          label: 'Edit Category',
+          onClick: () => handleEditCategory(params.data.id)
+        },
+        {
+          icon: '🗑️',
+          label: 'Delete Category',
+          onClick: () => handleDeleteCategory(params.data.id),
+          variant: 'danger'
+        }
+      ];
+      return <ActionsMenu menuId={`category-menu-${params.data.id}`} actions={actions} />;
+    }
+    return null;
+  };
+
   const columnDefs: ColDef[] = [
     {
       headerName: 'Type',
@@ -217,7 +239,12 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
       flex: 1,
       cellRenderer: (params: any) => {
         const isCategory = params.data.type === 'category';
-        return `<span style="font-weight: ${isCategory ? '600' : '400'}; color: ${isCategory ? '#333' : '#666'}">${params.value}</span>`;
+        return React.createElement('span', {
+          style: { 
+            fontWeight: isCategory ? '600' : '400', 
+            color: isCategory ? '#333' : '#666' 
+          }
+        }, params.value);
       }
     },
     {
@@ -226,7 +253,15 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
       width: 120,
       cellRenderer: (params: any) => {
         const isIncome = params.value === 'income';
-        return `<span style="background: ${isIncome ? '#e8f5e8' : '#fff3e0'}; padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; color: ${isIncome ? '#2e7d32' : '#ef6c00'}">${params.value}</span>`;
+        return React.createElement('span', {
+          style: {
+            background: isIncome ? '#e8f5e8' : '#fff3e0',
+            padding: '4px 8px',
+            borderRadius: '12px',
+            fontSize: '0.8rem',
+            color: isIncome ? '#2e7d32' : '#ef6c00'
+          }
+        }, params.value);
       }
     },
     {
@@ -236,13 +271,8 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     },
     {
       headerName: 'Actions',
-      width: 100,
-      cellRenderer: (params: any) => {
-        if (params.data.type === 'category') {
-          return `<button class="edit-category-btn" data-id="${params.data.id}" style="padding: 4px 8px; margin-right: 4px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">Edit</button>`;
-        }
-        return '';
-      }
+      width: 80,
+      cellRenderer: ActionsCellRenderer
     }
   ];
 
@@ -280,6 +310,13 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     // Implementation for saving category changes
     setShowEditModal(false);
     setEditingCategory(null);
+  };
+
+  const handleDeleteCategory = (categoryId: string) => {
+    if (window.confirm('Are you sure you want to delete this category? This action cannot be undone.')) {
+      const updatedCategories = categories.filter(c => c.id !== categoryId);
+      setCategories(updatedCategories);
+    }
   };
 
   const handleAddSubcategory = () => {
@@ -331,25 +368,6 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
           <Button variant="outline">Export Categories</Button>
         </FlexBox>
       </PageHeader>
-
-      <div className="stats-bar">
-        <div className="stat-item">
-          <div className="label">Total Categories</div>
-          <div className="value">{stats.totalCategories}</div>
-        </div>
-        <div className="stat-item">
-          <div className="label">Income Categories</div>
-          <div className="value">{stats.incomeCategories}</div>
-        </div>
-        <div className="stat-item">
-          <div className="label">Expense Categories</div>
-          <div className="value">{stats.expenseCategories}</div>
-        </div>
-        <div className="stat-item">
-          <div className="label">Total Subcategories</div>
-          <div className="value">{stats.totalSubcategories}</div>
-        </div>
-      </div>
 
       <Card>
         <CategoriesContainer>

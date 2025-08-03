@@ -360,7 +360,7 @@ export const TransactionAnalytics: React.FC<TransactionAnalyticsProps> = ({ tran
         <div className="metric">
           <span className="label">With AI Confidence</span>
           <span className="value neutral">
-            {transactions.filter(t => t.confidence && t.confidence > 0.8).length}
+            {transactions.filter(t => t.confidence && t.confidence > 0.9).length}
           </span>
         </div>
         <div className="metric">
