@@ -2,26 +2,29 @@
 
 export interface Transaction {
   id: string;
-  date: Date; // Transaction date
+  date: Date;
+  amount: number;
   description: string;
-  additionalNotes?: string; // User-added notes
   category: string;
   subcategory?: string;
-  amount: number;
-  addedDate: Date; // When it was added to the app
-  lastModifiedDate: Date; // When the row was last changed in the app
-  
-  // Additional fields for functionality
-  account?: string;
-  type?: 'income' | 'expense';
+  account: string;
+  type: 'income' | 'expense';
   isRecurring?: boolean;
   tags?: string[];
+  notes?: string; // User-added notes (main branch)
+  additionalNotes?: string; // User-added notes (feature branch compatibility)
+  addedDate: Date; // When it was added to the app (feature branch)
+  lastModifiedDate: Date; // When the row was last changed (feature branch)
   originalText?: string; // Raw text from statement
   confidence?: number; // AI classification confidence (0-1)
-  reasoning?: string; // AI explanation for categorization
+  reasoning?: string; // AI explanation for categorization (feature branch)
   isVerified?: boolean; // User has verified the categorization
   vendor?: string;
   location?: string;
+  reimbursed?: boolean; // True if this expense has been reimbursed (main branch)
+  reimbursementId?: string; // ID of the matching reimbursement transaction (main branch)
+  originalCurrency?: string; // Original currency for foreign transactions (main branch)
+  exchangeRate?: number; // Exchange rate if converted from foreign currency (main branch)
 }
 
 export interface Account {
@@ -178,4 +181,41 @@ export interface UserPreferences {
   enableNotifications: boolean;
   budgetAlerts: boolean;
   autoCategorizationEnabled: boolean;
+}
+
+export interface ReimbursementMatch {
+  id: string;
+  expenseTransactionId: string;
+  reimbursementTransactionId: string;
+  confidence: number; // AI confidence in the match (0-1)
+  matchType: 'exact' | 'approximate' | 'manual';
+  dateDifference: number; // Days between expense and reimbursement
+  amountDifference: number; // Difference in amounts (for currency conversion cases)
+  reasoning?: string; // AI explanation for the match
+  isVerified: boolean; // User has verified the match
+}
+
+export interface ReimbursementMatchRequest {
+  transactions: Transaction[];
+  dateRangeStart?: Date;
+  dateRangeEnd?: Date;
+  maxDaysDifference?: number; // Maximum days between expense and reimbursement
+  tolerancePercentage?: number; // Tolerance for amount differences (e.g., 0.05 = 5%)
+}
+
+export interface ReimbursementMatchResponse {
+  matches: ReimbursementMatch[];
+  unmatched: {
+    expenses: Transaction[];
+    reimbursements: Transaction[];
+  };
+  confidence: number;
+}
+
+export interface CurrencyExchangeRate {
+  fromCurrency: string;
+  toCurrency: string;
+  rate: number;
+  date: Date;
+  source: string; // API source used
 }
