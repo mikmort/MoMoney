@@ -10,8 +10,6 @@ import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
-import { TransactionAnalytics } from './TransactionAnalytics';
-import { TransactionTemplates } from './TransactionTemplates';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -231,6 +229,85 @@ const UploadArea = styled.div`
   }
 `;
 
+// Edit Transaction Modal styles
+const EditModalOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`;
+
+const EditModalContent = styled.div`
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+
+  h2 {
+    margin: 0 0 20px 0;
+    color: #333;
+    font-size: 1.5rem;
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+    
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+      color: #555;
+      font-size: 0.9rem;
+    }
+    
+    input, select, textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      
+      &:focus {
+        outline: none;
+        border-color: #2196f3;
+        box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+      }
+    }
+    
+    textarea {
+      min-height: 60px;
+      resize: vertical;
+    }
+  }
+
+  .form-row {
+    display: flex;
+    gap: 16px;
+    
+    .form-group {
+      flex: 1;
+    }
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+  }
+`;
+
 // Custom cell renderers
 const AmountCellRenderer = (params: any) => {
   const amount = params.value;
@@ -336,6 +413,20 @@ const Transactions: React.FC = () => {
     dateTo: '',
     account: '',
     search: ''
+  });
+
+  // Edit transaction modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [transactionForm, setTransactionForm] = useState({
+    description: '',
+    amount: '',
+    category: '',
+    subcategory: '',
+    account: '',
+    type: '',
+    date: '',
+    notes: ''
   });
 
   const { 
@@ -524,8 +615,93 @@ const Transactions: React.FC = () => {
 
   const startEditTransaction = (transaction: Transaction) => {
     console.log('Editing transaction:', transaction);
-    // For now, just show an alert since we're using mock data
-    alert(`Edit transaction: ${transaction.description}\nAmount: ${transaction.amount}\nCategory: ${transaction.category}`);
+    
+    // Set the transaction being edited
+    setEditingTransaction(transaction);
+    
+    // Populate the form with current transaction data
+    setTransactionForm({
+      description: transaction.description || '',
+      amount: transaction.amount?.toString() || '',
+      category: transaction.category || '',
+      subcategory: transaction.subcategory || '',
+      account: transaction.account || '',
+      type: transaction.type || '',
+      date: transaction.date ? transaction.date.toISOString().split('T')[0] : '',
+      notes: transaction.notes || ''
+    });
+    
+    // Show the edit modal
+    setShowEditModal(true);
+  };
+
+  const handleEditFormChange = (field: string, value: string) => {
+    setTransactionForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleEditFormSubmit = async () => {
+    if (!editingTransaction) return;
+    
+    try {
+      // Create updated transaction object
+      const updatedTransaction: Transaction = {
+        ...editingTransaction,
+        description: transactionForm.description,
+        amount: parseFloat(transactionForm.amount),
+        category: transactionForm.category,
+        subcategory: transactionForm.subcategory,
+        account: transactionForm.account,
+        type: transactionForm.type as 'income' | 'expense',
+        date: new Date(transactionForm.date),
+        notes: transactionForm.notes,
+        lastModifiedDate: new Date()
+      };
+
+      // Update the transaction
+      await dataService.updateTransaction(editingTransaction.id, {
+        description: transactionForm.description,
+        amount: parseFloat(transactionForm.amount),
+        category: transactionForm.category,
+        subcategory: transactionForm.subcategory,
+        account: transactionForm.account,
+        type: transactionForm.type as 'income' | 'expense',
+        date: new Date(transactionForm.date),
+        notes: transactionForm.notes,
+        lastModifiedDate: new Date()
+      });
+      
+      // Refresh the transactions list
+      const updatedTransactions = await dataService.getAllTransactions();
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+      
+      // Close the modal
+      setShowEditModal(false);
+      setEditingTransaction(null);
+      
+      console.log('✅ Transaction updated successfully');
+    } catch (error) {
+      console.error('❌ Error updating transaction:', error);
+      alert('Failed to update transaction. Please try again.');
+    }
+  };
+
+  const handleEditFormCancel = () => {
+    setShowEditModal(false);
+    setEditingTransaction(null);
+    setTransactionForm({
+      description: '',
+      amount: '',
+      category: '',
+      subcategory: '',
+      account: '',
+      type: '',
+      date: '',
+      notes: ''
+    });
   };
 
   const handleImportComplete = async (importedCount: number) => {
@@ -929,6 +1105,117 @@ const Transactions: React.FC = () => {
         onNewAccount={handleNewAccount}
         onCancel={handleCancelAccountSelection}
       />
+
+      {/* Edit Transaction Modal */}
+      {showEditModal && (
+        <EditModalOverlay onClick={handleEditFormCancel}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Edit Transaction</h2>
+            
+            <div className="form-group">
+              <label>Description *</label>
+              <input
+                type="text"
+                value={transactionForm.description}
+                onChange={(e) => handleEditFormChange('description', e.target.value)}
+                placeholder="Transaction description"
+              />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Amount *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={transactionForm.amount}
+                  onChange={(e) => handleEditFormChange('amount', e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Type</label>
+                <select
+                  value={transactionForm.type}
+                  onChange={(e) => handleEditFormChange('type', e.target.value)}
+                >
+                  <option value="">Select Type</option>
+                  <option value="income">Income</option>
+                  <option value="expense">Expense</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Category</label>
+                <select
+                  value={transactionForm.category}
+                  onChange={(e) => handleEditFormChange('category', e.target.value)}
+                >
+                  <option value="">Select Category</option>
+                  {uniqueCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Account</label>
+                <select
+                  value={transactionForm.account}
+                  onChange={(e) => handleEditFormChange('account', e.target.value)}
+                >
+                  <option value="">Select Account</option>
+                  {uniqueAccounts.map(account => (
+                    <option key={account} value={account}>{account}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Subcategory</label>
+                <input
+                  type="text"
+                  value={transactionForm.subcategory}
+                  onChange={(e) => handleEditFormChange('subcategory', e.target.value)}
+                  placeholder="Subcategory (optional)"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={transactionForm.date}
+                  onChange={(e) => handleEditFormChange('date', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Notes</label>
+              <textarea
+                value={transactionForm.notes}
+                onChange={(e) => handleEditFormChange('notes', e.target.value)}
+                placeholder="Additional notes (optional)"
+              />
+            </div>
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={handleEditFormCancel}>
+                Cancel
+              </Button>
+              <Button onClick={handleEditFormSubmit}>
+                Save Changes
+              </Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
     </div>
   );
 };
