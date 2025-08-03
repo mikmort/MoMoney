@@ -91,6 +91,32 @@ export interface FileImportProgress {
   errors: string[];
 }
 
+export interface FileSchemaMapping {
+  hasHeaders: boolean;
+  skipRows: number;
+  dateFormat: string;
+  amountFormat: string;
+  dateColumn?: string;
+  descriptionColumn?: string;
+  amountColumn?: string;
+  categoryColumn?: string;
+  subcategoryColumn?: string;
+  notesColumn?: string;
+}
+
+export interface AISchemaMappingRequest {
+  fileContent: string;
+  fileType: StatementFile['fileType'];
+  targetSchema: string[];
+}
+
+export interface AISchemaMappingResponse {
+  mapping: FileSchemaMapping;
+  confidence: number;
+  reasoning: string;
+  suggestions: string[];
+}
+
 export interface AIClassificationRequest {
   transactionText: string;
   amount: number;
