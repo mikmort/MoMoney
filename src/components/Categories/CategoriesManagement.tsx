@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Category, Subcategory } from '../../types';
+import { Category } from '../../types';
 import { defaultCategories } from '../../data/defaultCategories';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import Papa from 'papaparse';
@@ -568,13 +568,6 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
         handleEditCategory(categoryId);
       }
     });
-  };
-
-  const stats = {
-    totalCategories: categories.length,
-    incomeCategories: categories.filter(c => c.type === 'income').length,
-    expenseCategories: categories.filter(c => c.type === 'expense').length,
-    totalSubcategories: categories.reduce((sum, c) => sum + c.subcategories.length, 0)
   };
 
   return (

@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account, Category } from '../../types';
+import { Transaction, ReimbursementMatch, Account } from '../../types';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
@@ -279,33 +279,6 @@ const StatsBar = styled.div`
         color: #f44336;
       }
     }
-  }
-`;
-
-const UploadArea = styled.div`
-  border: 2px dashed #ddd;
-  border-radius: 8px;
-  padding: 40px;
-  text-align: center;
-  background: #fafafa;
-  margin-bottom: 20px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  
-  &:hover, &.dragover {
-    border-color: #2196f3;
-    background: #f0f8ff;
-  }
-  
-  .upload-text {
-    font-size: 1.1rem;
-    color: #666;
-    margin-bottom: 8px;
-  }
-  
-  .upload-subtext {
-    font-size: 0.9rem;
-    color: #999;
   }
 `;
 
@@ -790,7 +763,7 @@ const Transactions: React.FC = () => {
     }, 0);
   }, []);
 
-  const handleDeleteTransaction = async (id: string) => {
+  const handleDeleteTransaction = useCallback(async (id: string) => {
     try {
       console.log('Deleting transaction:', id);
       // For now, just remove from state since we're using mock data
@@ -800,9 +773,9 @@ const Transactions: React.FC = () => {
     } catch (error) {
       console.error('Failed to delete transaction:', error);
     }
-  };
+  }, [transactions]);
 
-  const startEditTransaction = (transaction: Transaction) => {
+  const startEditTransaction = useCallback((transaction: Transaction) => {
     console.log('Editing transaction:', transaction);
     
     // Set the transaction being edited
@@ -822,7 +795,7 @@ const Transactions: React.FC = () => {
     
     // Show the edit modal
     setShowEditModal(true);
-  };
+  }, []);
 
   const handleEditFormChange = (field: string, value: string) => {
     setTransactionForm(prev => {
