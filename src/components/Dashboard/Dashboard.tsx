@@ -17,6 +17,7 @@ import { Bar, Doughnut } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
 import { Card, PageHeader, Grid, Badge } from '../../styles/globalStyles';
 import { DashboardStats, Transaction } from '../../types';
+import { dashboardService } from '../../services/dashboardService';
 
 // Register Chart.js components
 ChartJS.register(
@@ -121,31 +122,24 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Mock data - replace with actual API calls
-    const mockStats: DashboardStats = {
-      totalIncome: 5420.50,
-      totalExpenses: 3891.25,
-      netIncome: 1529.25,
-      transactionCount: 147,
-      topCategories: [
-        { categoryId: 'housing', categoryName: 'Housing', amount: 1250.00, percentage: 32.1 },
-        { categoryId: 'food', categoryName: 'Food & Dining', amount: 456.80, percentage: 11.7 },
-        { categoryId: 'transportation', categoryName: 'Transportation', amount: 398.45, percentage: 10.2 },
-        { categoryId: 'entertainment', categoryName: 'Entertainment', amount: 267.30, percentage: 6.9 },
-        { categoryId: 'shopping', categoryName: 'Shopping', amount: 234.50, percentage: 6.0 }
-      ],
-      monthlyTrend: [
-        { month: 'Jan', income: 5200, expenses: 3800, net: 1400 },
-        { month: 'Feb', income: 5150, expenses: 3950, net: 1200 },
-        { month: 'Mar', income: 5420, expenses: 3891, net: 1529 },
-      ]
+    const loadDashboardData = async () => {
+      setLoading(true);
+      try {
+        const [stats, recent] = await Promise.all([
+          dashboardService.getDashboardStats(),
+          dashboardService.getRecentTransactions(5)
+        ]);
+        
+        setStats(stats);
+        setRecentTransactions(recent);
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    setTimeout(() => {
-      setStats(mockStats);
-      setRecentTransactions([]);
-      setLoading(false);
-    }, 1000);
+    loadDashboardData();
   }, []);
 
   const formatCurrency = (amount: number) => {
@@ -156,10 +150,10 @@ const Dashboard: React.FC = () => {
   };
 
   const categoryChartData = {
-    labels: stats?.topCategories.map((cat: any) => cat.categoryName) || [],
+    labels: stats?.topCategories.map((cat) => cat.categoryName) || [],
     datasets: [
       {
-        data: stats?.topCategories.map((cat: any) => cat.amount) || [],
+        data: stats?.topCategories.map((cat) => cat.amount) || [],
         backgroundColor: [
           '#FF6384',
           '#36A2EB',
@@ -174,18 +168,18 @@ const Dashboard: React.FC = () => {
   };
 
   const trendChartData = {
-    labels: stats?.monthlyTrend.map((month: any) => month.month) || [],
+    labels: stats?.monthlyTrend.map((month) => month.month) || [],
     datasets: [
       {
         label: 'Income',
-        data: stats?.monthlyTrend.map((month: any) => month.income) || [],
+        data: stats?.monthlyTrend.map((month) => month.income) || [],
         backgroundColor: 'rgba(75, 192, 192, 0.6)',
         borderColor: 'rgba(75, 192, 192, 1)',
         borderWidth: 2
       },
       {
         label: 'Expenses',
-        data: stats?.monthlyTrend.map((month: any) => month.expenses) || [],
+        data: stats?.monthlyTrend.map((month) => month.expenses) || [],
         backgroundColor: 'rgba(255, 99, 132, 0.6)',
         borderColor: 'rgba(255, 99, 132, 1)',
         borderWidth: 2
@@ -237,65 +231,97 @@ const Dashboard: React.FC = () => {
         <ChartCard>
           <h3>Spending by Category</h3>
           <div className="chart-container">
-            <Doughnut 
-              data={categoryChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    position: 'bottom',
+            {stats && stats.topCategories.length > 0 ? (
+              <Doughnut 
+                data={categoryChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'bottom',
+                    },
                   },
-                },
-              }}
-            />
+                }}
+              />
+            ) : (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                height: '100%',
+                color: '#666',
+                textAlign: 'center'
+              }}>
+                No spending data available.<br />Import transactions to see category breakdown.
+              </div>
+            )}
           </div>
         </ChartCard>
 
         <ChartCard>
           <h3>Monthly Trend</h3>
           <div className="chart-container">
-            <Bar 
-              data={trendChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    position: 'top',
+            {stats && stats.monthlyTrend.length > 0 ? (
+              <Bar 
+                data={trendChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'top',
+                    },
                   },
-                },
-                scales: {
-                  y: {
-                    beginAtZero: true,
-                    ticks: {
-                      callback: function(value) {
-                        return '$' + value.toLocaleString();
+                  scales: {
+                    y: {
+                      beginAtZero: true,
+                      ticks: {
+                        callback: function(value) {
+                          return '$' + value.toLocaleString();
+                        }
                       }
                     }
                   }
-                }
-              }}
-            />
+                }}
+              />
+            ) : (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                height: '100%',
+                color: '#666',
+                textAlign: 'center'
+              }}>
+                No trend data available.<br />Import transactions from multiple months to see trends.
+              </div>
+            )}
           </div>
         </ChartCard>
       </Grid>
 
       <RecentTransactions>
         <h3>Recent Transactions</h3>
-        {recentTransactions.map((transaction) => (
-          <div key={transaction.id} className="transaction-item">
-            <div className="transaction-info">
-              <div className="description">{transaction.description}</div>
-              <div className="details">
-                {transaction.category} • {transaction.account} • {transaction.date.toLocaleDateString()}
+        {recentTransactions.length > 0 ? (
+          recentTransactions.map((transaction) => (
+            <div key={transaction.id} className="transaction-item">
+              <div className="transaction-info">
+                <div className="description">{transaction.description}</div>
+                <div className="details">
+                  {transaction.category} • {transaction.account} • {transaction.date.toLocaleDateString()}
+                </div>
+              </div>
+              <div className={`amount ${transaction.type}`}>
+                {formatCurrency(Math.abs(transaction.amount))}
               </div>
             </div>
-            <div className={`amount ${transaction.type}`}>
-              {formatCurrency(transaction.amount)}
-            </div>
+          ))
+        ) : (
+          <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
+            No transactions found. Import your bank statements to see your financial overview.
           </div>
-        ))}
+        )}
       </RecentTransactions>
     </div>
   );
