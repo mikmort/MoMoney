@@ -129,12 +129,12 @@ class DataService {
     return newTransactions;
   }
 
-  async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | null> {
+  async updateTransaction(id: string, updates: Partial<Transaction>, note?: string): Promise<Transaction | null> {
     const index = this.transactions.findIndex(t => t.id === id);
     if (index === -1) return null;
     // Record a snapshot of the current transaction before updating
     const current = this.transactions[index];
-    this.addHistorySnapshot(current.id, current);
+    this.addHistorySnapshot(current.id, current, note);
 
     this.transactions[index] = {
       ...current,
@@ -372,7 +372,7 @@ class DataService {
     return [...(this.history[transactionId] || [])].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }
 
-  async restoreTransactionVersion(transactionId: string, versionId: string): Promise<Transaction | null> {
+  async restoreTransactionVersion(transactionId: string, versionId: string, note?: string): Promise<Transaction | null> {
     const index = this.transactions.findIndex(t => t.id === transactionId);
     if (index === -1) return null;
     const versions = this.history[transactionId] || [];
@@ -381,7 +381,7 @@ class DataService {
 
     // Snapshot current before restoring
     const current = this.transactions[index];
-    this.addHistorySnapshot(transactionId, current, 'Auto-snapshot before restore');
+    this.addHistorySnapshot(transactionId, current, note ? `Before restore: ${note}` : 'Auto-snapshot before restore');
 
     // Restore
     const restored: Transaction = {

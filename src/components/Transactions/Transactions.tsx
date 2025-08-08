@@ -464,6 +464,20 @@ const Transactions: React.FC = () => {
   const [historyFor, setHistoryFor] = useState<Transaction | null>(null);
   const [historyItems, setHistoryItems] = useState<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>>([]);
 
+  // Compute a simple diff summary between two transactions
+  const summarizeDiff = (a: Transaction, b: Transaction) => {
+    const fields: Array<keyof Transaction> = ['description','amount','category','subcategory','account','type','date','notes'];
+    const changes: string[] = [];
+    fields.forEach(f => {
+      const av = f === 'date' ? (a.date ? new Date(a.date).toISOString().slice(0,10) : '') : (a as any)[f];
+      const bv = f === 'date' ? (b.date ? new Date(b.date).toISOString().slice(0,10) : '') : (b as any)[f];
+      if ((av ?? '') !== (bv ?? '')) {
+        changes.push(`${String(f)}: "${av ?? ''}" → "${bv ?? ''}"`);
+      }
+    });
+    return changes.join('; ');
+  };
+
   const openHistory = async (tx: Transaction) => {
     const items = await dataService.getTransactionHistory(tx.id);
     setHistoryFor(tx);
@@ -473,7 +487,19 @@ const Transactions: React.FC = () => {
 
   const restoreHistory = async (versionId: string) => {
     if (!historyFor) return;
-    await dataService.restoreTransactionVersion(historyFor.id, versionId);
+    const version = historyItems.find(h => h.id === versionId);
+    let note: string | undefined = undefined;
+    if (version) {
+      const current = await dataService.getTransactionById(historyFor.id);
+      if (current) {
+        const diff = summarizeDiff(current, version.data);
+        const confirmMsg = `Restore this version?\n\nChanges: ${diff || 'No visible field changes.'}`;
+        const ok = window.confirm(confirmMsg);
+        if (!ok) return;
+        note = diff ? `Restored: ${diff}` : 'Restored previous version';
+      }
+    }
+    await dataService.restoreTransactionVersion(historyFor.id, versionId, note);
     const allTransactions = await dataService.getAllTransactions();
     setTransactions(allTransactions);
     setFilteredTransactions(allTransactions);
@@ -1017,13 +1043,16 @@ const Transactions: React.FC = () => {
         let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
 
         // Update the transaction with suggested category
-        await dataService.updateTransaction(tx.id, {
+  const updates: Partial<Transaction> = {
           category: categoryName,
           subcategory: subName,
           confidence: result.confidence,
           reasoning: result.reasoning,
           isVerified: false,
-        });
+  };
+
+  const note = `AI Suggest Category: ${tx.category}${tx.subcategory ? ' → ' + tx.subcategory : ''} → ${updates.category}${updates.subcategory ? ' → ' + updates.subcategory : ''}`;
+  await dataService.updateTransaction(tx.id, updates, note);
 
         const all = await dataService.getAllTransactions();
         setTransactions(all);

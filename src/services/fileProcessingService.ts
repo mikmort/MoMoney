@@ -400,6 +400,16 @@ export class FileProcessingService {
 
     const stripBOM = (s: string) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
     const countReplacement = (s: string) => (s.match(/\uFFFD/g) || []).length;
+    // Count Unicode C1 control characters U+0080–U+009F which often appear when cp1252 bytes
+    // are decoded as ISO-8859-1. We want to penalize decodings that produce these.
+    const countC1Controls = (s: string) => {
+      let count = 0;
+      for (let i = 0; i < s.length; i++) {
+        const code = s.charCodeAt(i);
+        if (code >= 0x80 && code <= 0x9f) count++;
+      }
+      return count;
+    };
     const tryDecode = (buf: ArrayBuffer, enc: string) => {
       try {
         const dec = new TextDecoder(enc as any, { fatal: false });
@@ -411,25 +421,57 @@ export class FileProcessingService {
 
     const buffer = await readAsArrayBuffer();
 
+    // Quick BOM-based detection for Unicode encodings
+    const view = new Uint8Array(buffer);
+    const hasUTF8BOM = view.length >= 3 && view[0] === 0xef && view[1] === 0xbb && view[2] === 0xbf;
+    const hasUTF16LE = view.length >= 2 && view[0] === 0xff && view[1] === 0xfe;
+    const hasUTF16BE = view.length >= 2 && view[0] === 0xfe && view[1] === 0xff;
+
+    if (hasUTF16LE) {
+      const dec = new TextDecoder('utf-16le');
+      return stripBOM(dec.decode(new DataView(buffer)));
+    }
+    if (hasUTF16BE) {
+      const dec = new TextDecoder('utf-16be' as any);
+      return stripBOM(dec.decode(new DataView(buffer)));
+    }
+
     // Prefer UTF-8; if we see replacement characters, try common Western encodings.
-    const utf8 = tryDecode(buffer, 'utf-8');
+  const utf8 = tryDecode(buffer, 'utf-8');
     const utf8Repl = countReplacement(utf8);
 
-    if (utf8Repl === 0) return utf8;
+  if (utf8Repl === 0 || hasUTF8BOM) return utf8;
 
     // Some CSV exports use Windows-1252 or ISO-8859-1
     const cp1252 = tryDecode(buffer, 'windows-1252');
     const cp1252Repl = countReplacement(cp1252);
+    const cp1252C1 = countC1Controls(cp1252);
 
-    const iso88591 = tryDecode(buffer, 'iso-8859-1');
-    const isoRepl = countReplacement(iso88591);
+  const iso88591 = tryDecode(buffer, 'iso-8859-1');
+  const isoRepl = countReplacement(iso88591);
+  const isoC1 = countC1Controls(iso88591);
 
-    // Choose the decoding that yields the fewest replacement characters
-    const best = [
-      { text: utf8, repl: utf8Repl },
-      { text: cp1252, repl: cp1252Repl },
-      { text: iso88591, repl: isoRepl }
-    ].reduce((a, b) => (b.repl < a.repl ? b : a));
+  const iso885915 = tryDecode(buffer, 'iso-8859-15');
+  const iso15Repl = countReplacement(iso885915);
+  const iso15C1 = countC1Controls(iso885915);
+
+    // Score decodings: lower replacement chars first, then fewer C1 controls.
+    // Prefer cp1252 over iso-8859-1 when ties (common for Western European CSVs).
+    type Candidate = { text: string; repl: number; c1: number; label: 'utf8' | 'cp1252' | 'iso' | 'iso15' };
+    const candidates: Candidate[] = [
+      { text: utf8, repl: utf8Repl, c1: countC1Controls(utf8), label: 'utf8' },
+      { text: cp1252, repl: cp1252Repl, c1: cp1252C1, label: 'cp1252' },
+      { text: iso88591, repl: isoRepl, c1: isoC1, label: 'iso' },
+      { text: iso885915, repl: iso15Repl, c1: iso15C1, label: 'iso15' }
+    ];
+
+    const best = candidates.reduce((best, cur) => {
+      if (cur.repl !== best.repl) return cur.repl < best.repl ? cur : best;
+      if (cur.c1 !== best.c1) return cur.c1 < best.c1 ? cur : best;
+      // Tie-breaker: prefer cp1252 over iso when both are equal
+  const prefOrder: Record<Candidate['label'], number> = { utf8: 0, cp1252: 1, iso: 2, iso15: 3 };
+      return prefOrder[cur.label] < prefOrder[best.label] ? cur : best;
+    });
 
     return best.text || utf8; // fallback to utf8 if all failed
   }
