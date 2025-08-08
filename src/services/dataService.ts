@@ -1,22 +1,106 @@
 import { Transaction, DuplicateDetectionResult, DuplicateTransaction } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { db, TransactionHistoryEntry } from './db';
 
 class DataService {
-  private transactions: Transaction[] = [];
-  private storageKey = 'mo-money-transactions';
-  private historyStorageKey = 'mo-money-transaction-history';
-  private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
+  private isInitialized = false;
 
   constructor() {
-    this.loadFromStorage();
-  this.loadHistoryFromStorage();
-    // Initialize with sample data if empty
-    if (this.transactions.length === 0) {
-      this.initializeSampleData();
+    this.initialize();
+  }
+
+  private async initialize(): Promise<void> {
+    try {
+      // Check if we need to migrate from localStorage
+      await this.migrateFromLocalStorage();
+      
+      // Check if we need to initialize with sample data
+      const transactionCount = await db.transactions.count();
+      if (transactionCount === 0) {
+        await this.initializeSampleData();
+      }
+      
+      this.isInitialized = true;
+    } catch (error) {
+      console.error('Failed to initialize DataService:', error);
+      this.isInitialized = true; // Continue even if initialization fails
     }
   }
 
-  private initializeSampleData(): void {
+  private async ensureInitialized(): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+  }
+
+  private async migrateFromLocalStorage(): Promise<void> {
+    try {
+      // Check if IndexedDB is already initialized
+      if (await db.isInitialized()) {
+        return;
+      }
+
+      const storageKey = 'mo-money-transactions';
+      const historyStorageKey = 'mo-money-transaction-history';
+
+      // Migrate transactions from localStorage
+      const storedTransactions = localStorage.getItem(storageKey);
+      if (storedTransactions) {
+        console.log('Migrating transactions from localStorage to IndexedDB...');
+        const transactions = JSON.parse(storedTransactions).map((t: any) => ({
+          ...t,
+          date: new Date(t.date),
+          addedDate: new Date(t.addedDate),
+          lastModifiedDate: new Date(t.lastModifiedDate),
+        }));
+
+        await db.transactions.bulkAdd(transactions);
+        console.log(`Migrated ${transactions.length} transactions to IndexedDB`);
+      }
+
+      // Migrate transaction history from localStorage
+      const storedHistory = localStorage.getItem(historyStorageKey);
+      if (storedHistory) {
+        console.log('Migrating transaction history from localStorage to IndexedDB...');
+        const history = JSON.parse(storedHistory);
+        const historyEntries: TransactionHistoryEntry[] = [];
+
+        Object.keys(history).forEach((transactionId: string) => {
+          history[transactionId].forEach((entry: any) => {
+            historyEntries.push({
+              id: entry.id,
+              transactionId,
+              timestamp: entry.timestamp,
+              note: entry.note,
+              data: {
+                ...entry.data,
+                date: new Date(entry.data.date),
+                addedDate: entry.data.addedDate ? new Date(entry.data.addedDate) : undefined,
+                lastModifiedDate: entry.data.lastModifiedDate ? new Date(entry.data.lastModifiedDate) : undefined,
+              }
+            });
+          });
+        });
+
+        if (historyEntries.length > 0) {
+          await db.transactionHistory.bulkAdd(historyEntries);
+          console.log(`Migrated ${historyEntries.length} history entries to IndexedDB`);
+        }
+      }
+
+      // Mark as initialized and optionally clear localStorage
+      await db.markInitialized();
+      console.log('Migration from localStorage to IndexedDB completed successfully');
+      
+      // Clear localStorage after successful migration (optional - commented out for safety)
+      // localStorage.removeItem(storageKey);
+      // localStorage.removeItem(historyStorageKey);
+    } catch (error) {
+      console.error('Error during localStorage migration:', error);
+    }
+  }
+
+  private async initializeSampleData(): Promise<void> {
     const sampleTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [
       {
         date: new Date('2025-08-01'),
@@ -84,155 +168,222 @@ class DataService {
     ];
 
     // Add sample transactions
-    this.addTransactions(sampleTransactions);
+    await this.addTransactions(sampleTransactions);
   }
 
   // Core CRUD operations
   async getAllTransactions(): Promise<Transaction[]> {
-    console.log(`DataService: getAllTransactions called, returning ${this.transactions.length} transactions`);
-    return [...this.transactions];
+    await this.ensureInitialized();
+    try {
+      const transactions = await db.transactions.orderBy('date').reverse().toArray();
+      console.log(`DataService: getAllTransactions called, returning ${transactions.length} transactions`);
+      return transactions;
+    } catch (error) {
+      console.error('Error getting all transactions:', error);
+      return [];
+    }
   }
 
   async getTransactionById(id: string): Promise<Transaction | null> {
-    return this.transactions.find(t => t.id === id) || null;
+    await this.ensureInitialized();
+    try {
+      const transaction = await db.transactions.get(id);
+      return transaction || null;
+    } catch (error) {
+      console.error('Error getting transaction by id:', error);
+      return null;
+    }
   }
 
   async addTransaction(transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Promise<Transaction> {
-    const now = new Date();
-    const newTransaction: Transaction = {
-      ...transaction,
-      id: uuidv4(),
-      addedDate: now,
-      lastModifiedDate: now,
-    };
-    
-    this.transactions.push(newTransaction);
-    this.saveToStorage();
-    return newTransaction;
+    await this.ensureInitialized();
+    try {
+      const now = new Date();
+      const newTransaction: Transaction = {
+        ...transaction,
+        id: uuidv4(),
+        addedDate: now,
+        lastModifiedDate: now,
+      };
+      
+      await db.transactions.add(newTransaction);
+      return newTransaction;
+    } catch (error) {
+      console.error('Error adding transaction:', error);
+      throw error;
+    }
   }
 
   async addTransactions(transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<Transaction[]> {
-    console.log(`DataService: Adding ${transactions.length} transactions`);
-    const now = new Date();
-    const newTransactions = transactions.map(transaction => ({
-      ...transaction,
-      id: uuidv4(),
-      addedDate: now,
-      lastModifiedDate: now,
-    }));
-    
-    console.log(`DataService: Created ${newTransactions.length} new transaction objects`);
-    this.transactions.push(...newTransactions);
-    console.log(`DataService: Total transactions now: ${this.transactions.length}`);
-    this.saveToStorage();
-    console.log(`DataService: Saved to localStorage`);
-    return newTransactions;
+    await this.ensureInitialized();
+    try {
+      console.log(`DataService: Adding ${transactions.length} transactions`);
+      const now = new Date();
+      const newTransactions = transactions.map(transaction => ({
+        ...transaction,
+        id: uuidv4(),
+        addedDate: now,
+        lastModifiedDate: now,
+      }));
+      
+      console.log(`DataService: Created ${newTransactions.length} new transaction objects`);
+      await db.transactions.bulkAdd(newTransactions);
+      const totalCount = await db.transactions.count();
+      console.log(`DataService: Total transactions now: ${totalCount}`);
+      return newTransactions;
+    } catch (error) {
+      console.error('Error adding transactions:', error);
+      throw error;
+    }
   }
 
   async updateTransaction(id: string, updates: Partial<Transaction>, note?: string): Promise<Transaction | null> {
-    const index = this.transactions.findIndex(t => t.id === id);
-    if (index === -1) return null;
-    // Record a snapshot of the current transaction before updating
-    const current = this.transactions[index];
-    this.addHistorySnapshot(current.id, current, note);
+    await this.ensureInitialized();
+    try {
+      const current = await db.transactions.get(id);
+      if (!current) return null;
 
-    this.transactions[index] = {
-      ...current,
-      ...updates,
-      lastModifiedDate: new Date(),
-    };
-    
-    this.saveToStorage();
-    this.saveHistoryToStorage();
-    return this.transactions[index];
+      // Record a snapshot of the current transaction before updating
+      await this.addHistorySnapshot(current.id, current, note);
+
+      const updatedTransaction: Transaction = {
+        ...current,
+        ...updates,
+        id: current.id, // Ensure ID doesn't change
+        lastModifiedDate: new Date(),
+      };
+      
+      await db.transactions.put(updatedTransaction);
+      return updatedTransaction;
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+      return null;
+    }
   }
 
   async deleteTransaction(id: string): Promise<boolean> {
-    const index = this.transactions.findIndex(t => t.id === id);
-    if (index === -1) return false;
-
-    this.transactions.splice(index, 1);
-    this.saveToStorage();
-    return true;
+    await this.ensureInitialized();
+    try {
+      await db.transactions.delete(id);
+      return true;
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+      return false;
+    }
   }
 
   async deleteTransactions(ids: string[]): Promise<number> {
-    const initialLength = this.transactions.length;
-    this.transactions = this.transactions.filter(t => !ids.includes(t.id));
-    const deletedCount = initialLength - this.transactions.length;
-    
-    if (deletedCount > 0) {
-      this.saveToStorage();
+    await this.ensureInitialized();
+    try {
+      const deletedCount = await db.transactions.where('id').anyOf(ids).delete();
+      return deletedCount;
+    } catch (error) {
+      console.error('Error deleting transactions:', error);
+      return 0;
     }
-    
-    return deletedCount;
   }
 
   // Query operations
   async getTransactionsByDateRange(startDate: Date, endDate: Date): Promise<Transaction[]> {
-    return this.transactions.filter(t => 
-      t.date >= startDate && t.date <= endDate
-    );
+    await this.ensureInitialized();
+    try {
+      return await db.transactions
+        .where('date')
+        .between(startDate, endDate, true, true)
+        .toArray();
+    } catch (error) {
+      console.error('Error getting transactions by date range:', error);
+      return [];
+    }
   }
 
   async getTransactionsByCategory(category: string, subcategory?: string): Promise<Transaction[]> {
-    return this.transactions.filter(t => 
-      t.category === category && 
-      (subcategory === undefined || t.subcategory === subcategory)
-    );
+    await this.ensureInitialized();
+    try {
+      let query = db.transactions.where('category').equals(category);
+      if (subcategory !== undefined) {
+        return await query.and(t => t.subcategory === subcategory).toArray();
+      }
+      return await query.toArray();
+    } catch (error) {
+      console.error('Error getting transactions by category:', error);
+      return [];
+    }
   }
 
   async searchTransactions(query: string): Promise<Transaction[]> {
-    const lowerQuery = query.toLowerCase();
-    return this.transactions.filter(t => 
-      t.description.toLowerCase().includes(lowerQuery) ||
-      t.category.toLowerCase().includes(lowerQuery) ||
-      t.subcategory?.toLowerCase().includes(lowerQuery) ||
-      t.notes?.toLowerCase().includes(lowerQuery) ||
-      t.vendor?.toLowerCase().includes(lowerQuery)
-    );
+    await this.ensureInitialized();
+    try {
+      const lowerQuery = query.toLowerCase();
+      return await db.transactions
+        .filter(t => 
+          t.description.toLowerCase().includes(lowerQuery) ||
+          t.category.toLowerCase().includes(lowerQuery) ||
+          (t.subcategory?.toLowerCase().includes(lowerQuery) || false) ||
+          (t.notes?.toLowerCase().includes(lowerQuery) || false) ||
+          (t.vendor?.toLowerCase().includes(lowerQuery) || false)
+        )
+        .toArray();
+    } catch (error) {
+      console.error('Error searching transactions:', error);
+      return [];
+    }
   }
 
   // Export/Import operations
   async exportToJSON(): Promise<string> {
-    const exportData = {
-      exportDate: new Date().toISOString(),
-      version: '1.0',
-      transactions: this.transactions,
-    };
-    
-    return JSON.stringify(exportData, null, 2);
+    await this.ensureInitialized();
+    try {
+      const transactions = await db.transactions.toArray();
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        version: '1.0',
+        transactions: transactions,
+      };
+      
+      return JSON.stringify(exportData, null, 2);
+    } catch (error) {
+      console.error('Error exporting to JSON:', error);
+      throw error;
+    }
   }
 
   async exportToCSV(): Promise<string> {
-    const headers = [
-      'ID', 'Date', 'Description', 'Additional Notes', 'Category', 
-      'Subcategory', 'Amount', 'Account', 'Type', 'Confidence', 
-      'Reasoning', 'Added Date', 'Last Modified Date'
-    ];
-    
-    const csvRows = [headers.join(',')];
-    
-    this.transactions.forEach(transaction => {
-      const row = [
-        transaction.id,
-        transaction.date.toISOString().split('T')[0],
-        `"${transaction.description.replace(/"/g, '""')}"`,
-        `"${(transaction.notes || '').replace(/"/g, '""')}"`,
-        transaction.category,
-        transaction.subcategory || '',
-        transaction.amount,
-        transaction.account || '',
-        transaction.type || '',
-        transaction.confidence || '',
-        `"${(transaction.reasoning || '').replace(/"/g, '""')}"`,
-        transaction.addedDate?.toISOString() || '',
-        transaction.lastModifiedDate?.toISOString() || '',
+    await this.ensureInitialized();
+    try {
+      const transactions = await db.transactions.toArray();
+      const headers = [
+        'ID', 'Date', 'Description', 'Additional Notes', 'Category', 
+        'Subcategory', 'Amount', 'Account', 'Type', 'Confidence', 
+        'Reasoning', 'Added Date', 'Last Modified Date'
       ];
-      csvRows.push(row.join(','));
-    });
-    
-    return csvRows.join('\n');
+      
+      const csvRows = [headers.join(',')];
+      
+      transactions.forEach(transaction => {
+        const row = [
+          transaction.id,
+          transaction.date.toISOString().split('T')[0],
+          `"${transaction.description.replace(/"/g, '""')}"`,
+          `"${(transaction.notes || '').replace(/"/g, '""')}"`,
+          transaction.category,
+          transaction.subcategory || '',
+          transaction.amount,
+          transaction.account || '',
+          transaction.type || '',
+          transaction.confidence || '',
+          `"${(transaction.reasoning || '').replace(/"/g, '""')}"`,
+          transaction.addedDate?.toISOString() || '',
+          transaction.lastModifiedDate?.toISOString() || '',
+        ];
+        csvRows.push(row.join(','));
+      });
+      
+      return csvRows.join('\n');
+    } catch (error) {
+      console.error('Error exporting to CSV:', error);
+      throw error;
+    }
   }
 
   async importFromJSON(jsonData: string): Promise<{ success: boolean; imported: number; errors: string[] }> {
@@ -295,104 +446,70 @@ class DataService {
     }
   }
 
-  // Storage operations
-  private loadFromStorage(): void {
+  // History operations
+  private async addHistorySnapshot(transactionId: string, snapshot: Transaction, note?: string): Promise<void> {
     try {
-      const stored = localStorage.getItem(this.storageKey);
-      if (stored) {
-        const data = JSON.parse(stored);
-        this.transactions = data.map((t: any) => ({
-          ...t,
-          date: new Date(t.date),
-          addedDate: new Date(t.addedDate),
-          lastModifiedDate: new Date(t.lastModifiedDate),
-        }));
-      }
+      const entry: TransactionHistoryEntry = {
+        id: uuidv4(),
+        transactionId,
+        timestamp: new Date().toISOString(),
+        data: { ...snapshot },
+        note,
+      };
+      await db.transactionHistory.add(entry);
     } catch (error) {
-      console.error('Failed to load transactions from storage:', error);
-      this.transactions = [];
+      console.error('Error adding history snapshot:', error);
     }
-  }
-
-  private saveToStorage(): void {
-    try {
-      localStorage.setItem(this.storageKey, JSON.stringify(this.transactions));
-    } catch (error) {
-      console.error('Failed to save transactions to storage:', error);
-    }
-  }
-
-  private loadHistoryFromStorage(): void {
-    try {
-      const stored = localStorage.getItem(this.historyStorageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        // Rehydrate dates inside snapshots
-        Object.keys(parsed).forEach((txId: string) => {
-          parsed[txId] = parsed[txId].map((entry: any) => ({
-            ...entry,
-            data: {
-              ...entry.data,
-              date: new Date(entry.data.date),
-              addedDate: entry.data.addedDate ? new Date(entry.data.addedDate) : undefined,
-              lastModifiedDate: entry.data.lastModifiedDate ? new Date(entry.data.lastModifiedDate) : undefined,
-            }
-          }));
-        });
-        this.history = parsed;
-      }
-    } catch (error) {
-      console.error('Failed to load transaction history from storage:', error);
-      this.history = {};
-    }
-  }
-
-  private saveHistoryToStorage(): void {
-    try {
-      localStorage.setItem(this.historyStorageKey, JSON.stringify(this.history));
-    } catch (error) {
-      console.error('Failed to save transaction history to storage:', error);
-    }
-  }
-
-  private addHistorySnapshot(transactionId: string, snapshot: Transaction, note?: string): void {
-    const entry = {
-      id: uuidv4(),
-      timestamp: new Date().toISOString(),
-      data: { ...snapshot },
-      note,
-    };
-    if (!this.history[transactionId]) {
-      this.history[transactionId] = [];
-    }
-    this.history[transactionId].push(entry);
   }
 
   async getTransactionHistory(transactionId: string): Promise<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>> {
-    return [...(this.history[transactionId] || [])].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    await this.ensureInitialized();
+    try {
+      const entries = await db.transactionHistory
+        .where('transactionId')
+        .equals(transactionId)
+        .toArray();
+      
+      // Sort by timestamp descending
+      entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      return entries.map(entry => ({
+        id: entry.id,
+        timestamp: entry.timestamp,
+        data: entry.data,
+        note: entry.note
+      }));
+    } catch (error) {
+      console.error('Error getting transaction history:', error);
+      return [];
+    }
   }
 
   async restoreTransactionVersion(transactionId: string, versionId: string, note?: string): Promise<Transaction | null> {
-    const index = this.transactions.findIndex(t => t.id === transactionId);
-    if (index === -1) return null;
-    const versions = this.history[transactionId] || [];
-    const version = versions.find(v => v.id === versionId);
-    if (!version) return null;
+    await this.ensureInitialized();
+    try {
+      const current = await db.transactions.get(transactionId);
+      if (!current) return null;
+      
+      const version = await db.transactionHistory.get(versionId);
+      if (!version || version.transactionId !== transactionId) return null;
 
-    // Snapshot current before restoring
-    const current = this.transactions[index];
-    this.addHistorySnapshot(transactionId, current, note ? `Before restore: ${note}` : 'Auto-snapshot before restore');
+      // Snapshot current before restoring
+      await this.addHistorySnapshot(transactionId, current, note ? `Before restore: ${note}` : 'Auto-snapshot before restore');
 
-    // Restore
-    const restored: Transaction = {
-      ...version.data,
-      id: transactionId, // ensure id remains the same
-      lastModifiedDate: new Date(),
-    };
-    this.transactions[index] = restored;
-    this.saveToStorage();
-    this.saveHistoryToStorage();
-    return restored;
+      // Restore
+      const restored: Transaction = {
+        ...version.data,
+        id: transactionId, // ensure id remains the same
+        lastModifiedDate: new Date(),
+      };
+      
+      await db.transactions.put(restored);
+      return restored;
+    } catch (error) {
+      console.error('Error restoring transaction version:', error);
+      return null;
+    }
   }
 
   // Utility methods
@@ -402,41 +519,57 @@ class DataService {
     totalExpenses: number;
     categories: { [category: string]: number };
   }> {
-    const stats = {
-      total: this.transactions.length,
-      totalIncome: 0,
-      totalExpenses: 0,
-      categories: {} as { [category: string]: number },
-    };
+    await this.ensureInitialized();
+    try {
+      const transactions = await db.transactions.toArray();
+      const stats = {
+        total: transactions.length,
+        totalIncome: 0,
+        totalExpenses: 0,
+        categories: {} as { [category: string]: number },
+      };
 
-    this.transactions.forEach(transaction => {
-      if (transaction.type === 'income' || transaction.amount > 0) {
-        stats.totalIncome += Math.abs(transaction.amount);
-      } else {
-        stats.totalExpenses += Math.abs(transaction.amount);
-      }
+      transactions.forEach(transaction => {
+        if (transaction.type === 'income' || transaction.amount > 0) {
+          stats.totalIncome += Math.abs(transaction.amount);
+        } else {
+          stats.totalExpenses += Math.abs(transaction.amount);
+        }
 
-      const category = transaction.category;
-      stats.categories[category] = (stats.categories[category] || 0) + Math.abs(transaction.amount);
-    });
+        const category = transaction.category;
+        stats.categories[category] = (stats.categories[category] || 0) + Math.abs(transaction.amount);
+      });
 
-    return stats;
+      return stats;
+    } catch (error) {
+      console.error('Error getting stats:', error);
+      return {
+        total: 0,
+        totalIncome: 0,
+        totalExpenses: 0,
+        categories: {},
+      };
+    }
   }
 
   async clearAllData(): Promise<void> {
-    this.transactions = [];
-  this.history = {};
-    this.saveToStorage();
-  this.saveHistoryToStorage();
+    await this.ensureInitialized();
+    try {
+      await db.clearAllData();
+    } catch (error) {
+      console.error('Error clearing all data:', error);
+      throw error;
+    }
   }
 
   // Duplicate detection
   async detectDuplicates(newTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<DuplicateDetectionResult> {
+    await this.ensureInitialized();
     const duplicates: DuplicateTransaction[] = [];
     const uniqueTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [];
 
     for (const newTransaction of newTransactions) {
-      const existingTransaction = this.findDuplicate(newTransaction);
+      const existingTransaction = await this.findDuplicate(newTransaction);
       
       if (existingTransaction) {
         duplicates.push({
@@ -455,20 +588,27 @@ class DataService {
     };
   }
 
-  private findDuplicate(newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Transaction | null {
-    return this.transactions.find(existing => {
-      // Compare date (same day)
-      const existingDate = new Date(existing.date);
+  private async findDuplicate(newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Promise<Transaction | null> {
+    try {
       const newDate = new Date(newTransaction.date);
-      const sameDate = existingDate.toDateString() === newDate.toDateString();
-      
-      // Compare other fields
-      const sameAmount = existing.amount === newTransaction.amount;
-      const sameDescription = existing.description === newTransaction.description;
-      const sameAccount = existing.account === newTransaction.account;
-      
-      return sameDate && sameAmount && sameDescription && sameAccount;
-    }) || null;
+      const startOfDay = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
+      const endOfDay = new Date(newDate.getFullYear(), newDate.getMonth(), newDate.getDate(), 23, 59, 59, 999);
+
+      const potentialDuplicates = await db.transactions
+        .where('date')
+        .between(startOfDay, endOfDay, true, true)
+        .and(t => 
+          t.amount === newTransaction.amount &&
+          t.description === newTransaction.description &&
+          t.account === newTransaction.account
+        )
+        .first();
+
+      return potentialDuplicates || null;
+    } catch (error) {
+      console.error('Error finding duplicate:', error);
+      return null;
+    }
   }
 }
 
