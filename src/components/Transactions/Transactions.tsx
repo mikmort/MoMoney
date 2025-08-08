@@ -1217,6 +1217,73 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleAutoCategorizeUncategorized = async () => {
+    try {
+      // Find all uncategorized transactions
+      const uncategorizedTransactions = transactions.filter(t => t.category === 'Uncategorized');
+      
+      if (uncategorizedTransactions.length === 0) {
+        alert('No uncategorized transactions found!');
+        return;
+      }
+
+      const confirmMessage = `Found ${uncategorizedTransactions.length} uncategorized transaction(s). Do you want to auto-categorize them using AI?`;
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      console.log(`🤖 Starting AI categorization for ${uncategorizedTransactions.length} transactions...`);
+
+      // Process transactions in batches to avoid overwhelming the AI service
+      for (const transaction of uncategorizedTransactions) {
+        try {
+          const [result] = await azureOpenAIService.classifyTransactionsBatch([
+            {
+              transactionText: transaction.description,
+              amount: transaction.amount,
+              date: transaction.date.toISOString(),
+              availableCategories: categoriesCatalog,
+            },
+          ]);
+
+          // Map returned ids to display names using categoriesCatalog
+          const idToNameCategory = new Map(categoriesCatalog.map(c => [c.id, c.name]));
+          const subMap = new Map<string, { name: string; parentId: string }>();
+          categoriesCatalog.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
+
+          let categoryName = idToNameCategory.get(result.categoryId) || (result.categoryId || 'Uncategorized');
+          let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
+
+          // Update the transaction with AI suggested category
+          const updates: Partial<Transaction> = {
+            category: categoryName,
+            subcategory: subName,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            isVerified: false,
+          };
+
+          const note = `AI Auto-Categorize: Uncategorized → ${updates.category}${updates.subcategory ? ' → ' + updates.subcategory : ''}`;
+          await dataService.updateTransaction(transaction.id, updates, note);
+
+          console.log(`✅ Categorized: ${transaction.description} → ${categoryName}${subName ? ' → ' + subName : ''}`);
+        } catch (error) {
+          console.error(`❌ Failed to categorize transaction: ${transaction.description}`, error);
+        }
+      }
+
+      // Refresh the transactions list
+      const updatedTransactions = await dataService.getAllTransactions();
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+
+      alert(`Successfully auto-categorized ${uncategorizedTransactions.length} transaction(s)!`);
+    } catch (error) {
+      console.error('Auto-categorization failed:', error);
+      alert('Failed to auto-categorize transactions. Please try again.');
+    }
+  };
+
   const handleApplyMatch = async (match: ReimbursementMatch) => {
     const updatedTransactions = await applyMatches(transactions, [match]);
     setTransactions(updatedTransactions);
@@ -1293,20 +1360,31 @@ const Transactions: React.FC = () => {
     );
   };
 
+  // Define the overflow menu actions
+  const overflowMenuActions: MenuAction[] = [
+    {
+      icon: '💰',
+      label: isMatchingLoading ? 'Finding...' : 'Find Reimbursements',
+      onClick: handleFindReimbursements
+    },
+    {
+      icon: '🤖',
+      label: 'Auto Categorize Uncategorized Transactions',
+      onClick: handleAutoCategorizeUncategorized
+    }
+  ];
+
   return (
     <div>
       <PageHeader>
         <h1>Transactions</h1>
         <FlexBox gap="12px">
-          <Button 
-            variant="outline" 
-            onClick={handleFindReimbursements}
-            disabled={isMatchingLoading}
-          >
-            {isMatchingLoading ? 'Finding...' : 'Find Reimbursements'}
-          </Button>
           <Button variant="outline">Export</Button>
           <Button>Add Transaction</Button>
+          <ActionsMenu 
+            menuId="transactions-overflow-menu" 
+            actions={overflowMenuActions} 
+          />
         </FlexBox>
       </PageHeader>
 
