@@ -1067,12 +1067,58 @@ const Transactions: React.FC = () => {
       await openHistory(params.data);
     };
 
+    const handleUndo = async () => {
+      const tx: Transaction = params.data;
+      try {
+        const result = await dataService.undoTransaction(tx.id);
+        if (result) {
+          // Refresh transactions list
+          const allTransactions = await dataService.getAllTransactions();
+          setTransactions(allTransactions);
+          setFilteredTransactions(allTransactions);
+        }
+      } catch (error) {
+        console.error('Failed to undo transaction:', error);
+        alert('Failed to undo changes');
+      }
+    };
+
+    const handleRedo = async () => {
+      const tx: Transaction = params.data;
+      try {
+        const result = await dataService.redoTransaction(tx.id);
+        if (result) {
+          // Refresh transactions list
+          const allTransactions = await dataService.getAllTransactions();
+          setTransactions(allTransactions);
+          setFilteredTransactions(allTransactions);
+        }
+      } catch (error) {
+        console.error('Failed to redo transaction:', error);
+        alert('Failed to redo changes');
+      }
+    };
+
+    // Check if undo/redo is available for this transaction
+    const canUndo = dataService.canUndo(params.data.id);
+    const canRedo = dataService.canRedo(params.data.id);
+
     const actions: MenuAction[] = [
       {
         icon: '✏️',
         label: 'Edit Transaction',
         onClick: handleEditClick
       },
+      ...(canUndo ? [{
+        icon: '↶',
+        label: 'Undo',
+        onClick: handleUndo
+      }] : []),
+      ...(canRedo ? [{
+        icon: '↷',
+        label: 'Redo',
+        onClick: handleRedo
+      }] : []),
       {
         icon: '🤖',
         label: 'Suggest Category',

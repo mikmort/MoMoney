@@ -6,6 +6,11 @@ class DataService {
   private storageKey = 'mo-money-transactions';
   private historyStorageKey = 'mo-money-transaction-history';
   private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
+  
+  // In-memory undo/redo stacks per transaction (not persisted)
+  private undoStacks: { [transactionId: string]: Transaction[] } = {};
+  private redoStacks: { [transactionId: string]: Transaction[] } = {};
+  private readonly MAX_UNDO_STACK_SIZE = 10;
 
   constructor() {
     this.loadFromStorage();
@@ -132,9 +137,13 @@ class DataService {
   async updateTransaction(id: string, updates: Partial<Transaction>, note?: string): Promise<Transaction | null> {
     const index = this.transactions.findIndex(t => t.id === id);
     if (index === -1) return null;
+    
     // Record a snapshot of the current transaction before updating
     const current = this.transactions[index];
     this.addHistorySnapshot(current.id, current, note);
+    
+    // Push current state to undo stack
+    this.pushToUndoStack(current.id, current);
 
     this.transactions[index] = {
       ...current,
@@ -368,6 +377,36 @@ class DataService {
     this.history[transactionId].push(entry);
   }
 
+  private pushToUndoStack(transactionId: string, transaction: Transaction): void {
+    if (!this.undoStacks[transactionId]) {
+      this.undoStacks[transactionId] = [];
+    }
+    
+    // Add to undo stack
+    this.undoStacks[transactionId].push({ ...transaction });
+    
+    // Limit stack size
+    if (this.undoStacks[transactionId].length > this.MAX_UNDO_STACK_SIZE) {
+      this.undoStacks[transactionId].shift();
+    }
+    
+    // Clear redo stack when new change is made
+    this.redoStacks[transactionId] = [];
+  }
+
+  private pushToRedoStack(transactionId: string, transaction: Transaction): void {
+    if (!this.redoStacks[transactionId]) {
+      this.redoStacks[transactionId] = [];
+    }
+    
+    this.redoStacks[transactionId].push({ ...transaction });
+    
+    // Limit stack size
+    if (this.redoStacks[transactionId].length > this.MAX_UNDO_STACK_SIZE) {
+      this.redoStacks[transactionId].shift();
+    }
+  }
+
   async getTransactionHistory(transactionId: string): Promise<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>> {
     return [...(this.history[transactionId] || [])].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }
@@ -393,6 +432,76 @@ class DataService {
     this.saveToStorage();
     this.saveHistoryToStorage();
     return restored;
+  }
+
+  async undoTransaction(transactionId: string): Promise<Transaction | null> {
+    const index = this.transactions.findIndex(t => t.id === transactionId);
+    if (index === -1) return null;
+    
+    const undoStack = this.undoStacks[transactionId];
+    if (!undoStack || undoStack.length === 0) return null;
+    
+    // Get current transaction and previous state
+    const current = this.transactions[index];
+    const previous = undoStack.pop()!;
+    
+    // Push current state to redo stack
+    this.pushToRedoStack(transactionId, current);
+    
+    // Restore previous state
+    const restored: Transaction = {
+      ...previous,
+      lastModifiedDate: new Date(),
+    };
+    
+    this.transactions[index] = restored;
+    
+    // Add to history but don't add to undo stack (to avoid infinite loop)
+    this.addHistorySnapshot(transactionId, current, 'Undo operation');
+    
+    this.saveToStorage();
+    this.saveHistoryToStorage();
+    return restored;
+  }
+
+  async redoTransaction(transactionId: string): Promise<Transaction | null> {
+    const index = this.transactions.findIndex(t => t.id === transactionId);
+    if (index === -1) return null;
+    
+    const redoStack = this.redoStacks[transactionId];
+    if (!redoStack || redoStack.length === 0) return null;
+    
+    // Get current transaction and next state
+    const current = this.transactions[index];
+    const next = redoStack.pop()!;
+    
+    // Push current state to undo stack
+    this.pushToUndoStack(transactionId, current);
+    
+    // Restore next state
+    const restored: Transaction = {
+      ...next,
+      lastModifiedDate: new Date(),
+    };
+    
+    this.transactions[index] = restored;
+    
+    // Add to history but don't add to undo stack (to avoid infinite loop)
+    this.addHistorySnapshot(transactionId, current, 'Redo operation');
+    
+    this.saveToStorage();
+    this.saveHistoryToStorage();
+    return restored;
+  }
+
+  canUndo(transactionId: string): boolean {
+    const undoStack = this.undoStacks[transactionId];
+    return undoStack && undoStack.length > 0;
+  }
+
+  canRedo(transactionId: string): boolean {
+    const redoStack = this.redoStacks[transactionId];
+    return redoStack && redoStack.length > 0;
   }
 
   // Utility methods
