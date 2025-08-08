@@ -118,7 +118,7 @@ export const Button = styled.button.withConfig({
 
 export const PageHeader = styled.div`
   display: flex;
-  justify-content: between;
+  justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
   padding-bottom: 16px;
