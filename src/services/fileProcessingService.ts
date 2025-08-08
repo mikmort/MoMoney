@@ -586,6 +586,7 @@ Return ONLY a clean JSON response:
     accountId: string,
     onProgress?: (processed: number) => void
   ): Promise<Transaction[]> {
+    console.log(`📊 processTransactions called with ${rawData.length} raw data rows`);
     const transactions: Transaction[] = [];
 
     // Prepare rows -> basic extracted data first
@@ -603,9 +604,13 @@ Return ONLY a clean JSON response:
       notes: this.extractString(row, mapping.notesColumn)
     }));
 
+    console.log(`📊 Prepared ${prepared.length} rows from raw data`);
+
     const validIndices = prepared
       .filter(p => p.date && p.description && p.amount !== null)
       .map(p => p.idx);
+
+    console.log(`📊 Found ${validIndices.length} valid rows out of ${prepared.length} prepared rows`);
 
     // Build batch requests for AI
     const batchRequests: AIClassificationRequest[] = validIndices.map(i => ({
@@ -614,6 +619,8 @@ Return ONLY a clean JSON response:
       date: (prepared[i].date as Date).toISOString(),
       availableCategories: categories
     }));
+
+    console.log(`📊 Created ${batchRequests.length} batch requests for AI`);
 
     // Call AI in batch chunks to respect token limits
     const CHUNK = 30; // conservative batch size
@@ -627,6 +634,7 @@ Return ONLY a clean JSON response:
       try {
         const res = await azureOpenAIService.classifyTransactionsBatch(slice);
         batchResults.push(...res);
+        console.log(`📊 AI classification succeeded for batch ${start}-${start + slice.length}, got ${res.length} results`);
       } catch (error) {
         console.warn('⚠️ AI classification failed, using default categorization:', error);
         // Create default responses for failed AI classification
@@ -637,6 +645,7 @@ Return ONLY a clean JSON response:
           reasoning: 'AI classification unavailable, manually review recommended'
         } as AIClassificationResponse));
         batchResults.push(...defaultResponses);
+        console.log(`📊 Created ${defaultResponses.length} default responses for failed AI classification`);
       }
       if (onProgress) {
         const processed = Math.min(validIndices.length, start + slice.length);
@@ -644,12 +653,15 @@ Return ONLY a clean JSON response:
       }
     }
 
+    console.log(`📊 Final batch results: ${batchResults.length} total results`);
+
     // Map results back to rows
     const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
     const idToNameSub = new Map<string, { name: string; parentId: string }>();
     categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
 
     let resultIndex = 0;
+    console.log(`📊 Starting transaction creation loop for ${prepared.length} prepared transactions`);
     for (let i = 0; i < prepared.length; i++) {
       if (this.isCancelled(fileId)) {
         console.log(`🛑 Transaction processing cancelled at row ${i + 1}/${rawData.length}`);
@@ -658,12 +670,17 @@ Return ONLY a clean JSON response:
 
       const p = prepared[i];
       if (!p.date || !p.description || p.amount === null) {
+        console.log(`📊 Skipping row ${i} due to missing data: date=${!!p.date}, description=${!!p.description}, amount=${p.amount !== null}`);
         if (onProgress) onProgress(Math.min(validIndices.length, resultIndex));
         continue;
       }
 
+      console.log(`📊 Processing row ${i}: ${p.description} (${p.amount})`);
+
       const ai = batchResults[resultIndex] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
       resultIndex++;
+
+      console.log(`📊 Using AI result: categoryId=${ai.categoryId}, confidence=${ai.confidence}`);
 
       // Constrain ids (reuse existing logic)
       const categoryIds = new Set(categories.map(c => c.id));
@@ -688,6 +705,8 @@ Return ONLY a clean JSON response:
         }
       }
 
+      console.log(`📊 Final category mapping: ${validCategoryId} -> ${validSubcategoryId}`);
+
       // Convert ids to display names for storage
       const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
       const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
@@ -707,6 +726,8 @@ Return ONLY a clean JSON response:
         originalText: p.description
       };
 
+      console.log(`📊 Built transaction: ${built.description} - ${built.category} - ${built.amount}`);
+
       transactions.push({
         ...built,
         id: uuidv4(),
@@ -714,11 +735,14 @@ Return ONLY a clean JSON response:
         lastModifiedDate: new Date()
       });
 
+      console.log(`📊 Added transaction to array. Total now: ${transactions.length}`);
+
       if (onProgress) {
         onProgress(Math.min(validIndices.length, resultIndex));
       }
     }
 
+    console.log(`📊 processTransactions completed. Returning ${transactions.length} transactions`);
     return transactions;
   }
 
