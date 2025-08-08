@@ -394,6 +394,12 @@ const Transactions: React.FC = () => {
     notes: ''
   });
 
+  // Get available subcategories based on selected category
+  const getAvailableSubcategories = (categoryName: string) => {
+    const category = defaultCategories.find(cat => cat.name === categoryName);
+    return category ? category.subcategories : [];
+  };
+
   const { 
     isLoading: isMatchingLoading, 
     error: matchingError, 
@@ -671,10 +677,19 @@ const Transactions: React.FC = () => {
   };
 
   const handleEditFormChange = (field: string, value: string) => {
-    setTransactionForm(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setTransactionForm(prev => {
+      const newForm = {
+        ...prev,
+        [field]: value
+      };
+      
+      // If category changes, reset subcategory to empty
+      if (field === 'category') {
+        newForm.subcategory = '';
+      }
+      
+      return newForm;
+    });
   };
 
   const handleEditFormSubmit = async () => {
@@ -1272,8 +1287,8 @@ const Transactions: React.FC = () => {
                   onChange={(e) => handleEditFormChange('category', e.target.value)}
                 >
                   <option value="">Select Category</option>
-                  {uniqueCategories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
+                  {defaultCategories.map(cat => (
+                    <option key={cat.id} value={cat.name}>{cat.name}</option>
                   ))}
                 </select>
               </div>
@@ -1295,12 +1310,16 @@ const Transactions: React.FC = () => {
             <div className="form-row">
               <div className="form-group">
                 <label>Subcategory</label>
-                <input
-                  type="text"
+                <select
                   value={transactionForm.subcategory}
                   onChange={(e) => handleEditFormChange('subcategory', e.target.value)}
-                  placeholder="Subcategory (optional)"
-                />
+                  disabled={!transactionForm.category}
+                >
+                  <option value="">Select Subcategory</option>
+                  {transactionForm.category && getAvailableSubcategories(transactionForm.category).map(sub => (
+                    <option key={sub.id} value={sub.name}>{sub.name}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group">
