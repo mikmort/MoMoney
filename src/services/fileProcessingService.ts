@@ -555,26 +555,123 @@ Return ONLY a clean JSON response:
     onProgress?: (processed: number) => void
   ): Promise<Transaction[]> {
     const transactions: Transaction[] = [];
-    
-    for (let i = 0; i < rawData.length; i++) {
+
+    // Prepare rows -> basic extracted data first
+    const prepared: Array<{
+      idx: number;
+      date: Date | null;
+      description: string;
+      amount: number | null;
+      notes: string;
+    }> = rawData.map((row, idx) => ({
+      idx,
+      date: this.extractDate(row, mapping.dateColumn, mapping.dateFormat),
+      description: this.extractString(row, mapping.descriptionColumn),
+      amount: this.extractAmount(row, mapping.amountColumn),
+      notes: this.extractString(row, mapping.notesColumn)
+    }));
+
+    const validIndices = prepared
+      .filter(p => p.date && p.description && p.amount !== null)
+      .map(p => p.idx);
+
+    // Build batch requests for AI
+    const batchRequests: AIClassificationRequest[] = validIndices.map(i => ({
+      transactionText: prepared[i].description,
+      amount: prepared[i].amount as number,
+      date: (prepared[i].date as Date).toISOString(),
+      availableCategories: categories
+    }));
+
+    // Call AI in batch chunks to respect token limits
+    const CHUNK = 30; // conservative batch size
+    const batchResults: AIClassificationResponse[] = [];
+    for (let start = 0; start < batchRequests.length; start += CHUNK) {
+      if (this.isCancelled(fileId)) {
+        console.log('🛑 Transaction processing cancelled during batch classification');
+        throw new Error('Import cancelled by user');
+      }
+      const slice = batchRequests.slice(start, start + CHUNK);
+      const res = await azureOpenAIService.classifyTransactionsBatch(slice);
+      batchResults.push(...res);
+      if (onProgress) {
+        const processed = Math.min(validIndices.length, start + slice.length);
+        onProgress(processed);
+      }
+    }
+
+    // Map results back to rows
+    const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
+    const idToNameSub = new Map<string, { name: string; parentId: string }>();
+    categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
+
+    let resultIndex = 0;
+    for (let i = 0; i < prepared.length; i++) {
       if (this.isCancelled(fileId)) {
         console.log(`🛑 Transaction processing cancelled at row ${i + 1}/${rawData.length}`);
         throw new Error('Import cancelled by user');
       }
 
-      const transaction = await this.processRow(rawData[i], mapping, categories, subcategories, accountId);
-      if (transaction) {
-        const fullTransaction: Transaction = {
-          ...transaction,
-          id: uuidv4(),
-          addedDate: new Date(),
-          lastModifiedDate: new Date()
-        };
-        transactions.push(fullTransaction);
+      const p = prepared[i];
+      if (!p.date || !p.description || p.amount === null) {
+        if (onProgress) onProgress(Math.min(validIndices.length, resultIndex));
+        continue;
       }
 
+      const ai = batchResults[resultIndex] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
+      resultIndex++;
+
+      // Constrain ids (reuse existing logic)
+      const categoryIds = new Set(categories.map(c => c.id));
+      const lowerToIdCategory = new Map<string, string>(categories.map(c => [c.name.toLowerCase(), c.id]));
+      let validCategoryId = ai.categoryId;
+      let validSubcategoryId = ai.subcategoryId;
+      if (!categoryIds.has(validCategoryId) && lowerToIdCategory.has(String(validCategoryId).toLowerCase())) {
+        validCategoryId = lowerToIdCategory.get(String(validCategoryId).toLowerCase())!;
+      }
+      if (!categoryIds.has(validCategoryId)) {
+        validCategoryId = 'uncategorized';
+        validSubcategoryId = undefined;
+      }
+      if (validSubcategoryId) {
+        const sub = idToNameSub.get(validSubcategoryId);
+        if (!sub || sub.parentId !== validCategoryId) {
+          // try by name under the category
+          const cat = categories.find(c => c.id === validCategoryId);
+          const lowerToIdSub = new Map<string, string>((cat?.subcategories || []).map(s => [s.name.toLowerCase(), s.id]));
+          const byName = lowerToIdSub.get(String(validSubcategoryId).toLowerCase());
+          validSubcategoryId = byName || undefined;
+        }
+      }
+
+      // Convert ids to display names for storage
+      const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
+      const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
+
+      const built: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'> = {
+        date: p.date,
+        description: p.description,
+        notes: p.notes,
+        category: categoryName,
+        subcategory: subName,
+        amount: p.amount as number,
+        account: accountManagementService.getAccount(accountId)?.name || 'Unknown Account',
+        confidence: ai.confidence,
+        reasoning: ai.reasoning,
+        type: (p.amount as number) >= 0 ? 'income' : 'expense',
+        isVerified: false,
+        originalText: p.description
+      };
+
+      transactions.push({
+        ...built,
+        id: uuidv4(),
+        addedDate: new Date(),
+        lastModifiedDate: new Date()
+      });
+
       if (onProgress) {
-        onProgress(i + 1);
+        onProgress(Math.min(validIndices.length, resultIndex));
       }
     }
 
@@ -607,6 +704,7 @@ Return ONLY a clean JSON response:
         subcategories
       );
 
+      // Deprecated by batch path; keep for potential single-row calls
       const transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'> = {
         date,
         description,
@@ -719,8 +817,49 @@ Return ONLY a clean JSON response:
         date,
         availableCategories: categories
       });
-      
-      return response;
+
+      // Validate and constrain to provided categories/subcategories
+      const categoryIds = new Set(categories.map(c => c.id));
+      const subcategoryById = new Map<string, { sub: Subcategory; parentId: string }>();
+      categories.forEach(c => {
+        (c.subcategories || []).forEach(s => {
+          subcategoryById.set(s.id, { sub: s, parentId: c.id });
+        });
+      });
+
+      let validCategoryId = response.categoryId;
+      let validSubcategoryId = response.subcategoryId;
+
+      // If AI returned a name instead of id accidentally, attempt fuzzy mapping by name (case-insensitive)
+      const lowerToIdCategory = new Map<string, string>(categories.map(c => [c.name.toLowerCase(), c.id]));
+      if (!categoryIds.has(validCategoryId) && lowerToIdCategory.has(String(validCategoryId).toLowerCase())) {
+        validCategoryId = lowerToIdCategory.get(String(validCategoryId).toLowerCase())!;
+      }
+
+      // Validate categoryId; fallback to 'Uncategorized' if not recognized
+      if (!categoryIds.has(validCategoryId)) {
+        validCategoryId = 'Uncategorized';
+        validSubcategoryId = undefined;
+      }
+
+      // Validate subcategory belongs to selected category; otherwise drop it
+      if (validSubcategoryId) {
+        const entry = subcategoryById.get(validSubcategoryId);
+        if (!entry || entry.parentId !== validCategoryId) {
+          // Try mapping by name to a subcategory under the chosen category
+          const cat = categories.find(c => c.id === validCategoryId);
+          const lowerToIdSub = new Map<string, string>((cat?.subcategories || []).map(s => [s.name.toLowerCase(), s.id]));
+          const byName = lowerToIdSub.get(String(validSubcategoryId).toLowerCase());
+          validSubcategoryId = byName || undefined;
+        }
+      }
+
+      return {
+        categoryId: validCategoryId,
+        subcategoryId: validSubcategoryId,
+        confidence: response.confidence,
+        reasoning: response.reasoning
+      };
     } catch (error) {
       console.error('AI classification failed:', error);
       return {
