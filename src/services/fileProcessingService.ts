@@ -383,29 +383,55 @@ export class FileProcessingService {
   }
 
   private async readFileContent(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        const result = e.target?.result;
-        if (typeof result === 'string') {
-          resolve(result);
-        } else if (result instanceof ArrayBuffer) {
-          // For binary files like Excel
-          resolve(new Uint8Array(result).toString());
-        } else {
-          reject(new Error('Failed to read file content'));
-        }
-      };
-      
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      
-      if (file.type.includes('text') || file.name.endsWith('.csv') || file.name.endsWith('.ofx')) {
-        reader.readAsText(file);
-      } else {
+    // Read as ArrayBuffer, then decode with best-fit encoding (UTF-8, Windows-1252, ISO-8859-1)
+    // This preserves Scandinavian characters (æ, ø, å) commonly found in CSVs saved with legacy encodings.
+    const readAsArrayBuffer = (): Promise<ArrayBuffer> =>
+      new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const result = e.target?.result;
+          if (result instanceof ArrayBuffer) resolve(result);
+          else if (typeof result === 'string') resolve(new TextEncoder().encode(result).buffer);
+          else reject(new Error('Failed to read file content'));
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
         reader.readAsArrayBuffer(file);
+      });
+
+    const stripBOM = (s: string) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
+    const countReplacement = (s: string) => (s.match(/\uFFFD/g) || []).length;
+    const tryDecode = (buf: ArrayBuffer, enc: string) => {
+      try {
+        const dec = new TextDecoder(enc as any, { fatal: false });
+        return stripBOM(dec.decode(new DataView(buf)));
+      } catch {
+        return '';
       }
-    });
+    };
+
+    const buffer = await readAsArrayBuffer();
+
+    // Prefer UTF-8; if we see replacement characters, try common Western encodings.
+    const utf8 = tryDecode(buffer, 'utf-8');
+    const utf8Repl = countReplacement(utf8);
+
+    if (utf8Repl === 0) return utf8;
+
+    // Some CSV exports use Windows-1252 or ISO-8859-1
+    const cp1252 = tryDecode(buffer, 'windows-1252');
+    const cp1252Repl = countReplacement(cp1252);
+
+    const iso88591 = tryDecode(buffer, 'iso-8859-1');
+    const isoRepl = countReplacement(iso88591);
+
+    // Choose the decoding that yields the fewest replacement characters
+    const best = [
+      { text: utf8, repl: utf8Repl },
+      { text: cp1252, repl: cp1252Repl },
+      { text: iso88591, repl: isoRepl }
+    ].reduce((a, b) => (b.repl < a.repl ? b : a));
+
+    return best.text || utf8; // fallback to utf8 if all failed
   }
 
   private async getAISchemaMapping(fileContent: string, fileType: StatementFile['fileType']): Promise<AISchemaMappingResponse> {
