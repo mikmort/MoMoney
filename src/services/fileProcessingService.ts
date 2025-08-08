@@ -624,8 +624,20 @@ Return ONLY a clean JSON response:
         throw new Error('Import cancelled by user');
       }
       const slice = batchRequests.slice(start, start + CHUNK);
-      const res = await azureOpenAIService.classifyTransactionsBatch(slice);
-      batchResults.push(...res);
+      try {
+        const res = await azureOpenAIService.classifyTransactionsBatch(slice);
+        batchResults.push(...res);
+      } catch (error) {
+        console.warn('⚠️ AI classification failed, using default categorization:', error);
+        // Create default responses for failed AI classification
+        const defaultResponses = slice.map(() => ({
+          categoryId: 'uncategorized',
+          subcategoryId: undefined,
+          confidence: 0.1,
+          reasoning: 'AI classification unavailable, manually review recommended'
+        } as AIClassificationResponse));
+        batchResults.push(...defaultResponses);
+      }
       if (onProgress) {
         const processed = Math.min(validIndices.length, start + slice.length);
         onProgress(processed);
