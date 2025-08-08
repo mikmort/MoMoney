@@ -192,5 +192,20 @@ export const defaultCategories: Category[] = [
       { id: 'uncategorized-misc', name: 'Miscellaneous', description: 'Uncategorized expenses' },
       { id: 'uncategorized-pending', name: 'Pending Review', description: 'Transactions needing manual review' }
     ]
+  },
+
+  // Transfer Category
+  {
+    id: 'internal-transfer',
+    name: 'Internal Transfer',
+    type: 'transfer',
+    color: '#9C27B0',
+    icon: '🔄',
+    subcategories: [
+      { id: 'transfer-between-accounts', name: 'Between Accounts', description: 'Transfer between your own accounts', keywords: ['transfer', 'move', 'between accounts'] },
+      { id: 'transfer-payment', name: 'Payment Transfer', description: 'Payment or fund transfer', keywords: ['payment', 'send', 'pay'] },
+      { id: 'transfer-withdrawal', name: 'Withdrawal', description: 'ATM or bank withdrawal', keywords: ['atm', 'withdraw', 'cash'] },
+      { id: 'transfer-deposit', name: 'Deposit', description: 'Cash or check deposit', keywords: ['deposit', 'cash', 'check'] }
+    ]
   }
 ];

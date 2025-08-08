@@ -7,6 +7,7 @@ import { Transaction, ReimbursementMatch, Account, Category } from '../../types'
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
+import { useTransferMatching } from '../../hooks/useTransferMatching';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { AiConfidencePopup } from './AiConfidencePopup';
@@ -537,6 +538,16 @@ const Transactions: React.FC = () => {
     addAccount
   } = useAccountManagement();
 
+  const { 
+    isLoading: isTransferMatchingLoading, 
+    error: transferMatchingError, 
+    matches: transferMatches, 
+    findTransferMatches, 
+    applyTransferMatches,
+    getUnmatchedTransfers,
+    countUnmatchedTransfers
+  } = useTransferMatching();
+
   // Category dropdown cell editor
   const CategoryCellEditor = React.forwardRef<any, any>((props, ref) => {
     const [value, setValue] = useState(props.value || '');
@@ -841,7 +852,7 @@ const Transactions: React.FC = () => {
         category: transactionForm.category,
         subcategory: transactionForm.subcategory,
         account: transactionForm.account,
-        type: transactionForm.type as 'income' | 'expense',
+        type: transactionForm.type as 'income' | 'expense' | 'transfer',
         date: new Date(transactionForm.date),
         notes: transactionForm.notes,
         lastModifiedDate: new Date()
@@ -994,11 +1005,14 @@ const Transactions: React.FC = () => {
   const calculateStats = () => {
     const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
     
-    const totalIncome = transactionsToCalculate
+    // Exclude transfer transactions from financial calculations
+    const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer');
+    
+    const totalIncome = nonTransferTransactions
       .filter((t: Transaction) => t.type === 'income')
       .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
     
-    const totalExpenses = transactionsToCalculate
+    const totalExpenses = nonTransferTransactions
       .filter((t: Transaction) => t.type === 'expense')
       .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount), 0);
 
@@ -1006,7 +1020,7 @@ const Transactions: React.FC = () => {
       totalIncome,
       totalExpenses,
       netAmount: totalIncome - totalExpenses,
-      count: transactionsToCalculate.length
+      count: nonTransferTransactions.length
     };
   };
 
@@ -1067,6 +1081,38 @@ const Transactions: React.FC = () => {
       await openHistory(params.data);
     };
 
+    const handleFindMatchingTransfers = async () => {
+      if (params.data.type !== 'transfer') {
+        alert('This action is only available for transfer transactions.');
+        return;
+      }
+      
+      try {
+        const result = await findTransferMatches({
+          transactions,
+          maxDaysDifference: 7,
+          tolerancePercentage: 0.01
+        });
+        
+        if (result && result.matches.length > 0) {
+          const relatedMatches = result.matches.filter(m => 
+            m.sourceTransactionId === params.data.id || m.targetTransactionId === params.data.id
+          );
+          
+          if (relatedMatches.length > 0) {
+            alert(`Found ${relatedMatches.length} potential matching transfer(s)!`);
+          } else {
+            alert('No matching transfers found for this transaction.');
+          }
+        } else {
+          alert('No matching transfers found for this transaction.');
+        }
+      } catch (error) {
+        console.error('Error finding matching transfers:', error);
+        alert('Failed to find matching transfers.');
+      }
+    };
+
     const actions: MenuAction[] = [
       {
         icon: '✏️',
@@ -1082,14 +1128,24 @@ const Transactions: React.FC = () => {
         icon: '🕘',
         label: 'History',
         onClick: handleHistory
-      },
-      {
-        icon: '🗑️',
-        label: 'Delete Transaction',
-        onClick: handleDeleteClick,
-        variant: 'danger'
       }
     ];
+
+    // Add transfer-specific action if this is a transfer transaction
+    if (params.data.type === 'transfer') {
+      actions.push({
+        icon: '🔄',
+        label: 'Find Matching Transfer(s)',
+        onClick: handleFindMatchingTransfers
+      });
+    }
+
+    actions.push({
+      icon: '🗑️',
+      label: 'Delete Transaction',
+      onClick: handleDeleteClick,
+      variant: 'danger'
+    });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
   }, [startEditTransaction, handleDeleteTransaction]);
@@ -1289,6 +1345,18 @@ const Transactions: React.FC = () => {
     setTransactions(updatedTransactions);
   };
 
+  const handleFindTransfers = async () => {
+    const result = await findTransferMatches({
+      transactions,
+      maxDaysDifference: 7,
+      tolerancePercentage: 0.01
+    });
+    
+    if (result) {
+      alert(`Found ${result.matches.length} potential transfer matches and ${result.unmatched.length} unmatched transfers.`);
+    }
+  };
+
   const getConfidenceClass = (confidence: number) => {
     if (confidence > 0.9) return 'high';
     if (confidence >= 0.6) return 'medium';
@@ -1379,6 +1447,20 @@ const Transactions: React.FC = () => {
       <PageHeader>
         <h1>Transactions</h1>
         <FlexBox gap="12px">
+          <Button 
+            variant="outline" 
+            onClick={handleFindReimbursements}
+            disabled={isMatchingLoading}
+          >
+            {isMatchingLoading ? 'Finding...' : 'Find Reimbursements'}
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleFindTransfers}
+            disabled={isTransferMatchingLoading}
+          >
+            {isTransferMatchingLoading ? 'Finding...' : 'Find Transfer Matches'}
+          </Button>
           <Button variant="outline">Export</Button>
           <Button>Add Transaction</Button>
           <ActionsMenu 
@@ -1427,6 +1509,7 @@ const Transactions: React.FC = () => {
               <option value="">All Types</option>
               <option value="income">Income</option>
               <option value="expense">Expense</option>
+              <option value="transfer">Transfer</option>
             </select>
           </div>
           
@@ -1470,6 +1553,26 @@ const Transactions: React.FC = () => {
             >
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </button>
+            
+            {countUnmatchedTransfers(transactions) > 0 && (
+              <button
+                style={{
+                  padding: '8px 12px',
+                  border: filters.type === 'transfer' ? '2px solid #9C27B0' : '1px solid #ddd',
+                  borderRadius: '4px',
+                  background: filters.type === 'transfer' ? '#f3e5f5' : 'white',
+                  color: filters.type === 'transfer' ? '#9C27B0' : '#666',
+                  fontWeight: filters.type === 'transfer' ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  marginLeft: '8px'
+                }}
+                onClick={() => setFilters({...filters, type: filters.type === 'transfer' ? '' : 'transfer'})}
+                title="Unmatched transfer transactions"
+              >
+                🔄 Unmatched Transfers ({countUnmatchedTransfers(transactions)})
+              </button>
+            )}
           </div>
           
           <div className="filter-group">
@@ -1618,6 +1721,7 @@ const Transactions: React.FC = () => {
                   <option value="">Select Type</option>
                   <option value="income">Income</option>
                   <option value="expense">Expense</option>
+                  <option value="transfer">Transfer</option>
                 </select>
               </div>
             </div>

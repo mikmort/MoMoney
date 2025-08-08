@@ -80,6 +80,43 @@ class DataService {
         confidence: 0.99,
         reasoning: 'Rent payment clearly identified',
         isVerified: true
+      },
+      // Sample transfer transactions for testing
+      {
+        date: new Date('2025-08-01'),
+        description: 'Transfer to Savings - Chase Online',
+        category: 'Internal Transfer',
+        subcategory: 'Between Accounts',
+        amount: -500.00,
+        account: 'Chase Checking',
+        type: 'transfer',
+        confidence: 0.95,
+        reasoning: 'Internal transfer identified',
+        isVerified: false
+      },
+      {
+        date: new Date('2025-08-01'),
+        description: 'Transfer from Checking - Chase Online',
+        category: 'Internal Transfer',
+        subcategory: 'Between Accounts',
+        amount: 500.00,
+        account: 'Chase Savings',
+        type: 'transfer',
+        confidence: 0.95,
+        reasoning: 'Internal transfer identified',
+        isVerified: false
+      },
+      {
+        date: new Date('2025-07-28'),
+        description: 'ATM Withdrawal - Chase ATM #1234',
+        category: 'Internal Transfer',
+        subcategory: 'Withdrawal',
+        amount: -100.00,
+        account: 'Chase Checking',
+        type: 'transfer',
+        confidence: 0.90,
+        reasoning: 'ATM withdrawal identified',
+        isVerified: false
       }
     ];
 

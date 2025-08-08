@@ -8,7 +8,7 @@ export interface Transaction {
   category: string;
   subcategory?: string;
   account: string;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
   isRecurring?: boolean;
   tags?: string[];
   notes?: string;
@@ -39,7 +39,7 @@ export interface Account {
 export interface Category {
   id: string;
   name: string;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
   subcategories: Subcategory[];
   color?: string;
   icon?: string;
