@@ -72,7 +72,7 @@ export interface StatementFile {
   fileSize: number;
   uploadDate: Date;
   accountId?: string; // Optional until user selects an account
-  status: 'pending' | 'processing' | 'completed' | 'error' | 'awaiting-account-selection';
+  status: 'pending' | 'processing' | 'completed' | 'error' | 'awaiting-account-selection' | 'awaiting-duplicate-resolution';
   transactionCount?: number;
   errorMessage?: string;
   fileType: 'pdf' | 'csv' | 'excel' | 'image';
@@ -216,4 +216,15 @@ export interface CurrencyExchangeRate {
   rate: number;
   date: Date;
   source: string; // API source used
+}
+
+export interface DuplicateTransaction {
+  existingTransaction: Transaction;
+  newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>;
+  matchFields: string[]; // Fields that matched (e.g., ['date', 'amount', 'description', 'account'])
+}
+
+export interface DuplicateDetectionResult {
+  duplicates: DuplicateTransaction[];
+  uniqueTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[];
 }

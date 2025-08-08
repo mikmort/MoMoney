@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { StatementFile, Transaction, FileSchemaMapping, FileImportProgress, Category, Subcategory, AISchemaMappingRequest, AISchemaMappingResponse, AIClassificationRequest, AIClassificationResponse } from '../types';
+import { StatementFile, Transaction, FileSchemaMapping, FileImportProgress, Category, Subcategory, AISchemaMappingRequest, AISchemaMappingResponse, AIClassificationRequest, AIClassificationResponse, DuplicateDetectionResult } from '../types';
 import { accountManagementService, AccountDetectionRequest } from './accountManagementService';
 import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
@@ -21,6 +21,8 @@ export interface FileProcessingResult {
     }>;
   };
   transactions?: Transaction[];
+  duplicateDetection?: DuplicateDetectionResult;
+  needsDuplicateResolution?: boolean;
 }
 
 export class FileProcessingService {
@@ -215,7 +217,12 @@ export class FileProcessingService {
     accountId: string,
     onProgress?: (progress: FileImportProgress) => void,
     onFileIdGenerated?: (fileId: string) => void
-  ): Promise<{ statementFile: StatementFile; fileId: string }> {
+  ): Promise<{ 
+    statementFile: StatementFile; 
+    fileId: string;
+    duplicateDetection?: DuplicateDetectionResult;
+    needsDuplicateResolution?: boolean;
+  }> {
     const fileId = uuidv4();
     
     // Notify caller of the fileId immediately so they can cancel if needed
@@ -300,18 +307,40 @@ export class FileProcessingService {
         throw new Error('Import cancelled by user');
       }
 
-      // Step 6: Save to database (95%)
-      this.updateProgress(progress, 95, 'processing', 'Saving transactions...', onProgress);
-      console.log(`💾 Saving ${transactions.length} transactions to dataService`);
-      await dataService.addTransactions(transactions);
+      // Step 6: Check for duplicates (95%)
+      this.updateProgress(progress, 95, 'processing', 'Checking for duplicate transactions...', onProgress);
+      console.log(`🔍 Checking ${transactions.length} transactions for duplicates`);
+      const duplicateDetection = await dataService.detectDuplicates(transactions);
       
-      // Step 7: Complete (100%)
-      statementFile.status = 'completed';
-      statementFile.transactionCount = transactions.length;
-      
-      this.updateProgress(progress, 100, 'completed', `Successfully imported ${transactions.length} transactions!`, onProgress);
-      
-      return { statementFile, fileId };
+      if (duplicateDetection.duplicates.length > 0) {
+        console.log(`⚠️ Found ${duplicateDetection.duplicates.length} duplicate transactions`);
+        // Don't save transactions yet - wait for user decision
+        statementFile.status = 'awaiting-duplicate-resolution';
+        statementFile.transactionCount = transactions.length;
+        
+        this.updateProgress(progress, 100, 'completed', `Found ${duplicateDetection.duplicates.length} duplicate transactions. Please review.`, onProgress);
+        
+        return { 
+          statementFile, 
+          fileId, 
+          duplicateDetection,
+          needsDuplicateResolution: true
+        };
+      } else {
+        // No duplicates, save all transactions
+        await dataService.addTransactions(transactions);
+        
+        // Step 7: Complete (100%)
+        statementFile.status = 'completed';
+        statementFile.transactionCount = transactions.length;
+        
+        this.updateProgress(progress, 100, 'completed', `Successfully imported ${transactions.length} transactions!`, onProgress);
+        
+        return { 
+          statementFile, 
+          fileId
+        };
+      }
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -325,7 +354,10 @@ export class FileProcessingService {
       this.cleanup(fileId);
     }
 
-    return { statementFile, fileId };
+    return { 
+      statementFile, 
+      fileId 
+    };
   }
 
   private updateProgress(
@@ -909,6 +941,21 @@ Return ONLY a clean JSON response:
     // Use OCR to extract text from image, then parse
   }
   */
+
+  // Methods to handle duplicate resolution
+  async resolveDuplicates(fileId: string, importDuplicates: boolean, transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[], duplicateDetection: DuplicateDetectionResult): Promise<void> {
+    console.log(`🔄 Resolving duplicates for file ${fileId}, importDuplicates: ${importDuplicates}`);
+    
+    if (importDuplicates) {
+      // Import all transactions including duplicates
+      await dataService.addTransactions(transactions);
+      console.log(`✅ Imported ${transactions.length} transactions (including duplicates)`);
+    } else {
+      // Import only unique transactions
+      await dataService.addTransactions(duplicateDetection.uniqueTransactions);
+      console.log(`✅ Imported ${duplicateDetection.uniqueTransactions.length} unique transactions, ignored ${duplicateDetection.duplicates.length} duplicates`);
+    }
+  }
 }
 
 // Singleton instance

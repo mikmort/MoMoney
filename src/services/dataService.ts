@@ -1,4 +1,4 @@
-import { Transaction } from '../types';
+import { Transaction, DuplicateDetectionResult, DuplicateTransaction } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 class DataService {
@@ -346,6 +346,47 @@ class DataService {
   async clearAllData(): Promise<void> {
     this.transactions = [];
     this.saveToStorage();
+  }
+
+  // Duplicate detection
+  async detectDuplicates(newTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<DuplicateDetectionResult> {
+    const duplicates: DuplicateTransaction[] = [];
+    const uniqueTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [];
+
+    for (const newTransaction of newTransactions) {
+      const existingTransaction = this.findDuplicate(newTransaction);
+      
+      if (existingTransaction) {
+        duplicates.push({
+          existingTransaction,
+          newTransaction,
+          matchFields: ['date', 'amount', 'description', 'account']
+        });
+      } else {
+        uniqueTransactions.push(newTransaction);
+      }
+    }
+
+    return {
+      duplicates,
+      uniqueTransactions
+    };
+  }
+
+  private findDuplicate(newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Transaction | null {
+    return this.transactions.find(existing => {
+      // Compare date (same day)
+      const existingDate = new Date(existing.date);
+      const newDate = new Date(newTransaction.date);
+      const sameDate = existingDate.toDateString() === newDate.toDateString();
+      
+      // Compare other fields
+      const sameAmount = existing.amount === newTransaction.amount;
+      const sameDescription = existing.description === newTransaction.description;
+      const sameAccount = existing.account === newTransaction.account;
+      
+      return sameDate && sameAmount && sameDescription && sameAccount;
+    }) || null;
   }
 }
 
