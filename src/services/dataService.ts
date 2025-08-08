@@ -16,7 +16,7 @@ class DataService {
   private initializeSampleData(): void {
     const sampleTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [
       {
-        date: new Date('2025-08-01'),
+        date: new Date('2024-08-01'),
         description: 'Whole Foods Market #123',
         notes: 'Weekly grocery shopping',
         category: 'Food & Dining',
@@ -30,7 +30,7 @@ class DataService {
         vendor: 'Whole Foods'
       },
       {
-        date: new Date('2025-08-01'),
+        date: new Date('2024-08-01'),
         description: 'Starbucks Coffee',
         category: 'Food & Dining',
         subcategory: 'Coffee Shops',
@@ -42,7 +42,7 @@ class DataService {
         isVerified: true
       },
       {
-        date: new Date('2025-07-31'),
+        date: new Date('2024-07-31'),
         description: 'Payroll Deposit - ABC Corp',
         category: 'Income',
         subcategory: 'Salary',
@@ -54,7 +54,7 @@ class DataService {
         isVerified: true
       },
       {
-        date: new Date('2025-07-30'),
+        date: new Date('2024-07-30'),
         description: 'Shell Gas Station',
         category: 'Transportation',
         subcategory: 'Gas & Fuel',
@@ -66,7 +66,7 @@ class DataService {
         isVerified: false
       },
       {
-        date: new Date('2025-07-30'),
+        date: new Date('2024-07-30'),
         description: 'Rent Payment - Apartment Complex',
         notes: 'Monthly rent payment',
         category: 'Housing',

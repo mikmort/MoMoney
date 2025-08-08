@@ -43,7 +43,7 @@ const App: React.FC = () => {
   return (
     <ThemeProvider theme={lightTheme}>
       <GlobalStyles />
-      <Router>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         {skipAuthentication ? (
           // Development mode - bypass authentication
           <AppContent />
