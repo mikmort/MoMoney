@@ -22,6 +22,21 @@ const TransactionsContainer = styled.div`
     width: 100%;
   }
 
+  /* Style for filtered columns */
+  .ag-header-cell-filtered .ag-header-cell-label {
+    color: #2196f3;
+    font-weight: 600;
+  }
+  
+  .ag-header-cell-filtered::after {
+    content: '🔍';
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 12px;
+    color: #2196f3;
+  }
+
   .ag-cell {
     .positive {
       color: #4caf50;
@@ -60,6 +75,31 @@ const TransactionsContainer = styled.div`
         color: #721c24;
       }
     }
+  }
+
+  /* Improve filter menu styling */
+  .ag-filter-toolpanel-header {
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    padding: 8px 12px;
+    font-weight: 600;
+  }
+  
+  .ag-filter-condition-input {
+    margin: 4px 0;
+  }
+  
+  .ag-filter-apply-panel {
+    border-top: 1px solid #dee2e6;
+    padding: 8px;
+    background: #f8f9fa;
+  }
+  
+  .ag-filter-apply-panel button {
+    margin: 0 4px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
   }
 `;
 
@@ -148,6 +188,40 @@ const ReimbursementPanel = styled(Card)`
 
 const FilterBar = styled(Card)`
   margin-bottom: 20px;
+  
+  .filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h3 {
+      margin: 0;
+      font-size: 1.1rem;
+      color: #333;
+    }
+    
+    .clear-filters-btn {
+      padding: 6px 12px;
+      background: #f44336;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: background-color 0.2s;
+      
+      &:hover {
+        background: #d32f2f;
+      }
+      
+      &:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+    }
+  }
   
   .filter-row {
     display: flex;
@@ -541,6 +615,9 @@ const Transactions: React.FC = () => {
     );
   });
 
+  // Grid API reference
+  const [gridApi, setGridApi] = useState<any>(null);
+
   // Function to update transaction
   const handleUpdateTransaction = async (updatedTransaction: Transaction) => {
     try {
@@ -551,6 +628,14 @@ const Transactions: React.FC = () => {
       setFilteredTransactions(allTransactions);
     } catch (error) {
       console.error('Failed to update transaction:', error);
+    }
+  };
+
+  // Function to clear all column filters
+  const handleClearAllFilters = () => {
+    if (gridApi) {
+      gridApi.setFilterModel(null);
+      gridApi.onFilterChanged();
     }
   };
 
@@ -636,6 +721,9 @@ const Transactions: React.FC = () => {
   }, []);
 
   const onGridReady = useCallback((params: GridReadyEvent) => {
+    // Store grid API reference
+    setGridApi(params.api);
+    
     // Use setTimeout to avoid ResizeObserver conflicts
     setTimeout(() => {
       params.api.sizeColumnsToFit();
@@ -928,6 +1016,12 @@ const Transactions: React.FC = () => {
       field: 'category',
       sortable: true,
       filter: 'agTextColumnFilter',
+      filterParams: {
+        textMatcher: ({ value, filterText }: any) => {
+          return value.toLowerCase().includes(filterText.toLowerCase());
+        },
+        buttons: ['clear', 'apply']
+      },
       width: 180,
       cellRenderer: CategoryCellRenderer,
       editable: true,
@@ -938,6 +1032,12 @@ const Transactions: React.FC = () => {
       field: 'account',
       sortable: true,
       filter: 'agTextColumnFilter',
+      filterParams: {
+        textMatcher: ({ value, filterText }: any) => {
+          return value.toLowerCase().includes(filterText.toLowerCase());
+        },
+        buttons: ['clear', 'apply']
+      },
       width: 140,
       editable: true,
       cellEditor: AccountCellEditor
@@ -958,12 +1058,21 @@ const Transactions: React.FC = () => {
       field: 'confidence',
       sortable: true,
       width: 130,
-      cellRenderer: ConfidenceCellRenderer
+      cellRenderer: ConfidenceCellRenderer,
+      filter: false // Disable filter for this column as it's not useful
     },
     {
       headerName: 'Reimbursed',
       field: 'reimbursed',
       width: 110,
+      filter: 'agTextColumnFilter',
+      filterParams: {
+        textMatcher: ({ value, filterText }: any) => {
+          const displayValue = value ? 'yes' : 'no';
+          return displayValue.includes(filterText.toLowerCase());
+        },
+        buttons: ['clear', 'apply']
+      },
       cellRenderer: (params: any) => {
         return params.value ? '💰' : '';
       }
@@ -1102,6 +1211,17 @@ const Transactions: React.FC = () => {
       <FileImport onImportComplete={handleImportComplete} />
 
       <FilterBar>
+        <div className="filter-header">
+          <h3>Column Filters</h3>
+          <button 
+            className="clear-filters-btn"
+            onClick={handleClearAllFilters}
+            disabled={!gridApi}
+            title="Clear all active column filters"
+          >
+            🗑️ Clear All Filters
+          </button>
+        </div>
         <div className="filter-row">
           <div className="filter-group">
             <label>Category</label>
@@ -1217,12 +1337,16 @@ const Transactions: React.FC = () => {
               defaultColDef={{
                 resizable: true,
                 sortable: true,
-                filter: true
+                filter: true,
+                floatingFilter: false, // Disable floating filters to reduce clutter
+                menuTabs: ['filterMenuTab', 'generalMenuTab'] // Only show filter and general tabs
               }}
               singleClickEdit={true}
               stopEditingWhenCellsLoseFocus={true}
               undoRedoCellEditing={true}
               reactiveCustomComponents={true}
+              suppressMenuHide={true} // Keep menu open after applying filter
+              animateRows={true}
             />
           </div>
         </TransactionsContainer>
