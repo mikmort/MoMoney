@@ -27,6 +27,11 @@ class DashboardService {
     const monthlyData: { [monthKey: string]: { income: number; expenses: number } } = {};
     
     transactions.forEach(transaction => {
+      // Skip transfer transactions in financial calculations
+      if (transaction.type === 'transfer') {
+        return;
+      }
+      
       const amount = Math.abs(transaction.amount);
       
       // Calculate income vs expenses
@@ -85,7 +90,7 @@ class DashboardService {
       totalIncome,
       totalExpenses,
       netIncome: totalIncome - totalExpenses,
-      transactionCount: transactions.length,
+      transactionCount: transactions.filter(t => t.type !== 'transfer').length, // Exclude transfers from count
       topCategories,
       monthlyTrend
     };
