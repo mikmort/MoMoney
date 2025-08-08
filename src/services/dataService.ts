@@ -4,9 +4,12 @@ import { v4 as uuidv4 } from 'uuid';
 class DataService {
   private transactions: Transaction[] = [];
   private storageKey = 'mo-money-transactions';
+  private historyStorageKey = 'mo-money-transaction-history';
+  private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
 
   constructor() {
     this.loadFromStorage();
+  this.loadHistoryFromStorage();
     // Initialize with sample data if empty
     if (this.transactions.length === 0) {
       this.initializeSampleData();
@@ -129,14 +132,18 @@ class DataService {
   async updateTransaction(id: string, updates: Partial<Transaction>): Promise<Transaction | null> {
     const index = this.transactions.findIndex(t => t.id === id);
     if (index === -1) return null;
+    // Record a snapshot of the current transaction before updating
+    const current = this.transactions[index];
+    this.addHistorySnapshot(current.id, current);
 
     this.transactions[index] = {
-      ...this.transactions[index],
+      ...current,
       ...updates,
       lastModifiedDate: new Date(),
     };
     
     this.saveToStorage();
+    this.saveHistoryToStorage();
     return this.transactions[index];
   }
 
@@ -315,6 +322,79 @@ class DataService {
     }
   }
 
+  private loadHistoryFromStorage(): void {
+    try {
+      const stored = localStorage.getItem(this.historyStorageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Rehydrate dates inside snapshots
+        Object.keys(parsed).forEach((txId: string) => {
+          parsed[txId] = parsed[txId].map((entry: any) => ({
+            ...entry,
+            data: {
+              ...entry.data,
+              date: new Date(entry.data.date),
+              addedDate: entry.data.addedDate ? new Date(entry.data.addedDate) : undefined,
+              lastModifiedDate: entry.data.lastModifiedDate ? new Date(entry.data.lastModifiedDate) : undefined,
+            }
+          }));
+        });
+        this.history = parsed;
+      }
+    } catch (error) {
+      console.error('Failed to load transaction history from storage:', error);
+      this.history = {};
+    }
+  }
+
+  private saveHistoryToStorage(): void {
+    try {
+      localStorage.setItem(this.historyStorageKey, JSON.stringify(this.history));
+    } catch (error) {
+      console.error('Failed to save transaction history to storage:', error);
+    }
+  }
+
+  private addHistorySnapshot(transactionId: string, snapshot: Transaction, note?: string): void {
+    const entry = {
+      id: uuidv4(),
+      timestamp: new Date().toISOString(),
+      data: { ...snapshot },
+      note,
+    };
+    if (!this.history[transactionId]) {
+      this.history[transactionId] = [];
+    }
+    this.history[transactionId].push(entry);
+  }
+
+  async getTransactionHistory(transactionId: string): Promise<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>> {
+    return [...(this.history[transactionId] || [])].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }
+
+  async restoreTransactionVersion(transactionId: string, versionId: string): Promise<Transaction | null> {
+    const index = this.transactions.findIndex(t => t.id === transactionId);
+    if (index === -1) return null;
+    const versions = this.history[transactionId] || [];
+    const version = versions.find(v => v.id === versionId);
+    if (!version) return null;
+
+    // Snapshot current before restoring
+    const current = this.transactions[index];
+    this.addHistorySnapshot(transactionId, current, 'Auto-snapshot before restore');
+
+    // Restore
+    const restored: Transaction = {
+      ...version.data,
+      id: transactionId, // ensure id remains the same
+      lastModifiedDate: new Date(),
+    };
+    this.transactions[index] = restored;
+    this.saveToStorage();
+    this.saveHistoryToStorage();
+    return restored;
+  }
+
   // Utility methods
   async getStats(): Promise<{
     total: number;
@@ -345,7 +425,9 @@ class DataService {
 
   async clearAllData(): Promise<void> {
     this.transactions = [];
+  this.history = {};
     this.saveToStorage();
+  this.saveHistoryToStorage();
   }
 }
 

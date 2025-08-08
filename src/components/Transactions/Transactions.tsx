@@ -13,6 +13,8 @@ import { AiConfidencePopup } from './AiConfidencePopup';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
+import { azureOpenAIService } from '../../services/azureOpenAIService';
+import { defaultCategories as categoriesCatalog } from '../../data/defaultCategories';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -383,6 +385,27 @@ const Transactions: React.FC = () => {
   // Edit transaction modal state
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  // History modal state
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyFor, setHistoryFor] = useState<Transaction | null>(null);
+  const [historyItems, setHistoryItems] = useState<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>>([]);
+
+  const openHistory = async (tx: Transaction) => {
+    const items = await dataService.getTransactionHistory(tx.id);
+    setHistoryFor(tx);
+    setHistoryItems(items);
+    setShowHistoryModal(true);
+  };
+
+  const restoreHistory = async (versionId: string) => {
+    if (!historyFor) return;
+    await dataService.restoreTransactionVersion(historyFor.id, versionId);
+    const allTransactions = await dataService.getAllTransactions();
+    setTransactions(allTransactions);
+    setFilteredTransactions(allTransactions);
+    const items = await dataService.getTransactionHistory(historyFor.id);
+    setHistoryItems(items);
+  };
   const [transactionForm, setTransactionForm] = useState({
     description: '',
     amount: '',
@@ -885,11 +908,63 @@ const Transactions: React.FC = () => {
       handleDeleteTransaction(params.data.id);
     };
 
+    const handleSuggestCategory = async () => {
+      const tx: Transaction = params.data;
+      try {
+        const [result] = await azureOpenAIService.classifyTransactionsBatch([
+          {
+            transactionText: tx.description,
+            amount: tx.amount,
+            date: tx.date.toISOString(),
+            availableCategories: categoriesCatalog,
+          },
+        ]);
+
+        // Map returned ids to display names using categoriesCatalog
+        const idToNameCategory = new Map(categoriesCatalog.map(c => [c.id, c.name]));
+        const subMap = new Map<string, { name: string; parentId: string }>();
+        categoriesCatalog.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
+
+        let categoryName = idToNameCategory.get(result.categoryId) || (result.categoryId || 'Uncategorized');
+        let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
+
+        // Update the transaction with suggested category
+        await dataService.updateTransaction(tx.id, {
+          category: categoryName,
+          subcategory: subName,
+          confidence: result.confidence,
+          reasoning: result.reasoning,
+          isVerified: false,
+        });
+
+        const all = await dataService.getAllTransactions();
+        setTransactions(all);
+        setFilteredTransactions(all);
+      } catch (e) {
+        console.error('Suggest Category failed:', e);
+        alert('Failed to suggest category');
+      }
+    };
+
+    const handleHistory = async () => {
+      await openHistory(params.data);
+    };
+
     const actions: MenuAction[] = [
       {
         icon: '✏️',
         label: 'Edit Transaction',
         onClick: handleEditClick
+      },
+      {
+        icon: '🤖',
+        label: 'Suggest Category',
+        onClick: handleSuggestCategory
+      },
+      {
+        icon: '🕘',
+        label: 'History',
+        onClick: handleHistory
       },
       {
         icon: '🗑️',
@@ -1227,6 +1302,43 @@ const Transactions: React.FC = () => {
           </div>
         </TransactionsContainer>
       </Card>
+
+      {/* History Modal */}
+      {showHistoryModal && historyFor && (
+        <EditModalOverlay onClick={() => setShowHistoryModal(false)}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>History for “{historyFor.description}”</h2>
+            {historyItems.length === 0 ? (
+              <div style={{ color: '#666' }}>No history recorded.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {historyItems.map(h => (
+                  <div key={h.id} style={{ border: '1px solid #eee', borderRadius: 6, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div>
+                        <strong>{new Date(h.timestamp).toLocaleString()}</strong>
+                        {h.note ? <span style={{ color: '#666' }}> • {h.note}</span> : null}
+                      </div>
+                      <Button variant="outline" onClick={() => restoreHistory(h.id)}>Restore</Button>
+                    </div>
+                    <div style={{ fontSize: '0.9rem', color: '#444' }}>
+                      <div><strong>Description:</strong> {h.data.description}</div>
+                      <div><strong>Amount:</strong> {formatCurrency(h.data.amount)}</div>
+                      <div><strong>Category:</strong> {h.data.category}{h.data.subcategory ? ` → ${h.data.subcategory}` : ''}</div>
+                      <div><strong>Account:</strong> {h.data.account}</div>
+                      <div><strong>Date:</strong> {new Date(h.data.date).toLocaleDateString()}</div>
+                      {h.data.notes ? <div><strong>Notes:</strong> {h.data.notes}</div> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="form-actions" style={{ marginTop: 16 }}>
+              <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
 
       <AccountSelectionDialog
         isOpen={showAccountDialog}
