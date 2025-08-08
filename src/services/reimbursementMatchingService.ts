@@ -1,5 +1,4 @@
 import { Transaction, ReimbursementMatch, ReimbursementMatchRequest, ReimbursementMatchResponse } from '../types';
-import { azureOpenAIService } from './azureOpenAIService';
 import { currencyExchangeService } from './currencyExchangeService';
 
 export class ReimbursementMatchingService {
