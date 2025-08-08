@@ -53,7 +53,7 @@ const DuplicateGrid = styled.div`
 
 const GridHeader = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr 120px;
+  grid-template-columns: 1fr 1fr 1fr 1fr 100px 100px;
   background: #f5f5f5;
   border-bottom: 1px solid #ddd;
   font-weight: bold;
@@ -64,7 +64,7 @@ const GridHeader = styled.div`
 
 const GridRow = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr 120px;
+  grid-template-columns: 1fr 1fr 1fr 1fr 100px 100px;
   border-bottom: 1px solid #eee;
   padding: 8px;
   font-size: 12px;
@@ -165,26 +165,46 @@ export const DuplicateTransactionsDialog: React.FC<DuplicateTransactionsDialogPr
             <GridCell>Description</GridCell>
             <GridCell>Amount</GridCell>
             <GridCell>Account</GridCell>
-            <GridCell>Status</GridCell>
+            <GridCell>Match</GridCell>
+            <GridCell>Similarity</GridCell>
           </GridHeader>
           
           {duplicates.map((duplicate, index) => (
             <GridRow key={index}>
               <GridCell title={formatDate(duplicate.newTransaction.date)}>
                 {formatDate(duplicate.newTransaction.date)}
+                {duplicate.daysDifference && duplicate.daysDifference > 0 && (
+                  <div style={{ fontSize: '10px', color: '#666' }}>
+                    ({duplicate.daysDifference} days diff)
+                  </div>
+                )}
               </GridCell>
               <GridCell title={duplicate.newTransaction.description}>
                 {duplicate.newTransaction.description}
               </GridCell>
               <GridCell>
                 {formatAmount(duplicate.newTransaction.amount)}
+                {duplicate.amountDifference && duplicate.amountDifference > 0 && (
+                  <div style={{ fontSize: '10px', color: '#666' }}>
+                    (±${duplicate.amountDifference.toFixed(2)})
+                  </div>
+                )}
               </GridCell>
               <GridCell title={duplicate.newTransaction.account}>
                 {duplicate.newTransaction.account}
               </GridCell>
               <GridCell>
-                <span style={{ color: '#f44336', fontSize: '11px' }}>
-                  Duplicate
+                <span style={{ 
+                  color: duplicate.matchType === 'exact' ? '#f44336' : '#ff9800', 
+                  fontSize: '10px',
+                  textTransform: 'capitalize'
+                }}>
+                  {duplicate.matchType}
+                </span>
+              </GridCell>
+              <GridCell>
+                <span style={{ fontSize: '10px', color: '#666' }}>
+                  {Math.round(duplicate.similarity * 100)}%
                 </span>
               </GridCell>
             </GridRow>

@@ -365,6 +365,10 @@ const EditModalContent = styled.div`
 const AmountCellRenderer = (params: any) => {
   const amount = params.value;
   const isReimbursed = params.data.reimbursed;
+  const isAnomaly = params.data.isAnomaly;
+  const anomalyType = params.data.anomalyType;
+  const anomalyScore = params.data.anomalyScore;
+  
   const className = amount >= 0 ? 'positive' : 'negative';
   const reimbursedClass = isReimbursed ? ' reimbursed' : '';
   const formatted = new Intl.NumberFormat('en-US', {
@@ -372,7 +376,25 @@ const AmountCellRenderer = (params: any) => {
     currency: 'USD'
   }).format(amount);
   
-  return <span className={className + reimbursedClass}>{formatted}</span>;
+  return (
+    <span className={className + reimbursedClass}>
+      {formatted}
+      {isAnomaly && (
+        <span 
+          style={{ 
+            marginLeft: '4px', 
+            fontSize: '12px',
+            color: anomalyType === 'high' ? '#f44336' : '#ff9800',
+            fontWeight: 'bold',
+            cursor: 'pointer'
+          }}
+          title={`Anomaly detected: ${anomalyType} amount (${anomalyScore} std dev from average)`}
+        >
+          {anomalyType === 'high' ? '🔺' : '🔻'}
+        </span>
+      )}
+    </span>
+  );
 };
 
 const CategoryCellRenderer = (params: any) => {
@@ -740,8 +762,23 @@ const Transactions: React.FC = () => {
         console.log('🔄 Loading transactions from dataService...');
         const allTransactions = await dataService.getAllTransactions();
         console.log(`📊 Loaded ${allTransactions.length} transactions`);
-        setTransactions(allTransactions);
-        setFilteredTransactions(allTransactions);
+        
+        // Run anomaly detection if we have sufficient data
+        if (allTransactions.length > 0) {
+          console.log('🔍 Running anomaly detection...');
+          await dataService.detectAnomalies();
+          // Reload transactions to get the updated anomaly flags
+          const updatedTransactions = await dataService.getAllTransactions();
+          const anomalies = updatedTransactions.filter(t => t.isAnomaly);
+          if (anomalies.length > 0) {
+            console.log(`⚠️ Found ${anomalies.length} anomalous transactions`);
+          }
+          setTransactions(updatedTransactions);
+          setFilteredTransactions(updatedTransactions);
+        } else {
+          setTransactions(allTransactions);
+          setFilteredTransactions(allTransactions);
+        }
       } catch (error) {
         console.error('❌ Error loading transactions:', error);
         // Fall back to empty array if loading fails
