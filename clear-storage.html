@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear MoMoney Storage</title>
+</head>
+<body>
+    <h1>Clear MoMoney Local Storage</h1>
+    <button onclick="clearStorage()">Clear All Data</button>
+    <button onclick="showData()">Show Current Data</button>
+    <div id="output"></div>
+    
+    <script>
+        function clearStorage() {
+            localStorage.removeItem('mo-money-transactions');
+            localStorage.removeItem('mo-money-templates');
+            localStorage.clear(); // Clear everything just to be sure
+            document.getElementById('output').innerHTML = '<p style="color: green;">Storage cleared!</p>';
+        }
+        
+        function showData() {
+            const transactions = localStorage.getItem('mo-money-transactions');
+            const templates = localStorage.getItem('mo-money-templates');
+            
+            let output = '<h3>Current Data:</h3>';
+            output += '<h4>Transactions:</h4>';
+            if (transactions) {
+                const parsed = JSON.parse(transactions);
+                output += `<p>Found ${parsed.length} transactions</p>`;
+                if (parsed.length > 0) {
+                    output += '<pre>' + JSON.stringify(parsed.slice(0, 3), null, 2) + '</pre>';
+                    // Check for 'Imported' accounts
+                    const importedAccounts = parsed.filter(t => t.account === 'Imported');
+                    if (importedAccounts.length > 0) {
+                        output += `<p style="color: red;">Found ${importedAccounts.length} transactions with account 'Imported'</p>`;
+                    }
+                }
+            } else {
+                output += '<p>No transactions found</p>';
+            }
+            
+            output += '<h4>Templates:</h4>';
+            if (templates) {
+                const parsed = JSON.parse(templates);
+                output += `<p>Found ${parsed.length} templates</p>`;
+            } else {
+                output += '<p>No templates found</p>';
+            }
+            
+            document.getElementById('output').innerHTML = output;
+        }
+    </script>
+</body>
+</html>

@@ -128,15 +128,42 @@ export class AzureOpenAIService {
     }
 
     try {
-      const systemPrompt = `You are a financial transaction classifier. Analyze transactions and return ONLY a JSON object with this structure:
-{
-  "categoryId": "category_id",
-  "subcategoryId": "subcategory_id_or_null",
-  "confidence": 0.95,
-  "reasoning": "brief explanation"
-}`;
+      // Build an explicit catalog of allowed categories/subcategories (IDs only) for the model
+      const categoriesCatalog = request.availableCategories
+        .map(c => {
+          const subs = (c.subcategories || [])
+            .map(s => `      { "id": "${s.id}", "name": "${s.name}" }`)
+            .join(',\n');
+          return `  {
+    "id": "${c.id}",
+    "name": "${c.name}",
+    "subcategories": [
+${subs}
+    ]
+  }`;
+        })
+        .join(',\n');
 
-      const userPrompt = `Classify this transaction:
+      const systemPrompt = `You are a financial transaction classifier. You MUST choose a category and optional subcategory ONLY from the provided catalog. Always return ONLY a JSON object in this exact schema (no extra keys, no prose):
+{
+  "categoryId": "one of the allowed category ids",
+  "subcategoryId": "one of the allowed subcategory ids for the chosen category or null",
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation"
+}
+
+Rules:
+- Use EXACT ids from the catalog below (do not invent or transform ids or names)
+- If unsure, set subcategoryId to null
+- If you cannot determine a category confidently, set categoryId to "uncategorized" and confidence <= 0.3`;
+
+      const userPrompt = `Classify this transaction using ONLY the following catalog:
+Allowed Categories Catalog (ids and names):
+[
+${categoriesCatalog}
+]
+
+Transaction:
 Description: ${request.transactionText}
 Amount: $${request.amount}
 Date: ${request.date}`;
@@ -151,21 +178,22 @@ Date: ${request.date}`;
         temperature: 0.1
       });
 
-      const responseContent = completion.choices[0]?.message?.content;
+  const responseContent = completion.choices[0]?.message?.content;
       if (!responseContent) {
         throw new Error('No response from Azure OpenAI');
       }
 
       // Clean the response to handle markdown code blocks
       const cleanedResponse = this.cleanAIResponse(responseContent);
-      const parsed = JSON.parse(cleanedResponse);
-      
-      return {
-        categoryId: parsed.categoryId || parsed.category || 'uncategorized',
-        subcategoryId: parsed.subcategoryId || parsed.subcategory,
-        confidence: parsed.confidence || 0.5,
-        reasoning: parsed.reasoning || 'AI classification'
-      };
+  const parsed = JSON.parse(cleanedResponse);
+
+  // Normalize keys and provide safe defaults
+  const categoryId = (parsed.categoryId || parsed.category || 'uncategorized') as string;
+  const subcategoryId = (parsed.subcategoryId || parsed.subcategory || null) as string | null;
+  const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.5;
+  const reasoning = (parsed.reasoning || 'AI classification') as string;
+
+  return { categoryId, subcategoryId: subcategoryId || undefined, confidence, reasoning };
     } catch (error) {
       console.error('Error classifying transaction:', error);
       
@@ -174,6 +202,95 @@ Date: ${request.date}`;
         confidence: 0.1,
         reasoning: 'Failed to classify using AI - using fallback'
       };
+    }
+  }
+
+  // New: batch classification to reduce API calls and speed up imports
+  async classifyTransactionsBatch(
+    requests: AIClassificationRequest[]
+  ): Promise<AIClassificationResponse[]> {
+    await this.initializeClient();
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
+    if (!requests.length) return [];
+
+    try {
+      // Assume same categories set for the batch (common in our import flow)
+      const categories = requests[0].availableCategories;
+      const categoriesCatalog = categories
+        .map(c => {
+          const subs = (c.subcategories || [])
+            .map(s => `      { "id": "${s.id}", "name": "${s.name}" }`)
+            .join(',\n');
+          return `  {
+    "id": "${c.id}",
+    "name": "${c.name}",
+    "subcategories": [
+${subs}
+    ]
+  }`;
+        })
+        .join(',\n');
+
+      const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
+Return ONLY a JSON array where each element strictly matches:
+{
+  "categoryId": "one of the allowed category ids",
+  "subcategoryId": "one of the allowed subcategory ids for the chosen category or null",
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation"
+}
+Rules:
+- Use EXACT ids from the catalog below
+- Do not invent ids or names
+- If unsure, set subcategoryId to null
+- If you cannot determine confidently, set categoryId to "uncategorized" and confidence <= 0.3`;
+
+      const items = requests.map((r, idx) => ({
+        index: idx,
+        description: r.transactionText,
+        amount: r.amount,
+        date: r.date
+      }));
+
+      const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order):\n${JSON.stringify(items, null, 2)}`;
+
+      const completion = await this.client.chat.completions.create({
+        model: this.deploymentName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 1200,
+        temperature: 0.1
+      });
+
+      const responseContent = completion.choices[0]?.message?.content;
+      if (!responseContent) throw new Error('No response from Azure OpenAI');
+
+      const cleaned = this.cleanAIResponse(responseContent);
+      let parsed: any[] = [];
+      try {
+        parsed = JSON.parse(cleaned);
+        if (!Array.isArray(parsed)) throw new Error('Expected array');
+      } catch (e) {
+        console.warn('Batch parse failed, falling back to per-item defaults:', e);
+        return requests.map(() => ({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Batch parse failed' }));
+      }
+
+      // Normalize each item
+      return parsed.map((p) => {
+        const categoryId = (p?.categoryId || p?.category || 'uncategorized') as string;
+        const subcategoryId = (p?.subcategoryId || p?.subcategory || null) as string | null;
+        const confidence = typeof p?.confidence === 'number' ? p.confidence : 0.5;
+        const reasoning = (p?.reasoning || 'AI classification') as string;
+        return { categoryId, subcategoryId: subcategoryId || undefined, confidence, reasoning };
+      });
+    } catch (error) {
+      console.error('Error in batch classification:', error);
+      return requests.map(() => ({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Batch classification failed' }));
     }
   }
 

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import styled from 'styled-components';
-import { Card, Button, FlexBox } from '../../styles/globalStyles';
+import { Button } from '../../styles/globalStyles';
 import { Account } from '../../types';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -12,31 +12,6 @@ const AccountsContainer = styled.div`
   .ag-theme-alpine {
     height: 400px;
     width: 100%;
-  }
-
-  .stats-bar {
-    display: flex;
-    gap: 20px;
-    margin-bottom: 20px;
-    
-    .stat-item {
-      background: #f8f9fa;
-      padding: 12px 16px;
-      border-radius: 8px;
-      text-align: center;
-      
-      .label {
-        font-size: 0.85rem;
-        color: #666;
-        margin-bottom: 4px;
-      }
-      
-      .value {
-        font-size: 1.2rem;
-        font-weight: 600;
-        color: #333;
-      }
-    }
   }
 `;
 
@@ -173,31 +148,69 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     }));
   };
 
+  // React cell renderers
+  const NameRenderer: React.FC<any> = (params) => {
+    const isActive = params.data.isActive;
+    const style: React.CSSProperties = { fontWeight: isActive ? 600 : 400, color: isActive ? '#333' : '#999' };
+    return (
+      <span style={style}>
+        {params.value}
+        {!isActive ? ' (Inactive)' : ''}
+      </span>
+    );
+  };
+
+  const TypeRenderer: React.FC<any> = (params) => {
+    const typeColors = {
+      checking: '#4caf50',
+      savings: '#2196f3',
+      credit: '#ff9800',
+      investment: '#9c27b0',
+      cash: '#795548'
+    } as const;
+    const color = typeColors[params.value as keyof typeof typeColors] || '#666';
+    const style: React.CSSProperties = { background: color, color: 'white', padding: '4px 8px', borderRadius: '12px', fontSize: '0.8rem', textTransform: 'capitalize' };
+    return <span style={style}>{params.value}</span>;
+  };
+
+  const BalanceRenderer: React.FC<any> = (params) => {
+    const balance = params.value;
+    if (balance === undefined || balance === null) return null;
+    const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(balance);
+    const style: React.CSSProperties = { color: balance >= 0 ? '#4caf50' : '#f44336' };
+    return <span style={style}>{formatted}</span>;
+  };
+
+  const StatusRenderer: React.FC<any> = (params) => (
+    params.value ? (
+      <span style={{ color: '#4caf50' }}>✅ Active</span>
+    ) : (
+      <span style={{ color: '#f44336' }}>❌ Inactive</span>
+    )
+  );
+
+  const ActionsRenderer: React.FC<any> = (params) => (
+    <button
+      className="edit-account-btn"
+      data-id={params.data.id}
+      style={{ padding: '4px 8px', border: '1px solid #ddd', borderRadius: '4px', background: 'white', cursor: 'pointer' }}
+    >
+      Edit
+    </button>
+  );
+
   const columnDefs: ColDef[] = [
     {
       headerName: 'Name',
       field: 'name',
       flex: 1,
-      cellRenderer: (params: any) => {
-        const isActive = params.data.isActive;
-        return `<span style="font-weight: ${isActive ? '600' : '400'}; color: ${isActive ? '#333' : '#999'}">${params.value}${!isActive ? ' (Inactive)' : ''}</span>`;
-      }
+      cellRenderer: NameRenderer
     },
     {
       headerName: 'Type',
       field: 'type',
       width: 120,
-      cellRenderer: (params: any) => {
-        const typeColors = {
-          checking: '#4caf50',
-          savings: '#2196f3',
-          credit: '#ff9800',
-          investment: '#9c27b0',
-          cash: '#795548'
-        };
-        const color = typeColors[params.value as keyof typeof typeColors] || '#666';
-        return `<span style="background: ${color}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; text-transform: capitalize;">${params.value}</span>`;
-      }
+      cellRenderer: TypeRenderer
     },
     {
       headerName: 'Institution',
@@ -208,32 +221,18 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       headerName: 'Balance',
       field: 'balance',
       width: 150,
-      cellRenderer: (params: any) => {
-        const balance = params.value;
-        if (balance === undefined || balance === null) return '';
-        const formatted = new Intl.NumberFormat('en-US', {
-          style: 'currency',
-          currency: 'USD'
-        }).format(balance);
-        return `<span style="color: ${balance >= 0 ? '#4caf50' : '#f44336'}">${formatted}</span>`;
-      }
+      cellRenderer: BalanceRenderer
     },
     {
       headerName: 'Status',
       field: 'isActive',
       width: 100,
-      cellRenderer: (params: any) => {
-        return params.value ? 
-          '<span style="color: #4caf50;">✅ Active</span>' : 
-          '<span style="color: #f44336;">❌ Inactive</span>';
-      }
+      cellRenderer: StatusRenderer
     },
     {
       headerName: 'Actions',
       width: 100,
-      cellRenderer: (params: any) => {
-        return `<button class="edit-account-btn" data-id="${params.data.id}" style="padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">Edit</button>`;
-      }
+      cellRenderer: ActionsRenderer
     }
   ];
 
@@ -246,37 +245,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     });
   };
 
-  const stats = {
-    totalAccounts: accounts.length,
-    activeAccounts: accounts.filter(a => a.isActive).length,
-    inactiveAccounts: accounts.filter(a => !a.isActive).length,
-    bankAccounts: accounts.filter(a => ['checking', 'savings'].includes(a.type)).length
-  };
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h3>Account Management</h3>
         <Button onClick={handleAddAccount}>Add Account</Button>
-      </div>
-
-      <div className="stats-bar">
-        <div className="stat-item">
-          <div className="label">Total Accounts</div>
-          <div className="value">{stats.totalAccounts}</div>
-        </div>
-        <div className="stat-item">
-          <div className="label">Active</div>
-          <div className="value">{stats.activeAccounts}</div>
-        </div>
-        <div className="stat-item">
-          <div className="label">Inactive</div>
-          <div className="value">{stats.inactiveAccounts}</div>
-        </div>
-        <div className="stat-item">
-          <div className="label">Bank Accounts</div>
-          <div className="value">{stats.bankAccounts}</div>
-        </div>
       </div>
 
       <AccountsContainer>
