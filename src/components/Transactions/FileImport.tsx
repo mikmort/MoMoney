@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
-import { FileImportProgress, StatementFile, Category, Subcategory, Account } from '../../types';
+import { FileImportProgress, StatementFile, Category, Subcategory, Account, DuplicateDetectionResult, Transaction } from '../../types';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog } from './AccountSelectionDialog';
+import { DuplicateTransactionsDialog } from './DuplicateTransactionsDialog';
 import { AccountDetectionResponse } from '../../services/accountManagementService';
 
 const ImportContainer = styled.div`
@@ -126,6 +127,12 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [showAccountSelection, setShowAccountSelection] = useState(false);
   const [accountDetectionResult, setAccountDetectionResult] = useState<AccountDetectionResponse | null>(null);
+  
+  // Duplicate detection state
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [duplicateDetectionResult, setDuplicateDetectionResult] = useState<DuplicateDetectionResult | null>(null);
+  const [pendingTransactions, setPendingTransactions] = useState<Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]>([]);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Account management hook
@@ -199,6 +206,12 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           setIsImporting(false);
           setCurrentFileId(null);
         }, 2000);
+      } else if (result.needsDuplicateResolution && result.duplicateDetection) {
+        // Handle duplicate detection
+        setDuplicateDetectionResult(result.duplicateDetection);
+        setPendingTransactions(result.duplicateDetection.duplicates.map(d => d.newTransaction).concat(result.duplicateDetection.uniqueTransactions));
+        setShowDuplicateDialog(true);
+        setIsImporting(false);
       } else {
         setIsImporting(false);
         setCurrentFileId(null);
@@ -275,6 +288,56 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       });
     } else {
       console.log('⚠️ Cannot stop import: no active import found');
+    }
+  };
+
+  const handleImportDuplicates = async () => {
+    if (!currentFileId || !duplicateDetectionResult) return;
+    
+    setShowDuplicateDialog(false);
+    setIsImporting(true);
+    
+    try {
+      await fileProcessingService.resolveDuplicates(currentFileId, true, pendingTransactions, duplicateDetectionResult);
+      onImportComplete(pendingTransactions.length);
+      
+      // Clear states
+      setDuplicateDetectionResult(null);
+      setPendingTransactions([]);
+      
+      setTimeout(() => {
+        setProgress(null);
+        setIsImporting(false);
+        setCurrentFileId(null);
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to import duplicates:', error);
+      setIsImporting(false);
+    }
+  };
+
+  const handleIgnoreDuplicates = async () => {
+    if (!currentFileId || !duplicateDetectionResult) return;
+    
+    setShowDuplicateDialog(false);
+    setIsImporting(true);
+    
+    try {
+      await fileProcessingService.resolveDuplicates(currentFileId, false, pendingTransactions, duplicateDetectionResult);
+      onImportComplete(duplicateDetectionResult.uniqueTransactions.length);
+      
+      // Clear states
+      setDuplicateDetectionResult(null);
+      setPendingTransactions([]);
+      
+      setTimeout(() => {
+        setProgress(null);
+        setIsImporting(false);
+        setCurrentFileId(null);
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to ignore duplicates:', error);
+      setIsImporting(false);
     }
   };
 
@@ -410,6 +473,15 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           onAccountSelect={(accountId) => handleAccountSelection(accountId)}
           onNewAccount={(newAccountData) => handleAccountSelection('new', true, newAccountData)}
           onCancel={handleCancelAccountSelection}
+        />
+      )}
+
+      {/* Duplicate Transactions Dialog */}
+      {showDuplicateDialog && duplicateDetectionResult && (
+        <DuplicateTransactionsDialog
+          duplicates={duplicateDetectionResult.duplicates}
+          onImportAnyway={handleImportDuplicates}
+          onIgnoreDuplicates={handleIgnoreDuplicates}
         />
       )}
     </ImportContainer>

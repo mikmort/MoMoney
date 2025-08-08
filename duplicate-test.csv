@@ -1,0 +1,6 @@
+Date,Description,Amount,Account,Notes
+2025-08-01,Whole Foods Market #123,-125.50,Chase Checking,Duplicate transaction test
+2025-08-01,Starbucks Coffee,-4.50,Chase Checking,Another duplicate test
+2025-08-02,Gas Station Shell,-35.00,Chase Checking,New transaction
+2025-08-01,Whole Foods Market #123,-125.50,Chase Checking,This should be detected as duplicate
+2025-08-01,Starbucks Coffee,-4.50,Chase Checking,This should also be a duplicate
