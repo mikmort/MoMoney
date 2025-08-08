@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { StatementFile, Transaction, FileSchemaMapping, FileImportProgress, Category, Subcategory, AISchemaMappingRequest, AISchemaMappingResponse, AIClassificationRequest, AIClassificationResponse } from '../types';
+import { StatementFile, Transaction, FileSchemaMapping, FileImportProgress, Category, Subcategory, AISchemaMappingRequest, AISchemaMappingResponse, AIClassificationRequest, AIClassificationResponse, DuplicateDetectionResult } from '../types';
 import { accountManagementService, AccountDetectionRequest } from './accountManagementService';
 import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
@@ -21,6 +21,8 @@ export interface FileProcessingResult {
     }>;
   };
   transactions?: Transaction[];
+  duplicateDetection?: DuplicateDetectionResult;
+  needsDuplicateResolution?: boolean;
 }
 
 export class FileProcessingService {
@@ -215,7 +217,12 @@ export class FileProcessingService {
     accountId: string,
     onProgress?: (progress: FileImportProgress) => void,
     onFileIdGenerated?: (fileId: string) => void
-  ): Promise<{ statementFile: StatementFile; fileId: string }> {
+  ): Promise<{ 
+    statementFile: StatementFile; 
+    fileId: string;
+    duplicateDetection?: DuplicateDetectionResult;
+    needsDuplicateResolution?: boolean;
+  }> {
     const fileId = uuidv4();
     
     // Notify caller of the fileId immediately so they can cancel if needed
@@ -300,18 +307,40 @@ export class FileProcessingService {
         throw new Error('Import cancelled by user');
       }
 
-      // Step 6: Save to database (95%)
-      this.updateProgress(progress, 95, 'processing', 'Saving transactions...', onProgress);
-      console.log(`💾 Saving ${transactions.length} transactions to dataService`);
-      await dataService.addTransactions(transactions);
+      // Step 6: Check for duplicates (95%)
+      this.updateProgress(progress, 95, 'processing', 'Checking for duplicate transactions...', onProgress);
+      console.log(`🔍 Checking ${transactions.length} transactions for duplicates`);
+      const duplicateDetection = await dataService.detectDuplicates(transactions);
       
-      // Step 7: Complete (100%)
-      statementFile.status = 'completed';
-      statementFile.transactionCount = transactions.length;
-      
-      this.updateProgress(progress, 100, 'completed', `Successfully imported ${transactions.length} transactions!`, onProgress);
-      
-      return { statementFile, fileId };
+      if (duplicateDetection.duplicates.length > 0) {
+        console.log(`⚠️ Found ${duplicateDetection.duplicates.length} duplicate transactions`);
+        // Don't save transactions yet - wait for user decision
+        statementFile.status = 'awaiting-duplicate-resolution';
+        statementFile.transactionCount = transactions.length;
+        
+        this.updateProgress(progress, 100, 'completed', `Found ${duplicateDetection.duplicates.length} duplicate transactions. Please review.`, onProgress);
+        
+        return { 
+          statementFile, 
+          fileId, 
+          duplicateDetection,
+          needsDuplicateResolution: true
+        };
+      } else {
+        // No duplicates, save all transactions
+        await dataService.addTransactions(transactions);
+        
+        // Step 7: Complete (100%)
+        statementFile.status = 'completed';
+        statementFile.transactionCount = transactions.length;
+        
+        this.updateProgress(progress, 100, 'completed', `Successfully imported ${transactions.length} transactions!`, onProgress);
+        
+        return { 
+          statementFile, 
+          fileId
+        };
+      }
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -325,7 +354,10 @@ export class FileProcessingService {
       this.cleanup(fileId);
     }
 
-    return { statementFile, fileId };
+    return { 
+      statementFile, 
+      fileId 
+    };
   }
 
   private updateProgress(
@@ -400,6 +432,16 @@ export class FileProcessingService {
 
     const stripBOM = (s: string) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
     const countReplacement = (s: string) => (s.match(/\uFFFD/g) || []).length;
+    // Count Unicode C1 control characters U+0080–U+009F which often appear when cp1252 bytes
+    // are decoded as ISO-8859-1. We want to penalize decodings that produce these.
+    const countC1Controls = (s: string) => {
+      let count = 0;
+      for (let i = 0; i < s.length; i++) {
+        const code = s.charCodeAt(i);
+        if (code >= 0x80 && code <= 0x9f) count++;
+      }
+      return count;
+    };
     const tryDecode = (buf: ArrayBuffer, enc: string) => {
       try {
         const dec = new TextDecoder(enc as any, { fatal: false });
@@ -411,25 +453,57 @@ export class FileProcessingService {
 
     const buffer = await readAsArrayBuffer();
 
+    // Quick BOM-based detection for Unicode encodings
+    const view = new Uint8Array(buffer);
+    const hasUTF8BOM = view.length >= 3 && view[0] === 0xef && view[1] === 0xbb && view[2] === 0xbf;
+    const hasUTF16LE = view.length >= 2 && view[0] === 0xff && view[1] === 0xfe;
+    const hasUTF16BE = view.length >= 2 && view[0] === 0xfe && view[1] === 0xff;
+
+    if (hasUTF16LE) {
+      const dec = new TextDecoder('utf-16le');
+      return stripBOM(dec.decode(new DataView(buffer)));
+    }
+    if (hasUTF16BE) {
+      const dec = new TextDecoder('utf-16be' as any);
+      return stripBOM(dec.decode(new DataView(buffer)));
+    }
+
     // Prefer UTF-8; if we see replacement characters, try common Western encodings.
-    const utf8 = tryDecode(buffer, 'utf-8');
+  const utf8 = tryDecode(buffer, 'utf-8');
     const utf8Repl = countReplacement(utf8);
 
-    if (utf8Repl === 0) return utf8;
+  if (utf8Repl === 0 || hasUTF8BOM) return utf8;
 
     // Some CSV exports use Windows-1252 or ISO-8859-1
     const cp1252 = tryDecode(buffer, 'windows-1252');
     const cp1252Repl = countReplacement(cp1252);
+    const cp1252C1 = countC1Controls(cp1252);
 
-    const iso88591 = tryDecode(buffer, 'iso-8859-1');
-    const isoRepl = countReplacement(iso88591);
+  const iso88591 = tryDecode(buffer, 'iso-8859-1');
+  const isoRepl = countReplacement(iso88591);
+  const isoC1 = countC1Controls(iso88591);
 
-    // Choose the decoding that yields the fewest replacement characters
-    const best = [
-      { text: utf8, repl: utf8Repl },
-      { text: cp1252, repl: cp1252Repl },
-      { text: iso88591, repl: isoRepl }
-    ].reduce((a, b) => (b.repl < a.repl ? b : a));
+  const iso885915 = tryDecode(buffer, 'iso-8859-15');
+  const iso15Repl = countReplacement(iso885915);
+  const iso15C1 = countC1Controls(iso885915);
+
+    // Score decodings: lower replacement chars first, then fewer C1 controls.
+    // Prefer cp1252 over iso-8859-1 when ties (common for Western European CSVs).
+    type Candidate = { text: string; repl: number; c1: number; label: 'utf8' | 'cp1252' | 'iso' | 'iso15' };
+    const candidates: Candidate[] = [
+      { text: utf8, repl: utf8Repl, c1: countC1Controls(utf8), label: 'utf8' },
+      { text: cp1252, repl: cp1252Repl, c1: cp1252C1, label: 'cp1252' },
+      { text: iso88591, repl: isoRepl, c1: isoC1, label: 'iso' },
+      { text: iso885915, repl: iso15Repl, c1: iso15C1, label: 'iso15' }
+    ];
+
+    const best = candidates.reduce((best, cur) => {
+      if (cur.repl !== best.repl) return cur.repl < best.repl ? cur : best;
+      if (cur.c1 !== best.c1) return cur.c1 < best.c1 ? cur : best;
+      // Tie-breaker: prefer cp1252 over iso when both are equal
+  const prefOrder: Record<Candidate['label'], number> = { utf8: 0, cp1252: 1, iso: 2, iso15: 3 };
+      return prefOrder[cur.label] < prefOrder[best.label] ? cur : best;
+    });
 
     return best.text || utf8; // fallback to utf8 if all failed
   }
@@ -580,6 +654,7 @@ Return ONLY a clean JSON response:
     accountId: string,
     onProgress?: (processed: number) => void
   ): Promise<Transaction[]> {
+    console.log(`📊 processTransactions called with ${rawData.length} raw data rows`);
     const transactions: Transaction[] = [];
 
     // Prepare rows -> basic extracted data first
@@ -597,9 +672,13 @@ Return ONLY a clean JSON response:
       notes: this.extractString(row, mapping.notesColumn)
     }));
 
+    console.log(`📊 Prepared ${prepared.length} rows from raw data`);
+
     const validIndices = prepared
       .filter(p => p.date && p.description && p.amount !== null)
       .map(p => p.idx);
+
+    console.log(`📊 Found ${validIndices.length} valid rows out of ${prepared.length} prepared rows`);
 
     // Build batch requests for AI
     const batchRequests: AIClassificationRequest[] = validIndices.map(i => ({
@@ -608,6 +687,8 @@ Return ONLY a clean JSON response:
       date: (prepared[i].date as Date).toISOString(),
       availableCategories: categories
     }));
+
+    console.log(`📊 Created ${batchRequests.length} batch requests for AI`);
 
     // Call AI in batch chunks to respect token limits
     const CHUNK = 30; // conservative batch size
@@ -618,13 +699,29 @@ Return ONLY a clean JSON response:
         throw new Error('Import cancelled by user');
       }
       const slice = batchRequests.slice(start, start + CHUNK);
-      const res = await azureOpenAIService.classifyTransactionsBatch(slice);
-      batchResults.push(...res);
+      try {
+        const res = await azureOpenAIService.classifyTransactionsBatch(slice);
+        batchResults.push(...res);
+        console.log(`📊 AI classification succeeded for batch ${start}-${start + slice.length}, got ${res.length} results`);
+      } catch (error) {
+        console.warn('⚠️ AI classification failed, using default categorization:', error);
+        // Create default responses for failed AI classification
+        const defaultResponses = slice.map(() => ({
+          categoryId: 'uncategorized',
+          subcategoryId: undefined,
+          confidence: 0.1,
+          reasoning: 'AI classification unavailable, manually review recommended'
+        } as AIClassificationResponse));
+        batchResults.push(...defaultResponses);
+        console.log(`📊 Created ${defaultResponses.length} default responses for failed AI classification`);
+      }
       if (onProgress) {
         const processed = Math.min(validIndices.length, start + slice.length);
         onProgress(processed);
       }
     }
+
+    console.log(`📊 Final batch results: ${batchResults.length} total results`);
 
     // Map results back to rows
     const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
@@ -632,6 +729,7 @@ Return ONLY a clean JSON response:
     categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
 
     let resultIndex = 0;
+    console.log(`📊 Starting transaction creation loop for ${prepared.length} prepared transactions`);
     for (let i = 0; i < prepared.length; i++) {
       if (this.isCancelled(fileId)) {
         console.log(`🛑 Transaction processing cancelled at row ${i + 1}/${rawData.length}`);
@@ -640,12 +738,17 @@ Return ONLY a clean JSON response:
 
       const p = prepared[i];
       if (!p.date || !p.description || p.amount === null) {
+        console.log(`📊 Skipping row ${i} due to missing data: date=${!!p.date}, description=${!!p.description}, amount=${p.amount !== null}`);
         if (onProgress) onProgress(Math.min(validIndices.length, resultIndex));
         continue;
       }
 
+      console.log(`📊 Processing row ${i}: ${p.description} (${p.amount})`);
+
       const ai = batchResults[resultIndex] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
       resultIndex++;
+
+      console.log(`📊 Using AI result: categoryId=${ai.categoryId}, confidence=${ai.confidence}`);
 
       // Constrain ids (reuse existing logic)
       const categoryIds = new Set(categories.map(c => c.id));
@@ -670,6 +773,8 @@ Return ONLY a clean JSON response:
         }
       }
 
+      console.log(`📊 Final category mapping: ${validCategoryId} -> ${validSubcategoryId}`);
+
       // Convert ids to display names for storage
       const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
       const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
@@ -689,6 +794,8 @@ Return ONLY a clean JSON response:
         originalText: p.description
       };
 
+      console.log(`📊 Built transaction: ${built.description} - ${built.category} - ${built.amount}`);
+
       transactions.push({
         ...built,
         id: uuidv4(),
@@ -696,11 +803,14 @@ Return ONLY a clean JSON response:
         lastModifiedDate: new Date()
       });
 
+      console.log(`📊 Added transaction to array. Total now: ${transactions.length}`);
+
       if (onProgress) {
         onProgress(Math.min(validIndices.length, resultIndex));
       }
     }
 
+    console.log(`📊 processTransactions completed. Returning ${transactions.length} transactions`);
     return transactions;
   }
 
@@ -935,6 +1045,21 @@ Return ONLY a clean JSON response:
     // Use OCR to extract text from image, then parse
   }
   */
+
+  // Methods to handle duplicate resolution
+  async resolveDuplicates(fileId: string, importDuplicates: boolean, transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[], duplicateDetection: DuplicateDetectionResult): Promise<void> {
+    console.log(`🔄 Resolving duplicates for file ${fileId}, importDuplicates: ${importDuplicates}`);
+    
+    if (importDuplicates) {
+      // Import all transactions including duplicates
+      await dataService.addTransactions(transactions);
+      console.log(`✅ Imported ${transactions.length} transactions (including duplicates)`);
+    } else {
+      // Import only unique transactions
+      await dataService.addTransactions(duplicateDetection.uniqueTransactions);
+      console.log(`✅ Imported ${duplicateDetection.uniqueTransactions.length} unique transactions, ignored ${duplicateDetection.duplicates.length} duplicates`);
+    }
+  }
 }
 
 // Singleton instance

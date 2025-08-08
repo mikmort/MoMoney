@@ -6,6 +6,7 @@ import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Category, Subcategory } from '../../types';
 import { defaultCategories } from '../../data/defaultCategories';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
+import Papa from 'papaparse';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -153,6 +154,7 @@ interface CategoriesManagementProps {}
 export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   const [categories, setCategories] = useState<Category[]>(defaultCategories);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [categoryForm, setCategoryForm] = useState({
     name: '',
@@ -161,6 +163,9 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     icon: '📁',
     subcategories: [] as Array<{ name: string; description: string }>
   });
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<any[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
 
   // Prepare data for grid - flatten categories and subcategories
   const [gridData, setGridData] = useState<any[]>([]);
@@ -312,6 +317,220 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     setEditingCategory(null);
   };
 
+  const handleExportCategories = () => {
+    // Convert categories to CSV format
+    const csvData: any[] = [];
+    
+    categories.forEach(category => {
+      if (category.subcategories.length === 0) {
+        // Category with no subcategories
+        csvData.push({
+          'Category Name': category.name,
+          'Category Type': category.type,
+          'Category Color': category.color || '',
+          'Category Icon': category.icon || '',
+          'Subcategory Name': '',
+          'Subcategory Description': '',
+          'Subcategory Keywords': ''
+        });
+      } else {
+        // Add each subcategory as a separate row
+        category.subcategories.forEach(subcategory => {
+          csvData.push({
+            'Category Name': category.name,
+            'Category Type': category.type,
+            'Category Color': category.color || '',
+            'Category Icon': category.icon || '',
+            'Subcategory Name': subcategory.name,
+            'Subcategory Description': subcategory.description || '',
+            'Subcategory Keywords': (subcategory.keywords || []).join(';')
+          });
+        });
+      }
+    });
+
+    // Generate CSV content
+    const csv = Papa.unparse(csvData);
+    
+    // Create and trigger download
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `mo-money-categories-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadTemplate = () => {
+    // Create empty template with headers
+    const templateData = [{
+      'Category Name': 'Food & Dining',
+      'Category Type': 'expense',
+      'Category Color': '#4CAF50',
+      'Category Icon': '🍽️',
+      'Subcategory Name': 'Restaurants',
+      'Subcategory Description': 'Dining out',
+      'Subcategory Keywords': 'restaurant;dining;food'
+    }, {
+      'Category Name': 'Food & Dining',
+      'Category Type': 'expense',
+      'Category Color': '#4CAF50',
+      'Category Icon': '🍽️',
+      'Subcategory Name': 'Groceries',
+      'Subcategory Description': 'Food shopping',
+      'Subcategory Keywords': 'grocery;supermarket;food'
+    }];
+
+    const csv = Papa.unparse(templateData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'mo-money-categories-template.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCategories = () => {
+    setShowImportModal(true);
+    setImportFile(null);
+    setImportPreview([]);
+    setImportErrors([]);
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setImportFile(file);
+      parseImportFile(file);
+    }
+  };
+
+  const parseImportFile = (file: File) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const errors: string[] = [];
+        const preview: any[] = [];
+
+        // Validate headers
+        const requiredHeaders = ['Category Name', 'Category Type', 'Subcategory Name'];
+        const headers = Object.keys(results.data[0] || {});
+        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+        
+        if (missingHeaders.length > 0) {
+          errors.push(`Missing required columns: ${missingHeaders.join(', ')}`);
+        }
+
+        // Validate data
+        results.data.forEach((row: any, index: number) => {
+          if (!row['Category Name']) {
+            errors.push(`Row ${index + 1}: Category Name is required`);
+          }
+          if (!row['Category Type'] || !['income', 'expense'].includes(row['Category Type'])) {
+            errors.push(`Row ${index + 1}: Category Type must be either 'income' or 'expense'`);
+          }
+          preview.push(row);
+        });
+
+        setImportErrors(errors);
+        setImportPreview(preview);
+      },
+      error: (error) => {
+        setImportErrors([`File parsing error: ${error.message}`]);
+      }
+    });
+  };
+
+  const processImport = () => {
+    if (importErrors.length > 0) {
+      alert('Please fix the errors before importing');
+      return;
+    }
+
+    // Group preview data by category
+    const importedCategories = new Map<string, any>();
+    
+    importPreview.forEach(row => {
+      const categoryKey = `${row['Category Name']}-${row['Category Type']}`;
+      
+      if (!importedCategories.has(categoryKey)) {
+        importedCategories.set(categoryKey, {
+          name: row['Category Name'],
+          type: row['Category Type'],
+          color: row['Category Color'] || '#2196F3',
+          icon: row['Category Icon'] || '📁',
+          subcategories: []
+        });
+      }
+
+      if (row['Subcategory Name']) {
+        const category = importedCategories.get(categoryKey);
+        category.subcategories.push({
+          name: row['Subcategory Name'],
+          description: row['Subcategory Description'] || '',
+          keywords: row['Subcategory Keywords'] ? row['Subcategory Keywords'].split(';').map((k: string) => k.trim()).filter((k: string) => k) : []
+        });
+      }
+    });
+
+    // Merge with existing categories (avoiding duplicates)
+    const newCategories = [...categories];
+    let importCount = 0;
+
+    importedCategories.forEach(importedCategory => {
+      const existingIndex = newCategories.findIndex(c => 
+        c.name.toLowerCase() === importedCategory.name.toLowerCase() && 
+        c.type === importedCategory.type
+      );
+
+      if (existingIndex >= 0) {
+        // Merge subcategories
+        const existingCategory = newCategories[existingIndex];
+        importedCategory.subcategories.forEach((newSub: any) => {
+          const existingSubIndex = existingCategory.subcategories.findIndex(s => 
+            s.name.toLowerCase() === newSub.name.toLowerCase()
+          );
+          
+          if (existingSubIndex === -1) {
+            existingCategory.subcategories.push({
+              id: `${existingCategory.id}-${newSub.name.toLowerCase().replace(/\s+/g, '-')}`,
+              ...newSub
+            });
+            importCount++;
+          }
+        });
+      } else {
+        // Add new category
+        const newCategory: Category = {
+          id: importedCategory.name.toLowerCase().replace(/\s+/g, '-'),
+          name: importedCategory.name,
+          type: importedCategory.type,
+          color: importedCategory.color,
+          icon: importedCategory.icon,
+          subcategories: importedCategory.subcategories.map((sub: any, index: number) => ({
+            id: `${importedCategory.name.toLowerCase().replace(/\s+/g, '-')}-${sub.name.toLowerCase().replace(/\s+/g, '-')}`,
+            ...sub
+          }))
+        };
+        newCategories.push(newCategory);
+        importCount++;
+      }
+    });
+
+    setCategories(newCategories);
+    setShowImportModal(false);
+    alert(`Import completed! ${importCount} categories/subcategories imported.`);
+  };
+
   const handleDeleteCategory = (categoryId: string) => {
     if (window.confirm('Are you sure you want to delete this category? This action cannot be undone.')) {
       const updatedCategories = categories.filter(c => c.id !== categoryId);
@@ -364,8 +583,8 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
         <h1>Categories Management</h1>
         <FlexBox gap="12px">
           <Button onClick={handleAddCategory}>Add Category</Button>
-          <Button variant="outline">Import Categories</Button>
-          <Button variant="outline">Export Categories</Button>
+          <Button variant="outline" onClick={handleImportCategories}>Import Categories</Button>
+          <Button variant="outline" onClick={handleExportCategories}>Export Categories</Button>
         </FlexBox>
       </PageHeader>
 
@@ -478,6 +697,110 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
               </Button>
               <Button onClick={handleSaveCategory}>
                 {editingCategory ? 'Update' : 'Create'} Category
+              </Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* Import Categories Modal */}
+      {showImportModal && (
+        <EditModalOverlay onClick={() => setShowImportModal(false)}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Import Categories</h2>
+            
+            <div className="form-group">
+              <label>Step 1: Download Template (Optional)</label>
+              <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '10px' }}>
+                Download a template file to see the expected format, or use your own CSV file with the required columns.
+              </p>
+              <Button variant="outline" onClick={handleDownloadTemplate}>
+                Download CSV Template
+              </Button>
+            </div>
+
+            <div className="form-group">
+              <label>Step 2: Upload CSV File</label>
+              <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '10px' }}>
+                Upload a CSV file with columns: Category Name, Category Type, Subcategory Name, etc.
+              </p>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFileUpload}
+                style={{ width: '100%', padding: '8px' }}
+              />
+            </div>
+
+            {importErrors.length > 0 && (
+              <div className="form-group">
+                <label style={{ color: '#F44336' }}>Errors Found:</label>
+                <div style={{ 
+                  background: '#ffebee', 
+                  border: '1px solid #F44336', 
+                  borderRadius: '4px', 
+                  padding: '10px',
+                  maxHeight: '150px',
+                  overflowY: 'auto'
+                }}>
+                  {importErrors.map((error, index) => (
+                    <div key={index} style={{ color: '#F44336', fontSize: '0.9rem', marginBottom: '4px' }}>
+                      • {error}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {importPreview.length > 0 && importErrors.length === 0 && (
+              <div className="form-group">
+                <label>Preview ({importPreview.length} rows):</label>
+                <div style={{ 
+                  background: '#f8f9fa', 
+                  border: '1px solid #ddd', 
+                  borderRadius: '4px', 
+                  padding: '10px',
+                  maxHeight: '300px',
+                  overflowY: 'auto'
+                }}>
+                  <table style={{ width: '100%', fontSize: '0.8rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #ddd' }}>
+                        <th style={{ padding: '4px', textAlign: 'left' }}>Category</th>
+                        <th style={{ padding: '4px', textAlign: 'left' }}>Type</th>
+                        <th style={{ padding: '4px', textAlign: 'left' }}>Subcategory</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.slice(0, 10).map((row, index) => (
+                        <tr key={index}>
+                          <td style={{ padding: '4px' }}>{row['Category Name']}</td>
+                          <td style={{ padding: '4px' }}>{row['Category Type']}</td>
+                          <td style={{ padding: '4px' }}>{row['Subcategory Name']}</td>
+                        </tr>
+                      ))}
+                      {importPreview.length > 10 && (
+                        <tr>
+                          <td colSpan={3} style={{ padding: '4px', fontStyle: 'italic' }}>
+                            ... and {importPreview.length - 10} more rows
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={() => setShowImportModal(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={processImport}
+                disabled={importPreview.length === 0 || importErrors.length > 0}
+              >
+                Import Categories
               </Button>
             </div>
           </EditModalContent>

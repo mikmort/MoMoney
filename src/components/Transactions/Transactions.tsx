@@ -465,6 +465,20 @@ const Transactions: React.FC = () => {
   const [historyFor, setHistoryFor] = useState<Transaction | null>(null);
   const [historyItems, setHistoryItems] = useState<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>>([]);
 
+  // Compute a simple diff summary between two transactions
+  const summarizeDiff = (a: Transaction, b: Transaction) => {
+    const fields: Array<keyof Transaction> = ['description','amount','category','subcategory','account','type','date','notes'];
+    const changes: string[] = [];
+    fields.forEach(f => {
+      const av = f === 'date' ? (a.date ? new Date(a.date).toISOString().slice(0,10) : '') : (a as any)[f];
+      const bv = f === 'date' ? (b.date ? new Date(b.date).toISOString().slice(0,10) : '') : (b as any)[f];
+      if ((av ?? '') !== (bv ?? '')) {
+        changes.push(`${String(f)}: "${av ?? ''}" → "${bv ?? ''}"`);
+      }
+    });
+    return changes.join('; ');
+  };
+
   const openHistory = async (tx: Transaction) => {
     const items = await dataService.getTransactionHistory(tx.id);
     setHistoryFor(tx);
@@ -474,7 +488,19 @@ const Transactions: React.FC = () => {
 
   const restoreHistory = async (versionId: string) => {
     if (!historyFor) return;
-    await dataService.restoreTransactionVersion(historyFor.id, versionId);
+    const version = historyItems.find(h => h.id === versionId);
+    let note: string | undefined = undefined;
+    if (version) {
+      const current = await dataService.getTransactionById(historyFor.id);
+      if (current) {
+        const diff = summarizeDiff(current, version.data);
+        const confirmMsg = `Restore this version?\n\nChanges: ${diff || 'No visible field changes.'}`;
+        const ok = window.confirm(confirmMsg);
+        if (!ok) return;
+        note = diff ? `Restored: ${diff}` : 'Restored previous version';
+      }
+    }
+    await dataService.restoreTransactionVersion(historyFor.id, versionId, note);
     const allTransactions = await dataService.getAllTransactions();
     setTransactions(allTransactions);
     setFilteredTransactions(allTransactions);
@@ -1031,13 +1057,16 @@ const Transactions: React.FC = () => {
         let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
 
         // Update the transaction with suggested category
-        await dataService.updateTransaction(tx.id, {
+  const updates: Partial<Transaction> = {
           category: categoryName,
           subcategory: subName,
           confidence: result.confidence,
           reasoning: result.reasoning,
           isVerified: false,
-        });
+  };
+
+  const note = `AI Suggest Category: ${tx.category}${tx.subcategory ? ' → ' + tx.subcategory : ''} → ${updates.category}${updates.subcategory ? ' → ' + updates.subcategory : ''}`;
+  await dataService.updateTransaction(tx.id, updates, note);
 
         const all = await dataService.getAllTransactions();
         setTransactions(all);
@@ -1244,6 +1273,73 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleAutoCategorizeUncategorized = async () => {
+    try {
+      // Find all uncategorized transactions
+      const uncategorizedTransactions = transactions.filter(t => t.category === 'Uncategorized');
+      
+      if (uncategorizedTransactions.length === 0) {
+        alert('No uncategorized transactions found!');
+        return;
+      }
+
+      const confirmMessage = `Found ${uncategorizedTransactions.length} uncategorized transaction(s). Do you want to auto-categorize them using AI?`;
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      console.log(`🤖 Starting AI categorization for ${uncategorizedTransactions.length} transactions...`);
+
+      // Process transactions in batches to avoid overwhelming the AI service
+      for (const transaction of uncategorizedTransactions) {
+        try {
+          const [result] = await azureOpenAIService.classifyTransactionsBatch([
+            {
+              transactionText: transaction.description,
+              amount: transaction.amount,
+              date: transaction.date.toISOString(),
+              availableCategories: categoriesCatalog,
+            },
+          ]);
+
+          // Map returned ids to display names using categoriesCatalog
+          const idToNameCategory = new Map(categoriesCatalog.map(c => [c.id, c.name]));
+          const subMap = new Map<string, { name: string; parentId: string }>();
+          categoriesCatalog.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
+
+          let categoryName = idToNameCategory.get(result.categoryId) || (result.categoryId || 'Uncategorized');
+          let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
+
+          // Update the transaction with AI suggested category
+          const updates: Partial<Transaction> = {
+            category: categoryName,
+            subcategory: subName,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            isVerified: false,
+          };
+
+          const note = `AI Auto-Categorize: Uncategorized → ${updates.category}${updates.subcategory ? ' → ' + updates.subcategory : ''}`;
+          await dataService.updateTransaction(transaction.id, updates, note);
+
+          console.log(`✅ Categorized: ${transaction.description} → ${categoryName}${subName ? ' → ' + subName : ''}`);
+        } catch (error) {
+          console.error(`❌ Failed to categorize transaction: ${transaction.description}`, error);
+        }
+      }
+
+      // Refresh the transactions list
+      const updatedTransactions = await dataService.getAllTransactions();
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+
+      alert(`Successfully auto-categorized ${uncategorizedTransactions.length} transaction(s)!`);
+    } catch (error) {
+      console.error('Auto-categorization failed:', error);
+      alert('Failed to auto-categorize transactions. Please try again.');
+    }
+  };
+
   const handleApplyMatch = async (match: ReimbursementMatch) => {
     const updatedTransactions = await applyMatches(transactions, [match]);
     setTransactions(updatedTransactions);
@@ -1332,6 +1428,20 @@ const Transactions: React.FC = () => {
     );
   };
 
+  // Define the overflow menu actions
+  const overflowMenuActions: MenuAction[] = [
+    {
+      icon: '💰',
+      label: isMatchingLoading ? 'Finding...' : 'Find Reimbursements',
+      onClick: handleFindReimbursements
+    },
+    {
+      icon: '🤖',
+      label: 'Auto Categorize Uncategorized Transactions',
+      onClick: handleAutoCategorizeUncategorized
+    }
+  ];
+
   return (
     <div>
       <PageHeader>
@@ -1353,6 +1463,10 @@ const Transactions: React.FC = () => {
           </Button>
           <Button variant="outline">Export</Button>
           <Button>Add Transaction</Button>
+          <ActionsMenu 
+            menuId="transactions-overflow-menu" 
+            actions={overflowMenuActions} 
+          />
         </FlexBox>
       </PageHeader>
 
