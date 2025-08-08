@@ -1,25 +1,599 @@
-import React from 'react';
-import { PageHeader, Card } from '../../styles/globalStyles';
+import React, { useState, useEffect } from 'react';
+import styled from 'styled-components';
+import { 
+  Chart as ChartJS, 
+  CategoryScale, 
+  LinearScale, 
+  BarElement, 
+  Title, 
+  Tooltip, 
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement,
+  TimeScale
+} from 'chart.js';
+import { Bar, Doughnut } from 'react-chartjs-2';
+import 'chartjs-adapter-date-fns';
+import { PageHeader, Card, Grid, Badge } from '../../styles/globalStyles';
+import { 
+  reportsService, 
+  SpendingByCategory, 
+  MonthlySpendingTrend, 
+  IncomeExpenseAnalysis,
+  SpendingInsights,
+  DateRange 
+} from '../../services/reportsService';
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement,
+  TimeScale
+);
+
+const ReportsContainer = styled.div`
+  .date-range-selector {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    
+    select, input {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+    }
+    
+    .custom-range {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+  }
+`;
+
+const StatsCard = styled(Card)`
+  text-align: center;
+  
+  .amount {
+    font-size: 1.8rem;
+    font-weight: 600;
+    margin: 8px 0;
+    
+    &.positive {
+      color: #4caf50;
+    }
+    
+    &.negative {
+      color: #f44336;
+    }
+    
+    &.neutral {
+      color: #2196f3;
+    }
+  }
+  
+  .label {
+    color: #666;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  .percentage {
+    font-size: 0.8rem;
+    color: #888;
+    margin-top: 4px;
+  }
+`;
+
+const ChartCard = styled(Card)`
+  height: 400px;
+  
+  .chart-container {
+    height: 320px;
+    position: relative;
+  }
+  
+  h3 {
+    margin-bottom: 20px;
+    color: #333;
+  }
+`;
+
+const InsightsCard = styled(Card)`
+  .insight-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+  
+  .insight-label {
+    font-weight: 500;
+    color: #333;
+  }
+  
+  .insight-value {
+    font-weight: 600;
+    
+    &.good {
+      color: #4caf50;
+    }
+    
+    &.warning {
+      color: #ff9800;
+    }
+    
+    &.error {
+      color: #f44336;
+    }
+  }
+`;
+
+const CategoryTable = styled.div`
+  .category-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid #eee;
+    
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+  
+  .category-info {
+    flex: 1;
+    
+    .category-name {
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    
+    .category-stats {
+      font-size: 0.85rem;
+      color: #666;
+    }
+  }
+  
+  .category-amount {
+    text-align: right;
+    
+    .amount {
+      font-weight: 600;
+      color: #f44336;
+      margin-bottom: 4px;
+    }
+    
+    .percentage {
+      font-size: 0.85rem;
+      color: #888;
+    }
+  }
+`;
+
+type DateRangeType = 'all' | 'current-month' | 'last-3-months' | 'last-12-months' | 'custom';
 
 const Reports: React.FC = () => {
+  const [loading, setLoading] = useState(true);
+  const [dateRangeType, setDateRangeType] = useState<DateRangeType>('last-12-months');
+  const [customDateRange, setCustomDateRange] = useState<DateRange | null>(null);
+  const [spendingByCategory, setSpendingByCategory] = useState<SpendingByCategory[]>([]);
+  const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
+  const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
+  const [spendingInsights, setSpendingInsights] = useState<SpendingInsights | null>(null);
+
+  const getCurrentDateRange = (): DateRange | undefined => {
+    switch (dateRangeType) {
+      case 'all':
+        return undefined;
+      case 'current-month':
+        return reportsService.getCurrentMonthRange();
+      case 'last-3-months':
+        return reportsService.getLastThreeMonthsRange();
+      case 'last-12-months':
+        return reportsService.getDefaultDateRange();
+      case 'custom':
+        return customDateRange || undefined;
+      default:
+        return undefined;
+    }
+  };
+
+  useEffect(() => {
+    const loadReportsData = async () => {
+      setLoading(true);
+      try {
+        const dateRange = getCurrentDateRange();
+        
+        const [categoryData, trendsData, analysisData, insightsData] = await Promise.all([
+          reportsService.getSpendingByCategory(dateRange),
+          reportsService.getMonthlySpendingTrends(dateRange),
+          reportsService.getIncomeExpenseAnalysis(dateRange),
+          reportsService.getSpendingInsights(dateRange)
+        ]);
+        
+        setSpendingByCategory(categoryData);
+        setMonthlyTrends(trendsData);
+        setIncomeExpenseAnalysis(analysisData);
+        setSpendingInsights(insightsData);
+      } catch (error) {
+        console.error('Failed to load reports data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadReportsData();
+  }, [dateRangeType, customDateRange]);
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount);
+  };
+
+  const formatPercentage = (percentage: number) => {
+    return `${percentage.toFixed(1)}%`;
+  };
+
+  // Chart data preparations
+  const categoryChartData = {
+    labels: spendingByCategory.slice(0, 6).map(cat => cat.categoryName),
+    datasets: [
+      {
+        data: spendingByCategory.slice(0, 6).map(cat => cat.amount),
+        backgroundColor: [
+          '#FF6384',
+          '#36A2EB',
+          '#FFCE56',
+          '#4BC0C0',
+          '#9966FF',
+          '#FF9F40'
+        ],
+        borderWidth: 2,
+        borderColor: '#fff'
+      }
+    ]
+  };
+
+  const trendsChartData = {
+    labels: monthlyTrends.map(trend => trend.month),
+    datasets: [
+      {
+        label: 'Income',
+        data: monthlyTrends.map(trend => trend.totalIncome),
+        backgroundColor: 'rgba(75, 192, 192, 0.6)',
+        borderColor: 'rgba(75, 192, 192, 1)',
+        borderWidth: 2
+      },
+      {
+        label: 'Expenses',
+        data: monthlyTrends.map(trend => trend.totalSpending),
+        backgroundColor: 'rgba(255, 99, 132, 0.6)',
+        borderColor: 'rgba(255, 99, 132, 1)',
+        borderWidth: 2
+      }
+    ]
+  };
+
+  const netIncomeChartData = {
+    labels: monthlyTrends.map(trend => trend.month),
+    datasets: [
+      {
+        label: 'Net Income',
+        data: monthlyTrends.map(trend => trend.netAmount),
+        backgroundColor: monthlyTrends.map(trend => 
+          trend.netAmount >= 0 ? 'rgba(75, 192, 192, 0.6)' : 'rgba(255, 99, 132, 0.6)'
+        ),
+        borderColor: monthlyTrends.map(trend => 
+          trend.netAmount >= 0 ? 'rgba(75, 192, 192, 1)' : 'rgba(255, 99, 132, 1)'
+        ),
+        borderWidth: 2
+      }
+    ]
+  };
+
+  if (loading) {
+    return (
+      <ReportsContainer>
+        <PageHeader>
+          <h1>Reports</h1>
+        </PageHeader>
+        <Card>
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            Loading reports data...
+          </div>
+        </Card>
+      </ReportsContainer>
+    );
+  }
+
   return (
-    <div>
+    <ReportsContainer>
       <PageHeader>
         <h1>Reports</h1>
+        <Badge variant="info">Spending Analysis & Insights</Badge>
       </PageHeader>
+
       <Card>
-        <h3>Financial Reports</h3>
-        <p>Generate detailed reports and insights about your financial data.</p>
-        <p>Available reports will include:</p>
-        <ul>
-          <li>Monthly income and expense summaries</li>
-          <li>Category-wise spending analysis</li>
-          <li>Trends and patterns over time</li>
-          <li>Tax-ready transaction exports</li>
-          <li>Custom date range reports</li>
-        </ul>
+        <h3>Date Range</h3>
+        <div className="date-range-selector">
+          <select 
+            value={dateRangeType} 
+            onChange={(e) => setDateRangeType(e.target.value as DateRangeType)}
+          >
+            <option value="all">All Time</option>
+            <option value="current-month">Current Month</option>
+            <option value="last-3-months">Last 3 Months</option>
+            <option value="last-12-months">Last 12 Months</option>
+            <option value="custom">Custom Range</option>
+          </select>
+          
+          {dateRangeType === 'custom' && (
+            <div className="custom-range">
+              <input
+                type="date"
+                onChange={(e) => setCustomDateRange(prev => ({
+                  ...prev,
+                  startDate: new Date(e.target.value)
+                } as DateRange))}
+              />
+              <span>to</span>
+              <input
+                type="date"
+                onChange={(e) => setCustomDateRange(prev => ({
+                  ...prev,
+                  endDate: new Date(e.target.value)
+                } as DateRange))}
+              />
+            </div>
+          )}
+        </div>
       </Card>
-    </div>
+
+      {/* Overview Stats */}
+      {incomeExpenseAnalysis && (
+        <Grid columns={4} gap="20px">
+          <StatsCard>
+            <div className="label">Total Income</div>
+            <div className="amount positive">{formatCurrency(incomeExpenseAnalysis.totalIncome)}</div>
+          </StatsCard>
+          
+          <StatsCard>
+            <div className="label">Total Expenses</div>
+            <div className="amount negative">{formatCurrency(incomeExpenseAnalysis.totalExpenses)}</div>
+          </StatsCard>
+          
+          <StatsCard>
+            <div className="label">Net Income</div>
+            <div className={`amount ${incomeExpenseAnalysis.netIncome >= 0 ? 'positive' : 'negative'}`}>
+              {formatCurrency(incomeExpenseAnalysis.netIncome)}
+            </div>
+          </StatsCard>
+          
+          <StatsCard>
+            <div className="label">Savings Rate</div>
+            <div className={`amount ${incomeExpenseAnalysis.savingsRate >= 0 ? 'positive' : 'negative'}`}>
+              {formatPercentage(incomeExpenseAnalysis.savingsRate)}
+            </div>
+            <div className="percentage">of income saved</div>
+          </StatsCard>
+        </Grid>
+      )}
+
+      <Grid columns={2} gap="20px">
+        {/* Spending by Category Chart */}
+        <ChartCard>
+          <h3>Spending by Category</h3>
+          <div className="chart-container">
+            {spendingByCategory.length > 0 ? (
+              <Doughnut 
+                data={categoryChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'bottom',
+                    },
+                    tooltip: {
+                      callbacks: {
+                        label: function(context) {
+                          const value = context.parsed;
+                          const total = spendingByCategory.reduce((sum, cat) => sum + cat.amount, 0);
+                          const percentage = ((value / total) * 100).toFixed(1);
+                          return `${context.label}: ${formatCurrency(value)} (${percentage}%)`;
+                        }
+                      }
+                    }
+                  },
+                }}
+              />
+            ) : (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                height: '100%',
+                color: '#666',
+                textAlign: 'center'
+              }}>
+                No expense data available for selected period.
+              </div>
+            )}
+          </div>
+        </ChartCard>
+
+        {/* Monthly Trends */}
+        <ChartCard>
+          <h3>Monthly Income vs Expenses</h3>
+          <div className="chart-container">
+            {monthlyTrends.length > 0 ? (
+              <Bar 
+                data={trendsChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'top',
+                    },
+                  },
+                  scales: {
+                    y: {
+                      beginAtZero: true,
+                      ticks: {
+                        callback: function(value) {
+                          return formatCurrency(Number(value));
+                        }
+                      }
+                    }
+                  }
+                }}
+              />
+            ) : (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                height: '100%',
+                color: '#666',
+                textAlign: 'center'
+              }}>
+                No monthly trend data available.
+              </div>
+            )}
+          </div>
+        </ChartCard>
+      </Grid>
+
+      <Grid columns={2} gap="20px">
+        {/* Net Income Trend */}
+        <ChartCard>
+          <h3>Net Income Trend</h3>
+          <div className="chart-container">
+            {monthlyTrends.length > 0 ? (
+              <Bar 
+                data={netIncomeChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      display: false,
+                    },
+                    tooltip: {
+                      callbacks: {
+                        label: function(context) {
+                          const value = context.parsed.y;
+                          const status = value >= 0 ? 'surplus' : 'deficit';
+                          return `Net ${status}: ${formatCurrency(Math.abs(value))}`;
+                        }
+                      }
+                    }
+                  },
+                  scales: {
+                    y: {
+                      ticks: {
+                        callback: function(value) {
+                          return formatCurrency(Number(value));
+                        }
+                      }
+                    }
+                  }
+                }}
+              />
+            ) : (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                height: '100%',
+                color: '#666',
+                textAlign: 'center'
+              }}>
+                No net income data available.
+              </div>
+            )}
+          </div>
+        </ChartCard>
+
+        {/* Spending Insights */}
+        {spendingInsights && (
+          <InsightsCard>
+            <h3>Data Quality Insights</h3>
+            <div className="insight-item">
+              <span className="insight-label">Total Transactions</span>
+              <span className="insight-value neutral">{spendingInsights.totalTransactions}</span>
+            </div>
+            <div className="insight-item">
+              <span className="insight-label">Verified Transactions</span>
+              <span className={`insight-value ${spendingInsights.verificationRate > 80 ? 'good' : spendingInsights.verificationRate > 50 ? 'warning' : 'error'}`}>
+                {spendingInsights.verifiedTransactions} ({formatPercentage(spendingInsights.verificationRate)})
+              </span>
+            </div>
+            <div className="insight-item">
+              <span className="insight-label">Average AI Confidence</span>
+              <span className={`insight-value ${spendingInsights.averageConfidence > 80 ? 'good' : spendingInsights.averageConfidence > 60 ? 'warning' : 'error'}`}>
+                {formatPercentage(spendingInsights.averageConfidence)}
+              </span>
+            </div>
+            <div className="insight-item">
+              <span className="insight-label">High Confidence</span>
+              <span className="insight-value good">{spendingInsights.highConfidenceTransactions}</span>
+            </div>
+            <div className="insight-item">
+              <span className="insight-label">Needs Review</span>
+              <span className={`insight-value ${spendingInsights.needsReviewCount === 0 ? 'good' : 'warning'}`}>
+                {spendingInsights.needsReviewCount}
+              </span>
+            </div>
+          </InsightsCard>
+        )}
+      </Grid>
+
+      {/* Category Breakdown Table */}
+      {spendingByCategory.length > 0 && (
+        <Card>
+          <h3>Category Breakdown</h3>
+          <CategoryTable>
+            {spendingByCategory.map((category, index) => (
+              <div key={index} className="category-row">
+                <div className="category-info">
+                  <div className="category-name">{category.categoryName}</div>
+                  <div className="category-stats">
+                    {category.transactionCount} transactions • Avg: {formatCurrency(category.averageAmount)}
+                  </div>
+                </div>
+                <div className="category-amount">
+                  <div className="amount">{formatCurrency(category.amount)}</div>
+                  <div className="percentage">{formatPercentage(category.percentage)}</div>
+                </div>
+              </div>
+            ))}
+          </CategoryTable>
+        </Card>
+      )}
+    </ReportsContainer>
   );
 };
 
