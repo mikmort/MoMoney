@@ -228,6 +228,134 @@ class DataService {
     return this.transactions[index];
   }
 
+  // Enhanced update method that can handle category change interception
+  async updateTransactionWithCategoryCheck(
+    id: string, 
+    updates: Partial<Transaction>, 
+    note?: string,
+    skipCategoryDialog: boolean = false
+  ): Promise<{
+    transaction: Transaction | null;
+    needsCategoryDialog?: boolean;
+    categoryChangeInfo?: {
+      oldCategory: string;
+      newCategory: string;
+      description: string;
+      account: string;
+      matchingTransactionCount: number;
+    };
+  }> {
+    await this.ensureInitialized();
+    const current = this.transactions.find(t => t.id === id);
+    if (!current) return { transaction: null };
+    
+    // Check if this is a manual category change that should trigger the dialog
+    const categoryChanged = updates.category && updates.category !== current.category;
+    const subcategoryChanged = updates.subcategory !== current.subcategory;
+    const isManualCategoryChange = (categoryChanged || subcategoryChanged) && !skipCategoryDialog;
+    
+    if (isManualCategoryChange) {
+      // Count potential matching transactions for retroactive updates
+      const matchingTransactionCount = this.countMatchingTransactions(
+        current.account,
+        current.description,
+        current.id
+      );
+      
+      return {
+        transaction: null,
+        needsCategoryDialog: true,
+        categoryChangeInfo: {
+          oldCategory: current.category + (current.subcategory ? ` - ${current.subcategory}` : ''),
+          newCategory: updates.category + (updates.subcategory ? ` - ${updates.subcategory}` : ''),
+          description: current.description,
+          account: current.account,
+          matchingTransactionCount,
+        },
+      };
+    }
+    
+    // Proceed with normal update
+    const updatedTransaction = await this.updateTransaction(id, updates, note);
+    return { transaction: updatedTransaction };
+  }
+
+  // Apply category changes retroactively to matching transactions
+  async applyRetroactiveCategoryChanges(
+    account: string,
+    description: string,
+    category: string,
+    subcategory: string | undefined,
+    ruleType: 'exact' | 'contains' | 'startsWith' = 'exact',
+    excludeTransactionId?: string
+  ): Promise<{ updatedCount: number; updatedTransactionIds: string[] }> {
+    await this.ensureInitialized();
+    
+    const matchingTransactions = this.findMatchingTransactions(account, description, ruleType, excludeTransactionId);
+    const updatedTransactionIds: string[] = [];
+    
+    for (const transaction of matchingTransactions) {
+      try {
+        await this.updateTransaction(
+          transaction.id,
+          {
+            category,
+            subcategory,
+            isVerified: true,
+            reasoning: `Updated by retroactive rule application`,
+            confidence: 1.0,
+          },
+          'Retroactive category change from user rule'
+        );
+        updatedTransactionIds.push(transaction.id);
+      } catch (error) {
+        console.error(`Failed to update transaction ${transaction.id} retroactively:`, error);
+      }
+    }
+    
+    return {
+      updatedCount: updatedTransactionIds.length,
+      updatedTransactionIds,
+    };
+  }
+
+  // Count matching transactions for UI display
+  private countMatchingTransactions(
+    account: string,
+    description: string,
+    excludeTransactionId?: string,
+    ruleType: 'exact' | 'contains' | 'startsWith' = 'exact'
+  ): number {
+    return this.findMatchingTransactions(account, description, ruleType, excludeTransactionId).length;
+  }
+
+  // Find transactions matching the given criteria
+  private findMatchingTransactions(
+    account: string,
+    description: string,
+    ruleType: 'exact' | 'contains' | 'startsWith' = 'exact',
+    excludeTransactionId?: string
+  ): Transaction[] {
+    return this.transactions.filter(t => {
+      if (excludeTransactionId && t.id === excludeTransactionId) return false;
+      if (t.account.toLowerCase() !== account.toLowerCase()) return false;
+      
+      const tDesc = t.description.toLowerCase();
+      const searchDesc = description.toLowerCase();
+      
+      switch (ruleType) {
+        case 'exact':
+          return tDesc === searchDesc;
+        case 'contains':
+          return tDesc.includes(searchDesc);
+        case 'startsWith':
+          return tDesc.startsWith(searchDesc);
+        default:
+          return false;
+      }
+    });
+  }
+
   async deleteTransaction(id: string): Promise<boolean> {
     await this.ensureInitialized();
     const index = this.transactions.findIndex(t => t.id === id);

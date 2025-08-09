@@ -5,6 +5,7 @@ import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Transaction, ReimbursementMatch, Account } from '../../types';
 import { dataService } from '../../services/dataService';
+import { rulesService } from '../../services/rulesService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
@@ -13,6 +14,7 @@ import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { AiConfidencePopup } from './AiConfidencePopup';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
+import { CategoryChangeDialog } from '../shared/CategoryChangeDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { CategoryRulesManager } from './CategoryRulesManager';
@@ -638,6 +640,18 @@ const Transactions: React.FC = () => {
   // Category rules manager state
   const [showRulesManager, setShowRulesManager] = useState(false);
 
+  // Category change dialog state
+  const [showCategoryChangeDialog, setShowCategoryChangeDialog] = useState(false);
+  const [categoryChangeInfo, setCategoryChangeInfo] = useState<{
+    transactionId: string;
+    oldCategory: string;
+    newCategory: string;
+    description: string;
+    account: string;
+    matchingTransactionCount: number;
+    pendingUpdates: Partial<Transaction>;
+  } | null>(null);
+
   // Compute a simple diff summary between two transactions
   const summarizeDiff = (a: Transaction, b: Transaction) => {
     const fields: Array<keyof Transaction> = ['description','amount','category','subcategory','account','type','date','notes'];
@@ -1139,20 +1153,48 @@ const Transactions: React.FC = () => {
         lastModifiedDate: new Date()
       };
 
-      // Update the transaction
-      await dataService.updateTransaction(editingTransaction.id, {
-        description: updatedTransaction.description,
-        amount: updatedTransaction.amount,
-        category: updatedTransaction.category,
-        subcategory: updatedTransaction.subcategory,
-        account: updatedTransaction.account,
-        type: updatedTransaction.type,
-        date: updatedTransaction.date,
-        notes: updatedTransaction.notes,
-        lastModifiedDate: updatedTransaction.lastModifiedDate
-      });
+      // Use the enhanced update method to check for category changes
+      const updateResult = await dataService.updateTransactionWithCategoryCheck(
+        editingTransaction.id, 
+        {
+          description: updatedTransaction.description,
+          amount: updatedTransaction.amount,
+          category: updatedTransaction.category,
+          subcategory: updatedTransaction.subcategory,
+          account: updatedTransaction.account,
+          type: updatedTransaction.type,
+          date: updatedTransaction.date,
+          notes: updatedTransaction.notes,
+          lastModifiedDate: updatedTransaction.lastModifiedDate
+        }
+      );
+
+      if (updateResult.needsCategoryDialog && updateResult.categoryChangeInfo) {
+        // Show category change dialog
+        setCategoryChangeInfo({
+          transactionId: editingTransaction.id,
+          oldCategory: updateResult.categoryChangeInfo.oldCategory,
+          newCategory: updateResult.categoryChangeInfo.newCategory,
+          description: updateResult.categoryChangeInfo.description,
+          account: updateResult.categoryChangeInfo.account,
+          matchingTransactionCount: updateResult.categoryChangeInfo.matchingTransactionCount,
+          pendingUpdates: {
+            description: updatedTransaction.description,
+            amount: updatedTransaction.amount,
+            category: updatedTransaction.category,
+            subcategory: updatedTransaction.subcategory,
+            account: updatedTransaction.account,
+            type: updatedTransaction.type,
+            date: updatedTransaction.date,
+            notes: updatedTransaction.notes,
+            lastModifiedDate: updatedTransaction.lastModifiedDate
+          }
+        });
+        setShowCategoryChangeDialog(true);
+        return; // Don't proceed with normal update
+      }
       
-      // Refresh the transactions list
+      // Normal update completed - refresh the transactions list
       const updatedTransactions = await dataService.getAllTransactions();
       setTransactions(updatedTransactions);
       setFilteredTransactions(updatedTransactions);
@@ -1181,6 +1223,86 @@ const Transactions: React.FC = () => {
       date: '',
       notes: ''
     });
+  };
+
+  // Category change dialog handlers
+  const handleCategoryChangeConfirm = async (
+    option: 'single' | 'future' | 'retroactive',
+    ruleType?: 'exact' | 'contains' | 'startsWith'
+  ) => {
+    if (!categoryChangeInfo) return;
+
+    try {
+      if (option === 'single') {
+        // Apply only to this transaction
+        await dataService.updateTransaction(
+          categoryChangeInfo.transactionId,
+          categoryChangeInfo.pendingUpdates,
+          'Manual category change - single transaction'
+        );
+      } else {
+        // Create or update rule for future transactions
+        const categoryParts = categoryChangeInfo.newCategory.split(' - ');
+        const categoryName = categoryParts[0];
+        const subcategoryName = categoryParts[1];
+
+        const rule = await rulesService.createOrUpdateUserRule(
+          categoryChangeInfo.account,
+          categoryChangeInfo.description,
+          categoryName,
+          subcategoryName,
+          ruleType || 'exact'
+        );
+
+        console.log(`✅ Created/updated rule: ${rule.name}`);
+
+        // Apply to current transaction
+        await dataService.updateTransaction(
+          categoryChangeInfo.transactionId,
+          {
+            ...categoryChangeInfo.pendingUpdates,
+            reasoning: `Applied user rule: ${rule.name}`,
+            confidence: 1.0,
+          },
+          'Manual category change with rule creation'
+        );
+
+        // Apply retroactively if requested
+        if (option === 'retroactive') {
+          const retroResult = await dataService.applyRetroactiveCategoryChanges(
+            categoryChangeInfo.account,
+            categoryChangeInfo.description,
+            categoryName,
+            subcategoryName,
+            ruleType || 'exact',
+            categoryChangeInfo.transactionId // Exclude current transaction
+          );
+
+          console.log(`✅ Applied retroactively to ${retroResult.updatedCount} transactions`);
+        }
+      }
+
+      // Refresh transactions
+      const updatedTransactions = await dataService.getAllTransactions();
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+
+      // Close dialogs
+      setShowCategoryChangeDialog(false);
+      setCategoryChangeInfo(null);
+      setShowEditModal(false);
+      setEditingTransaction(null);
+
+      console.log('✅ Category change completed successfully');
+    } catch (error) {
+      console.error('❌ Error processing category change:', error);
+      alert('Failed to process category change. Please try again.');
+    }
+  };
+
+  const handleCategoryChangeCancel = () => {
+    setShowCategoryChangeDialog(false);
+    setCategoryChangeInfo(null);
   };
 
   // Bulk edit operations
@@ -2493,6 +2615,17 @@ const Transactions: React.FC = () => {
       <CategoryRulesManager 
         isVisible={showRulesManager}
         onClose={() => setShowRulesManager(false)}
+      />
+
+      {/* Category Change Dialog */}
+      <CategoryChangeDialog
+        isOpen={showCategoryChangeDialog}
+        onClose={handleCategoryChangeCancel}
+        onConfirm={handleCategoryChangeConfirm}
+        transactionDescription={categoryChangeInfo?.description || ''}
+        oldCategory={categoryChangeInfo?.oldCategory || ''}
+        newCategory={categoryChangeInfo?.newCategory || ''}
+        matchingTransactionCount={categoryChangeInfo?.matchingTransactionCount || 0}
       />
     </div>
   );

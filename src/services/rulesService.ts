@@ -286,6 +286,154 @@ class RulesService {
     });
   }
 
+  // Create auto-rule from AI categorization result
+  async createAutoRuleFromAI(
+    account: string,
+    description: string,
+    categoryName: string,
+    subcategoryName?: string,
+    confidence: number = 1.0
+  ): Promise<CategoryRule> {
+    const ruleName = `Auto: ${account} - ${description.substring(0, 30)}${description.length > 30 ? '...' : ''}`;
+    
+    // Check if a similar rule already exists to avoid duplicates
+    const existingRule = await this.findExistingAutoRule(account, description);
+    if (existingRule) {
+      console.log(`Auto-rule already exists for ${account} - ${description}`);
+      return existingRule;
+    }
+
+    return this.addRule({
+      name: ruleName,
+      description: `Auto-generated from AI categorization (confidence: ${Math.round(confidence * 100)}%)`,
+      isActive: true,
+      priority: 50, // Higher priority than manual rules (lower number = higher priority)
+      conditions: [
+        {
+          field: 'account',
+          operator: 'equals',
+          value: account,
+          caseSensitive: false,
+        },
+        {
+          field: 'description',
+          operator: 'equals',
+          value: description,
+          caseSensitive: false,
+        },
+      ],
+      action: {
+        categoryId: this.getCategoryIdByName(categoryName) || 'uncategorized',
+        categoryName,
+        subcategoryId: subcategoryName ? this.getSubcategoryIdByName(subcategoryName, categoryName) : undefined,
+        subcategoryName,
+      },
+    });
+  }
+
+  // Find existing auto-rule for the same account + description combination
+  private async findExistingAutoRule(account: string, description: string): Promise<CategoryRule | null> {
+    return this.rules.find(rule => {
+      if (!rule.name.startsWith('Auto:')) return false;
+      
+      const hasAccountCondition = rule.conditions.some(c => 
+        c.field === 'account' && 
+        c.operator === 'equals' && 
+        String(c.value).toLowerCase() === account.toLowerCase()
+      );
+      
+      const hasDescriptionCondition = rule.conditions.some(c => 
+        c.field === 'description' && 
+        c.operator === 'equals' && 
+        String(c.value).toLowerCase() === description.toLowerCase()
+      );
+      
+      return hasAccountCondition && hasDescriptionCondition;
+    }) || null;
+  }
+
+  // Create or update rule from user manual categorization
+  async createOrUpdateUserRule(
+    account: string,
+    description: string,
+    categoryName: string,
+    subcategoryName?: string,
+    ruleType: 'exact' | 'contains' | 'startsWith' = 'exact'
+  ): Promise<CategoryRule> {
+    const operator = ruleType === 'exact' ? 'equals' : ruleType === 'contains' ? 'contains' : 'startsWith';
+    const ruleName = `User: ${account} - ${description.substring(0, 30)}${description.length > 30 ? '...' : ''}`;
+    
+    // Check if a user rule already exists for this combination
+    const existingRule = await this.findExistingUserRule(account, description, ruleType);
+    if (existingRule) {
+      // Update existing rule with new category
+      return await this.updateRule(existingRule.id, {
+        action: {
+          categoryId: this.getCategoryIdByName(categoryName) || 'uncategorized',
+          categoryName,
+          subcategoryId: subcategoryName ? this.getSubcategoryIdByName(subcategoryName, categoryName) : undefined,
+          subcategoryName,
+        },
+        lastModifiedDate: new Date(),
+      }) as CategoryRule;
+    }
+
+    // Create new rule
+    return this.addRule({
+      name: ruleName,
+      description: `User-created rule from manual categorization`,
+      isActive: true,
+      priority: 25, // Higher priority than auto rules
+      conditions: [
+        {
+          field: 'account',
+          operator: 'equals',
+          value: account,
+          caseSensitive: false,
+        },
+        {
+          field: 'description',
+          operator,
+          value: description,
+          caseSensitive: false,
+        },
+      ],
+      action: {
+        categoryId: this.getCategoryIdByName(categoryName) || 'uncategorized',
+        categoryName,
+        subcategoryId: subcategoryName ? this.getSubcategoryIdByName(subcategoryName, categoryName) : undefined,
+        subcategoryName,
+      },
+    });
+  }
+
+  // Find existing user rule for the same account + description combination
+  private async findExistingUserRule(
+    account: string, 
+    description: string, 
+    ruleType: 'exact' | 'contains' | 'startsWith' = 'exact'
+  ): Promise<CategoryRule | null> {
+    const operator = ruleType === 'exact' ? 'equals' : ruleType === 'contains' ? 'contains' : 'startsWith';
+    
+    return this.rules.find(rule => {
+      if (!rule.name.startsWith('User:')) return false;
+      
+      const hasAccountCondition = rule.conditions.some(c => 
+        c.field === 'account' && 
+        c.operator === 'equals' && 
+        String(c.value).toLowerCase() === account.toLowerCase()
+      );
+      
+      const hasDescriptionCondition = rule.conditions.some(c => 
+        c.field === 'description' && 
+        c.operator === operator && 
+        String(c.value).toLowerCase() === description.toLowerCase()
+      );
+      
+      return hasAccountCondition && hasDescriptionCondition;
+    }) || null;
+  }
+
   // Helper methods for category/subcategory mapping
   private getCategoryIdByName(categoryName: string): string | undefined {
     // In a real implementation, this would query the categories service

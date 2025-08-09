@@ -793,6 +793,20 @@ Return ONLY a clean JSON response:
       const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
       const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
 
+      // Create auto-rule from AI categorization if confidence is high enough and not 'uncategorized'
+      if (ai.confidence >= 0.8 && validCategoryId !== 'uncategorized') {
+        console.log(`🤖 Creating auto-rule for AI categorization: ${transaction.account} - ${transaction.description} -> ${categoryName}`);
+        rulesService.createAutoRuleFromAI(
+          transaction.account,
+          transaction.description,
+          categoryName,
+          subName,
+          ai.confidence
+        ).catch(error => {
+          console.warn('Failed to create auto-rule from AI categorization:', error);
+        });
+      }
+
       transactions.push({
         ...transaction,
         category: categoryName,
