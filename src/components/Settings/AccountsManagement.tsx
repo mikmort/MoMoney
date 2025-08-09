@@ -322,7 +322,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             </div>
 
             <div className="form-group">
-              <label>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={accountForm.isActive}

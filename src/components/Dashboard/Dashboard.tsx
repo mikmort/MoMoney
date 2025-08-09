@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { 
   Chart as ChartJS, 
@@ -52,6 +53,16 @@ const StatsCard = styled(Card)`
     
     &.neutral {
       color: #2196f3;
+    }
+    
+    &.clickable {
+      cursor: pointer;
+      transition: color 0.2s;
+      
+      &:hover {
+        color: #1976d2;
+        text-decoration: underline;
+      }
     }
   }
   
@@ -121,6 +132,35 @@ const RecentTransactions = styled(Card)`
     color: #888;
     margin-top: 2px;
   }
+  
+  .clickable-heading {
+    cursor: pointer;
+    display: inline-block;
+    transition: color 0.2s;
+    
+    &:hover {
+      color: #2196f3;
+      text-decoration: underline;
+    }
+  }
+  
+  .more-link {
+    text-align: center;
+    padding: 10px 0;
+    
+    button {
+      background: none;
+      border: none;
+      color: #2196f3;
+      cursor: pointer;
+      font-size: 0.9rem;
+      text-decoration: underline;
+      
+      &:hover {
+        color: #1976d2;
+      }
+    }
+  }
 `;
 
 // Component for displaying transaction amounts with currency conversion
@@ -155,6 +195,7 @@ const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction
 };
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -284,7 +325,13 @@ const Dashboard: React.FC = () => {
         
         <StatsCard>
           <div className="label">Transactions</div>
-          <div className="amount neutral">{stats!.transactionCount}</div>
+          <div 
+            className="amount neutral clickable" 
+            onClick={() => navigate('/transactions')}
+            title="Click to view all transactions"
+          >
+            {stats!.transactionCount}
+          </div>
         </StatsCard>
       </Grid>
 
@@ -367,19 +414,32 @@ const Dashboard: React.FC = () => {
       </Grid>
 
       <RecentTransactions>
-        <h3>Recent Transactions</h3>
+        <h3 
+          className="clickable-heading" 
+          onClick={() => navigate('/transactions')}
+          title="Click to view all transactions"
+        >
+          Recent Transactions
+        </h3>
         {recentTransactions.length > 0 ? (
-          recentTransactions.map((transaction) => (
-            <div key={transaction.id} className="transaction-item">
-              <div className="transaction-info">
-                <div className="description">{transaction.description}</div>
-                <div className="details">
-                  {transaction.category} • {transaction.account} • {transaction.date.toLocaleDateString()}
+          <>
+            {recentTransactions.map((transaction) => (
+              <div key={transaction.id} className="transaction-item">
+                <div className="transaction-info">
+                  <div className="description">{transaction.description}</div>
+                  <div className="details">
+                    {transaction.category} • {transaction.account} • {transaction.date.toLocaleDateString()}
+                  </div>
                 </div>
+                <TransactionAmount transaction={transaction} />
               </div>
-              <TransactionAmount transaction={transaction} />
+            ))}
+            <div className="more-link">
+              <button onClick={() => navigate('/transactions')}>
+                More...
+              </button>
             </div>
-          ))
+          </>
         ) : (
           <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
             No transactions found. Import your bank statements to see your financial overview.
