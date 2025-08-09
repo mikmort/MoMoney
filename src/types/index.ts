@@ -53,6 +53,9 @@ export interface Transaction {
   // Split transaction support
   splits?: TransactionSplit[]; // Optional array of splits for this transaction
   isSplit?: boolean; // Convenience flag to indicate if transaction has splits
+  // Transfer matching support
+  transferId?: string; // ID of the matched transfer (for linking paired transfers)
+  isTransferPrimary?: boolean; // True for the primary row in a collapsed transfer pair
 }
 
 export interface Account {
@@ -337,4 +340,27 @@ export interface AnomalyDetectionResponse {
   anomalies: AnomalyResult[];
   totalAnalyzed: number;
   processingTime: number; // in milliseconds
+}
+
+// Collapsed Transfer Display Types
+export interface CollapsedTransfer {
+  id: string;
+  date: Date;
+  description: string;
+  sourceAccount: string;
+  targetAccount: string;
+  amount: number;
+  sourceTransaction: Transaction;
+  targetTransaction: Transaction;
+  confidence: number;
+  matchType: 'exact' | 'approximate' | 'manual';
+  amountDifference?: number;
+  exchangeRate?: number;
+  fees?: Transaction[]; // Associated fee transactions
+}
+
+export interface TransferDisplayOptions {
+  showTransfers: boolean;
+  collapseMatched: boolean;
+  showFees: boolean;
 }

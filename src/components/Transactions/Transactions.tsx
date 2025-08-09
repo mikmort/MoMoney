@@ -4,7 +4,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit } from '../../types';
+import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, CollapsedTransfer, TransferDisplayOptions } from '../../types';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
@@ -20,6 +20,7 @@ import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { CategoryRulesManager } from './CategoryRulesManager';
 import { TransactionSplitManager } from '../shared/TransactionSplitManager';
+import { TransferList } from './TransferList';
 import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
@@ -777,6 +778,15 @@ const Transactions: React.FC = () => {
   const [showTransferMatchingPanel, setShowTransferMatchingPanel] = useState(false);
   const [showMatchedTransfersOnly, setShowMatchedTransfersOnly] = useState(false);
   
+  const [collapsedTransfers, setCollapsedTransfers] = useState<CollapsedTransfer[]>([]);
+  
+  // Transfer display options
+  const [transferDisplayOptions, setTransferDisplayOptions] = useState<TransferDisplayOptions>({
+    showTransfers: false,
+    collapseMatched: true,
+    showFees: false
+  });
+  
   // Account selection dialog state
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -1250,21 +1260,53 @@ const Transactions: React.FC = () => {
             console.log(`⚠️ Found ${anomalies.length} anomalous transactions`);
           }
           setTransactions(updatedTransactions);
-          setFilteredTransactions(updatedTransactions);
+          
+          // Load collapsed transfers
+          const collapsed = await dataService.getCollapsedTransfers();
+          setCollapsedTransfers(collapsed);
+          
+          // Filter transactions based on transfer display options
+          const displayTransactions = transferDisplayOptions.showTransfers 
+            ? updatedTransactions 
+            : await dataService.getTransactionsWithoutTransfers();
+          
+          setFilteredTransactions(displayTransactions);
         } else {
           setTransactions(allTransactions);
           setFilteredTransactions(allTransactions);
+          setCollapsedTransfers([]);
         }
       } catch (error) {
         console.error('❌ Error loading transactions:', error);
         // Fall back to empty array if loading fails
         setTransactions([]);
         setFilteredTransactions([]);
+        setCollapsedTransfers([]);
       }
     };
 
     loadTransactions();
   }, []);
+
+  // Handle transfer display options changes
+  useEffect(() => {
+    const updateTransactionDisplay = async () => {
+      if (transactions.length === 0) return;
+      
+      try {
+        const showTransfers = transferDisplayOptions.showTransfers;
+        const displayTransactions = showTransfers 
+          ? transactions 
+          : await dataService.getTransactionsWithoutTransfers();
+        
+        setFilteredTransactions(displayTransactions);
+      } catch (error) {
+        console.error('❌ Error updating transaction display:', error);
+      }
+    };
+
+    updateTransactionDisplay();
+  }, [transactions, transferDisplayOptions.showTransfers]);
 
   const onGridReady = useCallback((params: GridReadyEvent) => {
     // Store grid API reference
@@ -2641,6 +2683,19 @@ const Transactions: React.FC = () => {
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </QuickFilterButton>
             
+            <QuickFilterButton
+              isActive={transferDisplayOptions.showTransfers}
+              activeColor="#FF9800"
+              activeBackground="#fff3e0"
+              onClick={() => setTransferDisplayOptions({
+                ...transferDisplayOptions,
+                showTransfers: !transferDisplayOptions.showTransfers
+              })}
+              title="Toggle showing transfer transactions in main list"
+            >
+              💱 Show Transfers
+            </QuickFilterButton>
+
             {transferMatchingService.countUnmatchedTransfers(transactions) > 0 && (
               <QuickFilterButton
                 isActive={filters.type === 'transfer'}
@@ -2730,6 +2785,35 @@ const Transactions: React.FC = () => {
           </div>
         </TransactionsContainer>
       </Card>
+
+      {/* Transfer List Section */}
+      {transferDisplayOptions.showTransfers && (
+        <TransferList
+          collapsedTransfers={collapsedTransfers}
+          allTransfers={transactions.filter(t => t.type === 'transfer')}
+          displayOptions={transferDisplayOptions}
+          onDisplayOptionsChange={setTransferDisplayOptions}
+          onUnmatchTransfer={async (matchId: string) => {
+            try {
+              const updatedTransactions = await unmatchTransfers(transactions, matchId);
+              setTransactions(updatedTransactions);
+              
+              // Reload collapsed transfers
+              const collapsed = await dataService.getCollapsedTransfers();
+              setCollapsedTransfers(collapsed);
+            } catch (error) {
+              console.error('Error unmatching transfer:', error);
+            }
+          }}
+          onViewTransaction={(transactionId: string) => {
+            const transaction = transactions.find(t => t.id === transactionId);
+            if (transaction) {
+              setSelectedTransaction(transaction);
+              setShowConfidencePopup(true);
+            }
+          }}
+        />
+      )}
 
       {/* History Modal */}
       {showHistoryModal && historyFor && (

@@ -2,6 +2,7 @@ import { Transaction, DuplicateDetectionResult, DuplicateTransaction, CategoryRu
 import { v4 as uuidv4 } from 'uuid';
 import { db, initializeDB, TransactionHistoryEntry } from './db';
 import { rulesService } from './rulesService';
+import { transferMatchingService } from './transferMatchingService';
 
 class DataService {
   private transactions: Transaction[] = [];
@@ -207,6 +208,27 @@ class DataService {
     await this.ensureInitialized();
     console.log(`DataService: getAllTransactions called, returning ${this.transactions.length} transactions`);
     return [...this.transactions];
+  }
+
+  async getTransactionsWithoutTransfers(): Promise<Transaction[]> {
+    await this.ensureInitialized();
+    const filteredTransactions = transferMatchingService.filterNonTransfers(this.transactions);
+    console.log(`DataService: getTransactionsWithoutTransfers called, returning ${filteredTransactions.length} of ${this.transactions.length} transactions`);
+    return filteredTransactions;
+  }
+
+  async getAllTransfers(): Promise<Transaction[]> {
+    await this.ensureInitialized();
+    const transfers = transferMatchingService.getAllTransfers(this.transactions);
+    console.log(`DataService: getAllTransfers called, returning ${transfers.length} transfer transactions`);
+    return transfers;
+  }
+
+  async getCollapsedTransfers() {
+    await this.ensureInitialized();
+    const collapsedTransfers = transferMatchingService.createCollapsedTransfers(this.transactions);
+    console.log(`DataService: getCollapsedTransfers called, returning ${collapsedTransfers.length} collapsed transfers`);
+    return collapsedTransfers;
   }
 
   async getTransactionById(id: string): Promise<Transaction | null> {
@@ -451,6 +473,22 @@ class DataService {
           note: entry.note
         });
       });
+      
+      // Auto-match transfers after loading
+      if (this.transactions.length > 0) {
+        try {
+          const matchedTransactions = await transferMatchingService.autoMatchTransfers(this.transactions);
+          if (matchedTransactions !== this.transactions) {
+            this.transactions = matchedTransactions;
+            // Save the auto-matched results back to DB
+            await this.saveToDB();
+            console.log('✅ Auto-matched transfers and saved to DB');
+          }
+        } catch (error) {
+          console.error('Failed to auto-match transfers:', error);
+          // Continue with original transactions if matching fails
+        }
+      }
       
       console.log(`Loaded ${this.transactions.length} transactions and ${historyEntries.length} history entries from IndexedDB`);
     } catch (error) {
