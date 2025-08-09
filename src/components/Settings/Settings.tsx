@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { PageHeader, Card, Button } from '../../styles/globalStyles';
 import { defaultConfig } from '../../config/appConfig';
 import { dataService } from '../../services/dataService';
+import { userPreferencesService } from '../../services/userPreferencesService';
 import { AccountsManagement } from './AccountsManagement';
+import { UserPreferences } from '../../types';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -69,9 +71,101 @@ const ConfirmContent = styled.div`
   }
 `;
 
+const PreferencesForm = styled.div`
+  display: grid;
+  gap: 16px;
+  
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    
+    label {
+      font-weight: 500;
+      color: #333;
+    }
+    
+    select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      background: white;
+      
+      &:focus {
+        outline: none;
+        border-color: #4CAF50;
+        box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+      }
+    }
+    
+    .description {
+      font-size: 14px;
+      color: #666;
+      margin-top: 4px;
+    }
+  }
+`;
+
+const SaveButton = styled(Button)`
+  background: #4CAF50;
+  color: white;
+  border: 1px solid #4CAF50;
+  
+  &:hover {
+    background: #45a049;
+    border-color: #45a049;
+  }
+  
+  &:disabled {
+    background: #cccccc;
+    border-color: #cccccc;
+    cursor: not-allowed;
+  }
+`;
+
 const Settings: React.FC = () => {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    loadPreferences();
+  }, []);
+
+  const loadPreferences = async () => {
+    try {
+      const prefs = await userPreferencesService.getPreferences();
+      setPreferences(prefs);
+    } catch (error) {
+      console.error('Failed to load preferences:', error);
+    }
+  };
+
+  const handlePreferenceChange = (field: keyof UserPreferences, value: any) => {
+    if (preferences) {
+      setPreferences({
+        ...preferences,
+        [field]: value
+      });
+    }
+  };
+
+  const handleSavePreferences = async () => {
+    if (!preferences) return;
+    
+    setIsSaving(true);
+    try {
+      await userPreferencesService.updatePreferences(preferences);
+      alert('✅ Preferences saved successfully!');
+    } catch (error) {
+      console.error('Failed to save preferences:', error);
+      alert('❌ Failed to save preferences. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleResetData = async () => {
     setIsResetting(true);
@@ -113,13 +207,61 @@ const Settings: React.FC = () => {
       <Card>
         <h3>Application Preferences</h3>
         <p>Customize your experience with Mo Money.</p>
-        <ul>
-          <li>Currency preferences</li>
-          <li>Date format settings</li>
-          <li>Notification preferences</li>
-          <li>Auto-categorization settings</li>
-          <li>Default account selection</li>
-        </ul>
+        
+        {preferences && (
+          <PreferencesForm>
+            <div className="form-group">
+              <label htmlFor="currency">Default Currency</label>
+              <select 
+                id="currency"
+                value={preferences.currency} 
+                onChange={(e) => handlePreferenceChange('currency', e.target.value)}
+              >
+                {userPreferencesService.getCurrencyOptions().map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.symbol} - {option.label} ({option.value})
+                  </option>
+                ))}
+              </select>
+              <div className="description">
+                All amounts will be displayed in this currency. Foreign transactions will be automatically converted using daily exchange rates.
+              </div>
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="dateFormat">Date Format</label>
+              <select 
+                id="dateFormat"
+                value={preferences.dateFormat} 
+                onChange={(e) => handlePreferenceChange('dateFormat', e.target.value)}
+              >
+                <option value="MM/dd/yyyy">MM/dd/yyyy (US format)</option>
+                <option value="dd/MM/yyyy">dd/MM/yyyy (European format)</option>
+                <option value="yyyy-MM-dd">yyyy-MM-dd (ISO format)</option>
+              </select>
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="theme">Theme</label>
+              <select 
+                id="theme"
+                value={preferences.theme} 
+                onChange={(e) => handlePreferenceChange('theme', e.target.value as 'light' | 'dark' | 'auto')}
+              >
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="auto">Auto (system preference)</option>
+              </select>
+            </div>
+            
+            <SaveButton 
+              onClick={handleSavePreferences}
+              disabled={isSaving}
+            >
+              {isSaving ? 'Saving...' : '💾 Save Preferences'}
+            </SaveButton>
+          </PreferencesForm>
+        )}
       </Card>
 
       <Card>
