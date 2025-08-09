@@ -1,81 +1,132 @@
+import OpenAI from 'openai';
 import { defaultConfig } from '../config/appConfig';
 import { AIClassificationRequest, AIClassificationResponse } from '../types';
 
-// OpenAI Proxy configuration
-const OPENAI_PROXY_URL = '/api/openai/chat/completions';
+// Azure Function configuration
+const AZURE_FUNCTION_URL = 'https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/config';
 
-// Types for the proxy API
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+interface AzureOpenAIConfig {
+  endpoint: string;
+  apiKey: string;
 }
 
-interface OpenAIProxyRequest {
-  deployment: string;
-  messages: ChatMessage[];
-  max_tokens?: number;
-  temperature?: number;
-  top_p?: number;
-  frequency_penalty?: number;
-  presence_penalty?: number;
-  stop?: string[];
-}
-
-interface OpenAIProxyResponse {
-  success: boolean;
-  data?: {
-    id: string;
-    object: string;
-    created: number;
-    model: string;
-    choices: Array<{
-      index: number;
-      message: {
-        role: string;
-        content: string;
-      };
-      finish_reason: string;
-    }>;
-    usage: {
-      prompt_tokens: number;
-      completion_tokens: number;
-      total_tokens: number;
+async function getOpenAIConfig(): Promise<AzureOpenAIConfig> {
+  // First, try to get from environment variables (fallback for CORS issues)
+  const envEndpoint = process.env.REACT_APP_AZURE_OPENAI_ENDPOINT;
+  const envApiKey = process.env.REACT_APP_AZURE_OPENAI_API_KEY;
+  
+  if (envEndpoint && envApiKey && 
+      envEndpoint !== 'YOUR_AZURE_OPENAI_ENDPOINT' && 
+      envApiKey !== 'YOUR_AZURE_OPENAI_API_KEY') {
+    console.log('Using Azure OpenAI config from environment variables');
+    return { 
+      endpoint: envEndpoint, 
+      apiKey: envApiKey 
     };
-  };
-  error?: string;
+  }
+
+  // Try to fetch from Azure Function
+  try {
+    console.log('Fetching Azure OpenAI config from:', AZURE_FUNCTION_URL);
+    const response = await fetch(AZURE_FUNCTION_URL, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    console.log('Azure Function response:', result);
+    
+    if (result.success && result.data) {
+      const { endpoint, apiKey } = result.data;
+      if (!endpoint || !apiKey) {
+        throw new Error('Missing endpoint or apiKey in Azure Function response');
+      }
+      console.log('Successfully retrieved Azure OpenAI config from Azure Function');
+      return { endpoint, apiKey };
+    }
+    
+    throw new Error(`Azure Function returned error: ${result.error || 'Unknown error'}`);
+  } catch (error) {
+    console.error('Failed to fetch Azure OpenAI config from Azure Function:', error);
+    
+    // CORS error guidance
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      console.error(`
+      🚫 CORS Error: Azure Function blocked by browser security policy
+      
+      To fix this, configure CORS in your Azure Function:
+      1. Go to Azure Portal → Your Function App → CORS
+      2. Add these allowed origins:
+         - http://localhost:3000
+         - http://localhost:3001
+         - http://localhost:3001
+      
+      Alternatively, set environment variables in .env:
+         REACT_APP_AZURE_OPENAI_ENDPOINT=your_endpoint
+         REACT_APP_AZURE_OPENAI_API_KEY=your_key
+      `);
+    }
+    
+    throw new Error(`Failed to get OpenAI config: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 export class AzureOpenAIService {
+  private client: OpenAI | null = null;
   private readonly deploymentName: string;
-  private initialized = true; // Always initialized since we don't need client setup
+  private initialized = false;
 
   constructor() {
     this.deploymentName = defaultConfig.azure.openai.deploymentName || 'gpt-4o';
   }
 
-  private async callOpenAIProxy(request: OpenAIProxyRequest): Promise<OpenAIProxyResponse> {
+  private async initializeClient(): Promise<void> {
+    if (this.initialized && this.client) {
+      console.log('Azure OpenAI client already initialized');
+      return;
+    }
+
     try {
-      const response = await fetch(OPENAI_PROXY_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      console.log('Initializing Azure OpenAI client...');
+      const config = await getOpenAIConfig();
+      
+      const baseURL = `${config.endpoint}/openai/deployments/${this.deploymentName}`;
+      console.log('Setting up OpenAI client with baseURL:', baseURL);
+      
+      this.client = new OpenAI({
+        apiKey: config.apiKey,
+        baseURL,
+        defaultQuery: { 'api-version': '2024-02-15-preview' },
+        defaultHeaders: {
+          'api-key': config.apiKey,
         },
-        body: JSON.stringify(request),
+        dangerouslyAllowBrowser: true, // Required for React app to call Azure OpenAI directly
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result: OpenAIProxyResponse = await response.json();
-      return result;
+      
+      this.initialized = true;
+      console.log('Azure OpenAI client initialized successfully');
     } catch (error) {
-      console.error('Error calling OpenAI proxy:', error);
-      throw error;
+      console.error('Failed to initialize Azure OpenAI client:', error);
+      this.initialized = false;
+      this.client = null;
+      throw new Error(`Unable to connect to Azure OpenAI service: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   async classifyTransaction(request: AIClassificationRequest): Promise<AIClassificationResponse> {
+    await this.initializeClient();
+    
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
     try {
       // Build an explicit catalog of allowed categories/subcategories (IDs only) for the model
       const categoriesCatalog = request.availableCategories
@@ -117,38 +168,32 @@ Description: ${request.transactionText}
 Amount: $${request.amount}
 Date: ${request.date}`;
 
-      const proxyRequest: OpenAIProxyRequest = {
-        deployment: this.deploymentName,
+      const completion = await this.client.chat.completions.create({
+        model: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 200,
         temperature: 0.1
-      };
+      });
 
-      const response = await this.callOpenAIProxy(proxyRequest);
-
-      if (!response.success || !response.data) {
-        throw new Error(response.error || 'No response from OpenAI proxy');
-      }
-
-      const responseContent = response.data.choices[0]?.message?.content;
+  const responseContent = completion.choices[0]?.message?.content;
       if (!responseContent) {
-        throw new Error('No response content from OpenAI proxy');
+        throw new Error('No response from Azure OpenAI');
       }
 
       // Clean the response to handle markdown code blocks
       const cleanedResponse = this.cleanAIResponse(responseContent);
-      const parsed = JSON.parse(cleanedResponse);
+  const parsed = JSON.parse(cleanedResponse);
 
-      // Normalize keys and provide safe defaults
-      const categoryId = (parsed.categoryId || parsed.category || 'uncategorized') as string;
-      const subcategoryId = (parsed.subcategoryId || parsed.subcategory || null) as string | null;
-      const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.5;
-      const reasoning = (parsed.reasoning || 'AI classification') as string;
+  // Normalize keys and provide safe defaults
+  const categoryId = (parsed.categoryId || parsed.category || 'uncategorized') as string;
+  const subcategoryId = (parsed.subcategoryId || parsed.subcategory || null) as string | null;
+  const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.5;
+  const reasoning = (parsed.reasoning || 'AI classification') as string;
 
-      return { categoryId, subcategoryId: subcategoryId || undefined, confidence, reasoning };
+  return { categoryId, subcategoryId: subcategoryId || undefined, confidence, reasoning };
     } catch (error) {
       console.error('Error classifying transaction:', error);
       
@@ -164,6 +209,11 @@ Date: ${request.date}`;
   async classifyTransactionsBatch(
     requests: AIClassificationRequest[]
   ): Promise<AIClassificationResponse[]> {
+    await this.initializeClient();
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
     if (!requests.length) return [];
 
     try {
@@ -184,7 +234,7 @@ ${subs}
         })
         .join(',\n');
 
-      const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
+  const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
 Return ONLY a JSON array with the EXACT SAME NUMBER OF ITEMS as the input list, in the SAME ORDER.
 Each element must strictly match (you may include an "index" number copied from the input to preserve order):
 {
@@ -206,26 +256,20 @@ Rules:
         date: r.date
       }));
 
-      const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same "index" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
+  const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same \"index\" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
 
-      const proxyRequest: OpenAIProxyRequest = {
-        deployment: this.deploymentName,
+      const completion = await this.client.chat.completions.create({
+        model: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 1200,
         temperature: 0.1
-      };
+      });
 
-      const response = await this.callOpenAIProxy(proxyRequest);
-
-      if (!response.success || !response.data) {
-        throw new Error(response.error || 'No response from OpenAI proxy');
-      }
-
-      const responseContent = response.data.choices[0]?.message?.content;
-      if (!responseContent) throw new Error('No response content from OpenAI proxy');
+      const responseContent = completion.choices[0]?.message?.content;
+      if (!responseContent) throw new Error('No response from Azure OpenAI');
 
       // Attempt robust parsing: direct JSON, then extract first JSON array substring, then object.results
       const cleaned = this.cleanAIResponse(responseContent);
@@ -312,29 +356,34 @@ Rules:
 
   async testConnection(): Promise<boolean> {
     try {
-      console.log('Testing OpenAI proxy connection...');
-      
-      const proxyRequest: OpenAIProxyRequest = {
-        deployment: this.deploymentName,
+      console.log('Testing Azure OpenAI connection...');
+      await this.initializeClient();
+    } catch (error) {
+      console.error('Failed to initialize client for connection test:', error);
+      return false;
+    }
+    
+    if (!this.client) {
+      console.log('Connection test failed: client not initialized');
+      return false;
+    }
+
+    try {
+      console.log('Sending test message to Azure OpenAI...');
+      const completion = await this.client.chat.completions.create({
+        model: this.deploymentName,
         messages: [
           { role: 'user', content: 'Hello, please respond with "OK" if you can read this.' }
         ],
         max_tokens: 10,
         temperature: 0
-      };
+      });
 
-      const response = await this.callOpenAIProxy(proxyRequest);
-      
-      if (!response.success || !response.data) {
-        console.error('Connection test failed:', response.error);
-        return false;
-      }
-
-      const responseContent = response.data.choices[0]?.message?.content;
-      console.log('OpenAI proxy test response:', responseContent);
-      return responseContent?.includes('OK') || false;
+      const response = completion.choices[0]?.message?.content;
+      console.log('Azure OpenAI test response:', response);
+      return response?.includes('OK') || false;
     } catch (error) {
-      console.error('OpenAI proxy connection test failed:', error);
+      console.error('Azure OpenAI connection test failed:', error);
       return false;
     }
   }
@@ -345,21 +394,19 @@ Rules:
       maxTokens?: number;
       temperature?: number;
     }
-  ): Promise<any> {
-    const proxyRequest: OpenAIProxyRequest = {
-      deployment: this.deploymentName,
+  ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+    await this.initializeClient();
+    
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
+    return await this.client.chat.completions.create({
+      model: this.deploymentName,
       messages,
       max_tokens: options?.maxTokens || 500,
       temperature: options?.temperature || 0.1
-    };
-
-    const response = await this.callOpenAIProxy(proxyRequest);
-    
-    if (!response.success || !response.data) {
-      throw new Error(response.error || 'No response from OpenAI proxy');
-    }
-
-    return response.data;
+    });
   }
 
   async getServiceInfo(): Promise<{ status: string; model: string; initialized: boolean }> {
@@ -371,30 +418,30 @@ Rules:
   }
 
   async makeRequest(prompt: string, maxTokens: number = 1000): Promise<string> {
+    await this.initializeClient();
+    
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
     try {
-      const proxyRequest: OpenAIProxyRequest = {
-        deployment: this.deploymentName,
+      const completion = await this.client.chat.completions.create({
+        model: this.deploymentName,
         messages: [
           { role: 'user', content: prompt }
         ],
         max_tokens: maxTokens,
         temperature: 0.1
-      };
+      });
 
-      const response = await this.callOpenAIProxy(proxyRequest);
-      
-      if (!response.success || !response.data) {
-        throw new Error(response.error || 'No response from OpenAI proxy');
-      }
-
-      const responseContent = response.data.choices[0]?.message?.content;
+      const responseContent = completion.choices[0]?.message?.content;
       if (!responseContent) {
-        throw new Error('No response content from OpenAI proxy');
+        throw new Error('No response from Azure OpenAI');
       }
 
       return responseContent.trim();
     } catch (error) {
-      console.error('Error making OpenAI proxy request:', error);
+      console.error('Error making Azure OpenAI request:', error);
       throw error;
     }
   }
