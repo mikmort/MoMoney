@@ -14,6 +14,7 @@ import Budgets from './components/Budgets/Budgets';
 import Reports from './components/Reports/Reports';
 import Settings from './components/Settings/Settings';
 import CategoriesManagement from './components/Categories/CategoriesManagement';
+import { TransferMatchesPage } from './components/Transactions/TransferMatchesPage';
 import LoginPage from './components/Auth/LoginPage';
 import Navigation from './components/Layout/Navigation';
 import { GlobalStyles, lightTheme } from './styles/globalStyles';
@@ -29,6 +30,7 @@ const AppContent: React.FC = () => (
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/transactions" element={<Transactions />} />
+        <Route path="/transfer-matches" element={<TransferMatchesPage />} />
         <Route path="/categories" element={<CategoriesManagement />} />
         <Route path="/budgets" element={<Budgets />} />
         <Route path="/reports" element={<Reports />} />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
@@ -14,6 +15,7 @@ import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelecti
 import { AiConfidencePopup } from './AiConfidencePopup';
 import { CategoryEditConfirmDialog } from './CategoryEditConfirmDialog';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
+import { TransferMatchDialog } from './TransferMatchDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { CategoryRulesManager } from './CategoryRulesManager';
@@ -588,6 +590,7 @@ const CategoryCellRenderer = (params: any) => {
 };
 
 const Transactions: React.FC = () => {
+  const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
@@ -648,6 +651,10 @@ const Transactions: React.FC = () => {
 
   // Category rules manager state
   const [showRulesManager, setShowRulesManager] = useState(false);
+
+  // Transfer match dialog state
+  const [showTransferMatchDialog, setShowTransferMatchDialog] = useState(false);
+  const [selectedTransactionForMatching, setSelectedTransactionForMatching] = useState<Transaction | null>(null);
 
   // Compute a simple diff summary between two transactions
   const summarizeDiff = (a: Transaction, b: Transaction) => {
@@ -727,7 +734,9 @@ const Transactions: React.FC = () => {
     error: transferMatchingError, 
     matches: transferMatches, 
     findTransferMatches, 
-    applyTransferMatches
+    applyTransferMatches,
+    unmatchTransfers,
+    getMatchedTransfers
   } = useTransferMatching();
 
   // Category dropdown cell editor
@@ -1622,30 +1631,9 @@ const Transactions: React.FC = () => {
         return;
       }
       
-      try {
-        const result = await findTransferMatches({
-          transactions,
-          maxDaysDifference: 7,
-          tolerancePercentage: 0.01
-        });
-        
-        if (result && result.matches.length > 0) {
-          const relatedMatches = result.matches.filter(m => 
-            m.sourceTransactionId === params.data.id || m.targetTransactionId === params.data.id
-          );
-          
-          if (relatedMatches.length > 0) {
-            alert(`Found ${relatedMatches.length} potential matching transfer(s)!`);
-          } else {
-            alert('No matching transfers found for this transaction.');
-          }
-        } else {
-          alert('No matching transfers found for this transaction.');
-        }
-      } catch (error) {
-        console.error('Error finding matching transfers:', error);
-        alert('Failed to find matching transfers.');
-      }
+      // Open the transfer match dialog for this specific transaction
+      setSelectedTransactionForMatching(params.data);
+      setShowTransferMatchDialog(true);
     };
 
     const actions: MenuAction[] = [
@@ -1694,6 +1682,14 @@ const Transactions: React.FC = () => {
         onClick: handleFindMatchingTransfers
       });
     }
+
+    actions.push({
+      icon: '🔍',
+      label: 'View All Matching Transactions',
+      onClick: () => {
+        navigate('/transfer-matches');
+      }
+    });
 
     actions.push({
       icon: '🗑️',
@@ -1916,6 +1912,12 @@ const Transactions: React.FC = () => {
     setFilteredTransactions(updatedTransactions);
   };
 
+  const handleUnmatchTransfer = async (matchId: string) => {
+    const updatedTransactions = await unmatchTransfers(transactions, matchId);
+    setTransactions(updatedTransactions);
+    setFilteredTransactions(updatedTransactions);
+  };
+
   const handleFindTransfers = async () => {
     const result = await findTransferMatches({
       transactions,
@@ -2002,10 +2004,13 @@ const Transactions: React.FC = () => {
   const renderTransferMatchingPanel = () => {
     if (!showTransferMatchingPanel) return null;
 
+    const existingMatches = getMatchedTransfers(transactions);
+    const allMatches = [...existingMatches, ...transferMatches];
+
     return (
       <TransferMatchingPanel>
         <div className="panel-header">
-          <h3>Transfer Matches ({transferMatches.length})</h3>
+          <h3>Transfer Matches ({allMatches.length})</h3>
           <Button variant="outline" onClick={() => setShowTransferMatchingPanel(false)}>
             Close
           </Button>
@@ -2018,14 +2023,60 @@ const Transactions: React.FC = () => {
         )}
         
         <div className="matches-list">
-          {transferMatches.length === 0 ? (
+          {allMatches.length === 0 ? (
             <div className="no-matches">
               No transfer matches found. Try adjusting the date range or tolerance settings.
             </div>
           ) : (
-            <div className="match-card">
-              <p>Transfer matching functionality is being integrated. {transferMatches.length} matches found.</p>
-            </div>
+            allMatches.map((match) => {
+              const sourceTx = transactions.find(t => t.id === match.sourceTransactionId);
+              const targetTx = transactions.find(t => t.id === match.targetTransactionId);
+              
+              if (!sourceTx || !targetTx) return null;
+              
+              const isExisting = existingMatches.some(m => m.id === match.id);
+              
+              return (
+                <div key={match.id} className="match-item">
+                  <div className="match-info">
+                    <div className="source-transfer">
+                      Source: {sourceTx.description} ({formatCurrency(sourceTx.amount)}) - {sourceTx.account}
+                    </div>
+                    <div className="target-transfer">
+                      Target: {targetTx.description} ({formatCurrency(targetTx.amount)}) - {targetTx.account}
+                    </div>
+                    <div className="match-details">
+                      {match.reasoning} • {match.dateDifference} days apart
+                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} difference`}
+                      {isExisting && ' • Currently matched'}
+                    </div>
+                  </div>
+                  <div className="match-actions">
+                    <span className={`confidence-badge ${getConfidenceClass(match.confidence)}`}>
+                      {Math.round(match.confidence * 100)}%
+                    </span>
+                    {isExisting ? (
+                      <Button 
+                        variant="outline"
+                        onClick={() => handleUnmatchTransfer(match.id)}
+                        disabled={isTransferMatchingLoading}
+                        style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                      >
+                        Unmatch
+                      </Button>
+                    ) : (
+                      <Button 
+                        onClick={() => handleApplyTransferMatch(match)}
+                        disabled={isTransferMatchingLoading}
+                        style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                      >
+                        Apply
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       </TransferMatchingPanel>
@@ -2608,6 +2659,21 @@ const Transactions: React.FC = () => {
         oldSubcategory={categoryEditData?.transaction.subcategory}
         newCategory={categoryEditData?.newCategory || ''}
         newSubcategory={categoryEditData?.newSubcategory}
+      />
+
+      {/* Transfer Match Dialog */}
+      <TransferMatchDialog
+        isOpen={showTransferMatchDialog}
+        transaction={selectedTransactionForMatching}
+        allTransactions={transactions}
+        onClose={() => {
+          setShowTransferMatchDialog(false);
+          setSelectedTransactionForMatching(null);
+        }}
+        onTransactionsUpdate={(updatedTransactions) => {
+          setTransactions(updatedTransactions);
+          setFilteredTransactions(updatedTransactions);
+        }}
       />
     </div>
   );
