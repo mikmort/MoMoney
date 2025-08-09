@@ -51,8 +51,14 @@ export const accountDetectionPatterns = {
     'chase checking',
     'chase bank checking',
     'jpmorgan chase checking',
-    'chase_checking',
-    'chase-checking'
+  'chase_checking',
+  'chase-checking',
+  // Broader filename variants commonly seen in statements
+  'chase statement',
+  'chase-statement',
+  'chase_statement',
+  // Generic fallback for Chase when no specific card/account indicated
+  'chase'
   ],
   'chase-credit': [
     'chase credit',

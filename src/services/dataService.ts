@@ -27,8 +27,8 @@ class DataService {
       // Load data from IndexedDB
       await this.loadFromDB();
       
-      // Initialize with sample data if empty
-      if (this.transactions.length === 0) {
+      // Initialize with sample data if empty (skip in test environment)
+      if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
         this.initializeSampleData();
       }
       

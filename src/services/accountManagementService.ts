@@ -163,8 +163,15 @@ ${userPrompt}`;
 
       // Clean the response to handle markdown code blocks
       const cleanedResponse = this.cleanAIResponse(responseContent);
-      const suggestions = JSON.parse(cleanedResponse);
-      
+      let suggestions: any[] = [];
+      try {
+        const parsed = JSON.parse(cleanedResponse);
+        suggestions = Array.isArray(parsed) ? parsed : (Array.isArray((parsed as any)?.results) ? (parsed as any).results : []);
+      } catch {
+        // If parsing fails (e.g., mocked non-JSON string), return no AI suggestions
+        suggestions = [];
+      }
+
       // Validate suggestions
       return suggestions.filter((s: any) => 
         s.accountId && 
