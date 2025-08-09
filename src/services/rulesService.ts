@@ -1,4 +1,4 @@
-import { CategoryRule, RuleCondition, RuleAction, RuleMatchResult, Transaction } from '../types';
+import { CategoryRule, RuleCondition, RuleMatchResult, Transaction } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 class RulesService {

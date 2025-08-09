@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Transaction } from '../../types';
@@ -291,11 +291,7 @@ export const TransferMatchesPage: React.FC = () => {
     getUnmatchedTransfers
   } = useTransferMatching();
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const allTransactions = await dataService.getAllTransactions();
       setTransactions(allTransactions);
@@ -317,7 +313,11 @@ export const TransferMatchesPage: React.FC = () => {
     } catch (error) {
       console.error('Error loading transfer matches data:', error);
     }
-  };
+  }, [findTransferMatches, getMatchedTransfers]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleApplyMatch = async (match: TransferMatch) => {
     try {

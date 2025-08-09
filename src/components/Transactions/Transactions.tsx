@@ -446,33 +446,6 @@ const BulkOperationsBar = styled(Card)`
   }
 `;
 
-const UploadArea = styled.div`
-  border: 2px dashed #ddd;
-  border-radius: 8px;
-  padding: 40px;
-  text-align: center;
-  background: #fafafa;
-  margin-bottom: 20px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  
-  &:hover, &.dragover {
-    border-color: #2196f3;
-    background: #f0f8ff;
-  }
-  
-  .upload-text {
-    font-size: 1.1rem;
-    color: #666;
-    margin-bottom: 8px;
-  }
-  
-  .upload-subtext {
-    font-size: 0.9rem;
-    color: #999;
-  }
-`;
-
 // Edit Transaction Modal styles
 const EditModalOverlay = styled.div`
   position: fixed;
@@ -1970,7 +1943,7 @@ const Transactions: React.FC = () => {
     });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
-  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, findTransferMatches, transactions]);
+  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, navigate]);
 
   const columnDefs: ColDef[] = [
     {

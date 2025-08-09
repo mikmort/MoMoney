@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
 import { Transaction } from '../../types';
@@ -262,13 +262,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     manuallyMatchTransfers
   } = useTransferMatching();
 
-  useEffect(() => {
-    if (isOpen && transaction) {
-      loadMatches();
-    }
-  }, [isOpen, transaction]);
-
-  const loadMatches = async () => {
+  const loadMatches = useCallback(async () => {
     if (!transaction) return;
 
     try {
@@ -297,7 +291,13 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     } catch (error) {
       console.error('Error loading matches:', error);
     }
-  };
+  }, [transaction, allTransactions, findTransferMatches, getMatchedTransfers]);
+
+  useEffect(() => {
+    if (isOpen && transaction) {
+      loadMatches();
+    }
+  }, [isOpen, transaction, loadMatches]);
 
   const handleApplyMatch = async (match: TransferMatch) => {
     try {
