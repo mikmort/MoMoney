@@ -199,6 +199,10 @@ class DataService {
     console.log(`DataService: Total transactions now: ${this.transactions.length}`);
     await this.saveToDB();
     console.log(`DataService: Saved to IndexedDB`);
+    
+    // Create auto-rules for high-confidence AI categorizations
+    await this.createAutoRulesFromTransactions(newTransactions);
+    
     return newTransactions;
   }
 
@@ -650,6 +654,31 @@ class DataService {
 
   async deleteCategoryRule(id: string): Promise<boolean> {
     return await rulesService.deleteRule(id);
+  }
+
+  // Auto-create rules from high-confidence AI categorizations
+  private async createAutoRulesFromTransactions(transactions: Transaction[]): Promise<void> {
+    for (const transaction of transactions) {
+      // Only create rules for high-confidence AI categorizations (>= 80%)
+      if (transaction.confidence && transaction.confidence >= 0.8 && 
+          transaction.category && transaction.category !== 'uncategorized' &&
+          transaction.account && transaction.description) {
+        
+        try {
+          await rulesService.createAutoRuleFromAI(
+            transaction.account,
+            transaction.description,
+            transaction.category,
+            transaction.subcategory,
+            transaction.confidence
+          );
+          console.log(`📋 Auto-created rule for: ${transaction.description} (${transaction.account}) → ${transaction.category}`);
+        } catch (error) {
+          console.warn(`Failed to create auto-rule for transaction ${transaction.id}:`, error);
+          // Don't fail the whole process if individual rule creation fails
+        }
+      }
+    }
   }
 
   private findDuplicate(newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>, config: DuplicateDetectionConfig): DuplicateTransaction | null {
