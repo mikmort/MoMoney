@@ -11,21 +11,23 @@ const MenuContainer = styled.div`
 
 const MenuButton = styled.button`
   background: white;
-  border: 1px solid #ddd;
+  border: 2px solid ${props => props.theme?.primary || '#1976d2'};
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 10px 20px;
   cursor: pointer;
   font-size: 14px;
+  font-weight: 500;
   display: flex;
   align-items: center;
-  min-width: 20px;
-  min-height: 20px;
+  justify-content: center;
+  color: ${props => props.theme?.primary || '#1976d2'};
+  transition: all 0.2s ease;
   z-index: 1000;
   position: relative;
   
   &:hover {
-    background: #f5f5f5;
-    border-color: #ccc;
+    opacity: 0.9;
+    transform: translateY(-1px);
   }
 
   &:active {

@@ -1,5 +1,5 @@
 import { defaultConfig } from '../config/appConfig';
-import { AIClassificationRequest, AIClassificationResponse } from '../types';
+import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult } from '../types';
 
 // OpenAI Proxy configuration
 const OPENAI_PROXY_URL = '/api/openai/chat/completions';
@@ -368,6 +368,130 @@ Rules:
       model: this.deploymentName,
       initialized: this.initialized
     };
+  }
+
+  async detectAnomalies(request: AnomalyDetectionRequest): Promise<AnomalyDetectionResponse> {
+    const startTime = Date.now();
+    
+    await this.initializeClient();
+    
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
+    if (!request.transactions || request.transactions.length === 0) {
+      return {
+        anomalies: [],
+        totalAnalyzed: 0,
+        processingTime: Date.now() - startTime
+      };
+    }
+
+    try {
+      // Prepare transaction data for analysis
+      const transactionData = request.transactions.map(t => ({
+        id: t.id,
+        date: t.date.toISOString().split('T')[0],
+        amount: t.amount,
+        description: t.description,
+        category: t.category,
+        subcategory: t.subcategory,
+        account: t.account,
+        type: t.type
+      }));
+
+      const systemPrompt = `You are a financial fraud and anomaly detection expert. Analyze the provided transactions and identify any that seem unusual, suspicious, or anomalous based on patterns, amounts, merchants, frequencies, or other factors.
+
+For each anomalous transaction, respond with ONLY a JSON array in this exact format:
+[
+  {
+    "transactionId": "transaction_id_from_input",
+    "anomalyType": "unusual_amount|unusual_merchant|unusual_category|unusual_frequency|suspicious_pattern",
+    "severity": "low|medium|high",
+    "confidence": 0.0-1.0,
+    "reasoning": "Brief explanation of why this transaction is anomalous",
+    "historicalContext": "Optional context about patterns or comparisons"
+  }
+]
+
+Rules:
+- Only flag transactions that are genuinely unusual or suspicious
+- Consider transaction amounts relative to similar categories/merchants
+- Look for unusual timing, frequency patterns, or merchant names
+- Consider round numbers, suspicious merchant names, or unusual categories for amounts
+- Be conservative - only flag clear anomalies with confidence > 0.6
+- If no anomalies found, return empty array: []`;
+
+      const userPrompt = `Analyze these transactions for anomalies:
+${JSON.stringify(transactionData, null, 2)}`;
+
+      const completion = await this.client.chat.completions.create({
+        model: this.deploymentName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 2000,
+        temperature: 0.2
+      });
+
+      const responseContent = completion.choices[0]?.message?.content;
+      if (!responseContent) {
+        throw new Error('No response from Azure OpenAI');
+      }
+
+      // Clean and parse the response
+      const cleanedResponse = this.cleanAIResponse(responseContent);
+      
+      let anomalyData: any[] = [];
+      try {
+        const parsed = JSON.parse(cleanedResponse);
+        anomalyData = Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.error('Error parsing anomaly detection response:', error);
+        console.error('Raw response:', responseContent);
+        // Return empty result if parsing fails
+        return {
+          anomalies: [],
+          totalAnalyzed: request.transactions.length,
+          processingTime: Date.now() - startTime
+        };
+      }
+
+      // Map the results back to full transaction objects
+      const anomalies: AnomalyResult[] = anomalyData
+        .filter(item => item.confidence > 0.6) // Only include high-confidence anomalies
+        .map(item => {
+          const transaction = request.transactions.find(t => t.id === item.transactionId);
+          if (!transaction) return null;
+
+          return {
+            transaction,
+            anomalyType: item.anomalyType || 'suspicious_pattern',
+            severity: item.severity || 'medium',
+            confidence: typeof item.confidence === 'number' ? item.confidence : 0.7,
+            reasoning: item.reasoning || 'Transaction flagged as anomalous',
+            historicalContext: item.historicalContext
+          };
+        })
+        .filter(Boolean) as AnomalyResult[];
+
+      return {
+        anomalies,
+        totalAnalyzed: request.transactions.length,
+        processingTime: Date.now() - startTime
+      };
+
+    } catch (error) {
+      console.error('Error detecting anomalies:', error);
+      
+      // Return empty result on error rather than throwing
+      return {
+        anomalies: [],
+        totalAnalyzed: request.transactions.length,
+        processingTime: Date.now() - startTime
+      };
+    }
   }
 
   async makeRequest(prompt: string, maxTokens: number = 1000): Promise<string> {

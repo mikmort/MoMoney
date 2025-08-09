@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account } from '../../types';
+import { Transaction, ReimbursementMatch, Account, AnomalyResult } from '../../types';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
@@ -587,6 +587,115 @@ const CategoryCellRenderer = (params: any) => {
   return <span className={reimbursedClass}>{displayText}</span>;
 };
 
+const AnomalyResultsPanel = styled(Card)`
+  margin-top: 20px;
+  background: #fff9c4;
+  border-left: 4px solid #ff9800;
+
+  .anomaly-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+
+    h3 {
+      margin: 0;
+      color: #e65100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .close-btn {
+      padding: 4px 8px;
+      background: transparent;
+      border: 1px solid #ff9800;
+      color: #ff9800;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+
+      &:hover {
+        background: #fff3e0;
+      }
+    }
+  }
+
+  .anomaly-list {
+    .anomaly-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 12px;
+      border: 1px solid #ffcc02;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      background: white;
+
+      .anomaly-info {
+        flex: 1;
+
+        .transaction-details {
+          font-weight: 600;
+          color: #d84315;
+          margin-bottom: 4px;
+        }
+
+        .anomaly-type {
+          display: inline-block;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          margin-right: 8px;
+          
+          &.unusual_amount { background: #ffebee; color: #c62828; }
+          &.unusual_merchant { background: #e8f5e8; color: #2e7d32; }
+          &.unusual_category { background: #e3f2fd; color: #1565c0; }
+          &.unusual_frequency { background: #fff3e0; color: #ef6c00; }
+          &.suspicious_pattern { background: #f3e5f5; color: #7b1fa2; }
+        }
+
+        .severity-badge {
+          display: inline-block;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          margin-right: 8px;
+
+          &.low { background: #e8f5e8; color: #2e7d32; }
+          &.medium { background: #fff3cd; color: #856404; }
+          &.high { background: #f8d7da; color: #721c24; }
+        }
+
+        .reasoning {
+          margin-top: 8px;
+          color: #666;
+          font-style: italic;
+          font-size: 0.95rem;
+        }
+      }
+
+      .confidence-score {
+        padding: 4px 8px;
+        background: #e3f2fd;
+        color: #1565c0;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        font-weight: 600;
+      }
+    }
+
+    .no-anomalies {
+      text-align: center;
+      color: #666;
+      padding: 20px;
+      font-style: italic;
+    }
+  }
+`;
+
 const Transactions: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
@@ -612,6 +721,11 @@ const Transactions: React.FC = () => {
     newSubcategory?: string;
     updatedTransaction: Transaction;
   } | null>(null);
+
+  // Anomaly detection state
+  const [anomalies, setAnomalies] = useState<AnomalyResult[]>([]);
+  const [isAnomalyDetectionLoading, setIsAnomalyDetectionLoading] = useState(false);
+  const [showAnomalyResults, setShowAnomalyResults] = useState(false);
   
   const [filters, setFilters] = useState({
     category: '',
@@ -1906,6 +2020,44 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleSearchAnomalies = async () => {
+    try {
+      if (transactions.length === 0) {
+        alert('No transactions to analyze!');
+        return;
+      }
+
+      const confirmMessage = `Analyze ${transactions.length} transaction(s) for anomalies using AI? This may take a few moments.`;
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      console.log(`🔍 Starting anomaly detection for ${transactions.length} transactions...`);
+      setIsAnomalyDetectionLoading(true);
+
+      const result = await azureOpenAIService.detectAnomalies({
+        transactions: transactions
+      });
+
+      console.log(`✅ Anomaly detection completed. Found ${result.anomalies.length} anomalies.`);
+      
+      setAnomalies(result.anomalies);
+      setShowAnomalyResults(true);
+
+      if (result.anomalies.length === 0) {
+        alert('No anomalies detected! All transactions appear normal.');
+      } else {
+        alert(`Found ${result.anomalies.length} potentially anomalous transaction(s). Check the results below.`);
+      }
+
+    } catch (error) {
+      console.error('Anomaly detection failed:', error);
+      alert('Failed to detect anomalies. Please try again later.');
+    } finally {
+      setIsAnomalyDetectionLoading(false);
+    }
+  };
+
   const handleApplyMatch = async (match: ReimbursementMatch) => {
     const updatedTransactions = await applyMatches(transactions, [match]);
     setTransactions(updatedTransactions);
@@ -2032,6 +2184,70 @@ const Transactions: React.FC = () => {
     );
   };
 
+  const renderAnomalyResultsPanel = () => {
+    if (!showAnomalyResults) return null;
+
+    return (
+      <AnomalyResultsPanel>
+        <div className="anomaly-header">
+          <h3>
+            🔍 Anomaly Detection Results
+            {anomalies.length > 0 && <span>({anomalies.length} found)</span>}
+          </h3>
+          <button 
+            className="close-btn"
+            onClick={() => setShowAnomalyResults(false)}
+          >
+            Close
+          </button>
+        </div>
+        
+        <div className="anomaly-list">
+          {anomalies.length === 0 ? (
+            <div className="no-anomalies">
+              No anomalies detected. All transactions appear normal.
+            </div>
+          ) : (
+            anomalies.map((anomaly, index) => (
+              <div key={`${anomaly.transaction.id}-${index}`} className="anomaly-item">
+                <div className="anomaly-info">
+                  <div className="transaction-details">
+                    {anomaly.transaction.description} - ${Math.abs(anomaly.transaction.amount).toFixed(2)}
+                    <span style={{ color: '#666', fontWeight: 'normal', marginLeft: '8px' }}>
+                      ({anomaly.transaction.date.toLocaleDateString()})
+                    </span>
+                  </div>
+                  
+                  <div style={{ marginBottom: '8px' }}>
+                    <span className={`anomaly-type ${anomaly.anomalyType}`}>
+                      {anomaly.anomalyType.replace('_', ' ').toUpperCase()}
+                    </span>
+                    <span className={`severity-badge ${anomaly.severity}`}>
+                      {anomaly.severity.toUpperCase()}
+                    </span>
+                  </div>
+                  
+                  <div className="reasoning">
+                    {anomaly.reasoning}
+                    {anomaly.historicalContext && (
+                      <div style={{ marginTop: '4px', fontSize: '0.9rem' }}>
+                        📊 {anomaly.historicalContext}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="confidence-score">
+                  {(anomaly.confidence * 100).toFixed(0)}%
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </AnomalyResultsPanel>
+    );
+  };
+
   // Define the overflow menu actions
   const overflowMenuActions: MenuAction[] = [
     {
@@ -2041,8 +2257,13 @@ const Transactions: React.FC = () => {
     },
     {
       icon: '🤖',
-      label: 'Auto Categorize Uncategorized Transactions',
+      label: 'Auto Categorize',
       onClick: handleAutoCategorizeUncategorized
+    },
+    {
+      icon: '🔍',
+      label: isAnomalyDetectionLoading ? 'Searching...' : 'Search for Anomalies',
+      onClick: handleSearchAnomalies
     }
   ];
 
@@ -2084,6 +2305,8 @@ const Transactions: React.FC = () => {
       {renderReimbursementPanel()}
 
       {renderTransferMatchingPanel()}
+
+      {renderAnomalyResultsPanel()}
 
       {/* Bulk Operations Bar */}
       {selectedTransactions.length > 0 && (

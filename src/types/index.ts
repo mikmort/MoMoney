@@ -280,3 +280,23 @@ export interface RuleMatchResult {
   rule?: CategoryRule;
   confidence: number;
 }
+
+// Anomaly detection interfaces
+export interface AnomalyDetectionRequest {
+  transactions: Transaction[];
+}
+
+export interface AnomalyResult {
+  transaction: Transaction;
+  anomalyType: 'unusual_amount' | 'unusual_merchant' | 'unusual_category' | 'unusual_frequency' | 'suspicious_pattern';
+  severity: 'low' | 'medium' | 'high';
+  confidence: number; // 0-1, how confident the AI is that this is an anomaly
+  reasoning: string; // AI explanation of why this transaction is anomalous
+  historicalContext?: string; // Additional context about historical patterns
+}
+
+export interface AnomalyDetectionResponse {
+  anomalies: AnomalyResult[];
+  totalAnalyzed: number;
+  processingTime: number; // in milliseconds
+}
