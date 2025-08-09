@@ -710,7 +710,7 @@ Return ONLY a clean JSON response:
     // Step 3: Call AI in batch chunks only for unmatched transactions
     const batchResults: AIClassificationResponse[] = [];
     if (batchRequests.length > 0) {
-      const CHUNK = 30; // conservative batch size
+      const CHUNK = 10; // smaller batch size to avoid token/rate limits
       for (let start = 0; start < batchRequests.length; start += CHUNK) {
         if (this.isCancelled(fileId)) {
           console.log('🛑 Transaction processing cancelled during batch classification');
@@ -720,7 +720,8 @@ Return ONLY a clean JSON response:
         try {
           const res = await azureOpenAIService.classifyTransactionsBatch(slice);
           batchResults.push(...res);
-          console.log(`📊 AI classification succeeded for batch ${start}-${start + slice.length}, got ${res.length} results`);
+          const uncategorizedCount = res.filter(r => (r.categoryId || '').toLowerCase() === 'uncategorized').length;
+          console.log(`📊 AI classification succeeded for batch ${start}-${start + slice.length}, got ${res.length} results (uncategorized: ${uncategorizedCount})`);
         } catch (error) {
           console.warn('⚠️ AI classification failed, using default categorization:', error);
           // Create default responses for failed AI classification

@@ -8,6 +8,7 @@ import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
+import { transferMatchingService } from '../../services/transferMatchingService';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { AiConfidencePopup } from './AiConfidencePopup';
@@ -190,6 +191,89 @@ const ReimbursementPanel = styled(Card)`
   }
 `;
 
+const TransferMatchingPanel = styled(Card)`
+  margin-bottom: 20px;
+  
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h3 {
+      margin: 0;
+      color: #333;
+    }
+  }
+  
+  .matches-list {
+    .match-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+      
+      .match-info {
+        flex: 1;
+        
+        .source-transfer {
+          font-weight: 600;
+          color: #9C27B0;
+        }
+        
+        .target-transfer {
+          font-weight: 600;
+          color: #673AB7;
+        }
+        
+        .match-details {
+          font-size: 0.9rem;
+          color: #666;
+          margin-top: 4px;
+        }
+      }
+      
+      .match-actions {
+        display: flex;
+        gap: 8px;
+      }
+      
+      .confidence-badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        
+        &.high {
+          background: #e8f5e8;
+          color: #2e7d32;
+        }
+        
+        &.medium {
+          background: #fff3cd;
+          color: #856404;
+        }
+        
+        &.low {
+          background: #f8d7da;
+          color: #721c24;
+        }
+      }
+    }
+    
+    .no-matches {
+      text-align: center;
+      color: #666;
+      padding: 20px;
+      font-style: italic;
+    }
+  }
+`;
+
 const FilterBar = styled(Card)`
   margin-bottom: 20px;
   
@@ -280,6 +364,118 @@ const StatsBar = styled.div`
         color: #f44336;
       }
     }
+  }
+`;
+
+const BulkOperationsBar = styled(Card)`
+  margin-bottom: 20px;
+  background: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  
+  .bulk-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    .selection-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      
+      .count {
+        font-weight: 600;
+        color: #1976d2;
+      }
+    }
+    
+    .clear-selection-btn {
+      padding: 4px 8px;
+      background: transparent;
+      border: 1px solid #2196f3;
+      color: #2196f3;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      
+      &:hover {
+        background: #2196f3;
+        color: white;
+      }
+    }
+  }
+  
+  .bulk-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+`;
+  
+  .bulk-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    .selection-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      
+      .count {
+        font-weight: 600;
+        color: #1976d2;
+      }
+    }
+    
+    .clear-selection-btn {
+      padding: 4px 8px;
+      background: transparent;
+      border: 1px solid #2196f3;
+      color: #2196f3;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      
+      &:hover {
+        background: #2196f3;
+        color: white;
+      }
+    }
+  }
+  
+  .bulk-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+`;
+
+const UploadArea = styled.div`
+  border: 2px dashed #ddd;
+  border-radius: 8px;
+  padding: 40px;
+  text-align: center;
+  background: #fafafa;
+  margin-bottom: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover, &.dragover {
+    border-color: #2196f3;
+    background: #f0f8ff;
+  }
+  
+  .upload-text {
+    font-size: 1.1rem;
+    color: #666;
+    margin-bottom: 8px;
+  }
+  
+  .upload-subtext {
+    font-size: 0.9rem;
+    color: #999;
   }
 `;
 
@@ -434,6 +630,8 @@ const Transactions: React.FC = () => {
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
+  const [showTransferMatchingPanel, setShowTransferMatchingPanel] = useState(false);
+  const [showMatchedTransfersOnly, setShowMatchedTransfersOnly] = useState(false);
   
   // Account selection dialog state
   const [showAccountDialog, setShowAccountDialog] = useState(false);
@@ -464,6 +662,18 @@ const Transactions: React.FC = () => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyFor, setHistoryFor] = useState<Transaction | null>(null);
   const [historyItems, setHistoryItems] = useState<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>>([]);
+  
+  // Bulk edit state
+  const [selectedTransactions, setSelectedTransactions] = useState<Transaction[]>([]);
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const [bulkEditForm, setBulkEditForm] = useState({
+    operation: 'set-category', // 'set-category', 'set-account', 'find-replace'
+    category: '',
+    subcategory: '',
+    account: '',
+    findText: '',
+    replaceText: ''
+  });
 
   // Category rules manager state
   const [showRulesManager, setShowRulesManager] = useState(false);
@@ -546,9 +756,7 @@ const Transactions: React.FC = () => {
     error: transferMatchingError, 
     matches: transferMatches, 
     findTransferMatches, 
-    applyTransferMatches,
-    getUnmatchedTransfers,
-    countUnmatchedTransfers
+    applyTransferMatches
   } = useTransferMatching();
 
   // Category dropdown cell editor
@@ -680,6 +888,14 @@ const Transactions: React.FC = () => {
 
   // Grid API reference
   const [gridApi, setGridApi] = useState<any>(null);
+
+  // Handle row selection changes
+  const onSelectionChanged = useCallback(() => {
+    if (gridApi) {
+      const selectedRows = gridApi.getSelectedRows();
+      setSelectedTransactions(selectedRows);
+    }
+  }, [gridApi]);
 
   // Function to update transaction
   const handleUpdateTransaction = async (updatedTransaction: Transaction) => {
@@ -1007,6 +1223,95 @@ const Transactions: React.FC = () => {
     });
   };
 
+  // Bulk edit operations
+  const handleBulkEdit = () => {
+    if (selectedTransactions.length === 0) return;
+    setBulkEditForm({
+      operation: 'set-category',
+      category: '',
+      subcategory: '',
+      account: '',
+      findText: '',
+      replaceText: ''
+    });
+    setShowBulkEditModal(true);
+  };
+
+  const handleBulkEditCancel = () => {
+    setShowBulkEditModal(false);
+    setBulkEditForm({
+      operation: 'set-category',
+      category: '',
+      subcategory: '',
+      account: '',
+      findText: '',
+      replaceText: ''
+    });
+  };
+
+  const handleBulkEditSubmit = async () => {
+    if (selectedTransactions.length === 0) return;
+
+    try {
+      let updateCount = 0;
+
+      for (const transaction of selectedTransactions) {
+        let updatedTransaction: Partial<Transaction> = {};
+        let note = '';
+
+        switch (bulkEditForm.operation) {
+          case 'set-category':
+            if (bulkEditForm.category) {
+              updatedTransaction.category = bulkEditForm.category;
+              updatedTransaction.subcategory = bulkEditForm.subcategory || '';
+              note = `Bulk edit: Set category to ${bulkEditForm.category}${bulkEditForm.subcategory ? ' → ' + bulkEditForm.subcategory : ''}`;
+            }
+            break;
+          
+          case 'set-account':
+            if (bulkEditForm.account) {
+              updatedTransaction.account = bulkEditForm.account;
+              note = `Bulk edit: Set account to ${bulkEditForm.account}`;
+            }
+            break;
+          
+          case 'find-replace':
+            if (bulkEditForm.findText && transaction.description.includes(bulkEditForm.findText)) {
+              updatedTransaction.description = transaction.description.replace(
+                new RegExp(bulkEditForm.findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+                bulkEditForm.replaceText
+              );
+              note = `Bulk edit: Find/Replace "${bulkEditForm.findText}" → "${bulkEditForm.replaceText}"`;
+            }
+            break;
+        }
+
+        if (Object.keys(updatedTransaction).length > 0) {
+          updatedTransaction.lastModifiedDate = new Date();
+          await dataService.updateTransaction(transaction.id, updatedTransaction, note);
+          updateCount++;
+        }
+      }
+
+      // Refresh transactions
+      const allTransactions = await dataService.getAllTransactions();
+      setTransactions(allTransactions);
+      setFilteredTransactions(allTransactions);
+
+      // Clear selection and close modal
+      if (gridApi) {
+        gridApi.deselectAll();
+      }
+      setSelectedTransactions([]);
+      setShowBulkEditModal(false);
+
+      console.log(`✅ Bulk edit completed for ${updateCount} transactions`);
+    } catch (error) {
+      console.error('❌ Error during bulk edit:', error);
+      alert('Failed to update transactions. Please try again.');
+    }
+  };
+
   const handleImportComplete = async (importedCount: number) => {
     console.log(`🎉 Import completed! ${importedCount} transactions imported`);
     
@@ -1100,8 +1405,15 @@ const Transactions: React.FC = () => {
       filtered = filtered.filter((t: Transaction) => t.date <= new Date(filters.dateTo));
     }
 
+    // Filter for matched transfers only if enabled
+    if (showMatchedTransfersOnly) {
+      filtered = filtered.filter((t: Transaction) => 
+        t.type === 'transfer' && t.reimbursementId
+      );
+    }
+
     setFilteredTransactions(filtered);
-  }, [transactions, filters, showReimbursedTransactions, filterNonReimbursed]);
+  }, [transactions, filters, showReimbursedTransactions, showMatchedTransfersOnly, filterNonReimbursed]);
 
   useEffect(() => {
     applyFilters();
@@ -1144,6 +1456,12 @@ const Transactions: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [filteredTransactions, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
+
+  const countMatchedTransfers = (transactions: Transaction[]): number => {
+    return transactions.filter(tx => 
+      tx.type === 'transfer' && tx.reimbursementId
+    ).length;
+  };
 
   const calculateStats = () => {
     const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
@@ -1322,9 +1640,20 @@ const Transactions: React.FC = () => {
     });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
-  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
+  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, findTransferMatches, transactions]);
 
   const columnDefs: ColDef[] = [
+    {
+      headerName: '',
+      width: 50,
+      checkboxSelection: true,
+      headerCheckboxSelection: true,
+      pinned: 'left',
+      suppressSizeToFit: true,
+      suppressMovable: true,
+      sortable: false,
+      filter: false
+    },
     {
       headerName: 'Date',
       field: 'date',
@@ -1518,6 +1847,11 @@ const Transactions: React.FC = () => {
     const updatedTransactions = await applyMatches(transactions, [match]);
     setTransactions(updatedTransactions);
   };
+  const handleApplyTransferMatch = async (match: any) => {
+    const updatedTransactions = await applyTransferMatches(transactions, [match]);
+    setTransactions(updatedTransactions);
+    setFilteredTransactions(updatedTransactions);
+  };
 
   const handleFindTransfers = async () => {
     const result = await findTransferMatches({
@@ -1527,7 +1861,7 @@ const Transactions: React.FC = () => {
     });
     
     if (result) {
-      alert(`Found ${result.matches.length} potential transfer matches and ${result.unmatched.length} unmatched transfers.`);
+      setShowTransferMatchingPanel(true);
     }
   };
 
@@ -1602,6 +1936,134 @@ const Transactions: React.FC = () => {
     );
   };
 
+  const renderTransferMatchingPanel = () => {
+    if (!showTransferMatchingPanel) return null;
+
+    return (
+      <TransferMatchingPanel>
+        <div className="panel-header">
+          <h3>Transfer Matches ({transferMatches.length})</h3>
+          <Button variant="outline" onClick={() => setShowTransferMatchingPanel(false)}>
+            Close
+          </Button>
+        </div>
+        
+        {transferMatchingError && (
+          <div style={{ color: '#f44336', marginBottom: '16px' }}>
+            Error: {transferMatchingError}
+          </div>
+        )}
+        
+        <div className="matches-list">
+          {transferMatches.length === 0 ? (
+            <div className="no-matches">
+              No transfer matches found. Try adjusting the date range or tolerance settings.
+            </div>
+          ) : (
+            transferMatches.map((match) => {
+              const { fromAccount, toAccount, confidence, fromTransaction, toTransaction } = match;
+              return (
+                <div key={`${fromTransaction?.id}-${toTransaction?.id}`} className="match-card">
+                  <div className="match-info">
+                    <div className="match-header">
+                      <span className="confidence">Match Confidence: {Math.round(confidence * 100)}%</span>
+                    </div>
+                    <div className="transfer-pair">
+                      <div className="transfer-from">
+                        <strong>From:</strong> {fromAccount} 
+                        <div className="amount negative">${Math.abs(fromTransaction?.amount || 0).toFixed(2)}</div>
+                        <div className="date">{fromTransaction?.date ? new Date(fromTransaction.date).toLocaleDateString() : 'N/A'}</div>
+                        <div className="description">{fromTransaction?.description || 'N/A'}</div>
+                      </div>
+                      <div className="arrow">➜</div>
+                      <div className="transfer-to">
+                        <strong>To:</strong> {toAccount}
+                        <div className="amount positive">+${Math.abs(toTransaction?.amount || 0).toFixed(2)}</div>
+                        <div className="date">{toTransaction?.date ? new Date(toTransaction.date).toLocaleDateString() : 'N/A'}</div>
+                        <div className="description">{toTransaction?.description || 'N/A'}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="match-actions">
+                    <Button 
+                      variant="primary" 
+                      size="sm" 
+                      onClick={() => handleApplyTransferMatch(match)}
+                    >
+                      Apply Match
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </TransferMatchingPanel>
+    );
+  };
+
+    return (
+      <TransferMatchingPanel>
+        <div className="panel-header">
+          <h3>Transfer Matches ({transferMatches.length})</h3>
+          <Button variant="outline" onClick={() => setShowTransferMatchingPanel(false)}>
+            Close
+          </Button>
+        </div>
+        
+        {transferMatchingError && (
+          <div style={{ color: '#f44336', marginBottom: '16px' }}>
+            Error: {transferMatchingError}
+          </div>
+        )}
+        
+        <div className="matches-list">
+          {transferMatches.length === 0 ? (
+            <div className="no-matches">
+              No transfer matches found. Try adjusting the date range or tolerance settings.
+            </div>
+          ) : (
+            transferMatches.map((match) => {
+              const sourceTransaction = transactions.find(t => t.id === match.sourceTransactionId);
+              const targetTransaction = transactions.find(t => t.id === match.targetTransactionId);
+              
+              if (!sourceTransaction || !targetTransaction) return null;
+              
+              return (
+                <div key={match.id} className="match-item">
+                  <div className="match-info">
+                    <div className="source-transfer">
+                      Source: {sourceTransaction.description} ({formatCurrency(sourceTransaction.amount)}) - {sourceTransaction.account}
+                    </div>
+                    <div className="target-transfer">
+                      Target: {targetTransaction.description} ({formatCurrency(targetTransaction.amount)}) - {targetTransaction.account}
+                    </div>
+                    <div className="match-details">
+                      {match.reasoning} • {match.dateDifference} days apart
+                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} amount difference`}
+                    </div>
+                  </div>
+                  <div className="match-actions">
+                    <span className={`confidence-badge ${getConfidenceClass(match.confidence)}`}>
+                      {Math.round(match.confidence * 100)}%
+                    </span>
+                    <Button 
+                      onClick={() => handleApplyTransferMatch(match)}
+                      disabled={!!sourceTransaction.reimbursementId}
+                      style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                    >
+                      {sourceTransaction.reimbursementId ? 'Applied' : 'Apply'}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </TransferMatchingPanel>
+    );
+  };
+
   // Define the overflow menu actions
   const overflowMenuActions: MenuAction[] = [
     {
@@ -1652,6 +2114,36 @@ const Transactions: React.FC = () => {
       </PageHeader>
 
       {renderReimbursementPanel()}
+
+      {renderTransferMatchingPanel()}
+
+      {/* Bulk Operations Bar */}
+      {selectedTransactions.length > 0 && (
+        <BulkOperationsBar>
+          <div className="bulk-header">
+            <div className="selection-info">
+              <span className="count">{selectedTransactions.length}</span>
+              <span>transactions selected</span>
+            </div>
+            <button 
+              className="clear-selection-btn"
+              onClick={() => {
+                if (gridApi) {
+                  gridApi.deselectAll();
+                }
+                setSelectedTransactions([]);
+              }}
+            >
+              Clear Selection
+            </button>
+          </div>
+          <div className="bulk-actions">
+            <Button variant="outline" onClick={handleBulkEdit}>
+              📝 Bulk Edit
+            </Button>
+          </div>
+        </BulkOperationsBar>
+      )}
 
       <FileImport onImportComplete={handleImportComplete} />
 
@@ -1735,7 +2227,7 @@ const Transactions: React.FC = () => {
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </button>
             
-            {countUnmatchedTransfers(transactions) > 0 && (
+            {transferMatchingService.countUnmatchedTransfers(transactions) > 0 && (
               <button
                 style={{
                   padding: '8px 12px',
@@ -1751,7 +2243,27 @@ const Transactions: React.FC = () => {
                 onClick={() => setFilters({...filters, type: filters.type === 'transfer' ? '' : 'transfer'})}
                 title="Unmatched transfer transactions"
               >
-                🔄 Unmatched Transfers ({countUnmatchedTransfers(transactions)})
+                🔄 Unmatched Transfers ({transferMatchingService.countUnmatchedTransfers(transactions)})
+              </button>
+            )}
+            
+            {countMatchedTransfers(transactions) > 0 && (
+              <button
+                style={{
+                  padding: '8px 12px',
+                  border: showMatchedTransfersOnly ? '2px solid #673AB7' : '1px solid #ddd',
+                  borderRadius: '4px',
+                  background: showMatchedTransfersOnly ? '#ede7f6' : 'white',
+                  color: showMatchedTransfersOnly ? '#673AB7' : '#666',
+                  fontWeight: showMatchedTransfersOnly ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  marginLeft: '8px'
+                }}
+                onClick={() => setShowMatchedTransfersOnly(!showMatchedTransfersOnly)}
+                title="Show only matched transfer transactions"
+              >
+                ✅ Matched Transfers ({countMatchedTransfers(transactions)})
               </button>
             )}
           </div>
@@ -1798,6 +2310,9 @@ const Transactions: React.FC = () => {
               columnDefs={columnDefs}
               rowData={filteredTransactions}
               onGridReady={onGridReady}
+              onSelectionChanged={onSelectionChanged}
+              rowSelection="multiple"
+              suppressRowClickSelection={true}
               pagination={true}
               paginationPageSize={50}
               defaultColDef={{
@@ -1850,6 +2365,122 @@ const Transactions: React.FC = () => {
             )}
             <div className="form-actions" style={{ marginTop: 16 }}>
               <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* Bulk Edit Modal */}
+      {showBulkEditModal && (
+        <EditModalOverlay onClick={handleBulkEditCancel}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Bulk Edit {selectedTransactions.length} Transactions</h2>
+            
+            <div className="form-group">
+              <label>Operation</label>
+              <select
+                value={bulkEditForm.operation}
+                onChange={(e) => setBulkEditForm({...bulkEditForm, operation: e.target.value as any})}
+              >
+                <option value="set-category">Set Category</option>
+                <option value="set-account">Set Account</option>
+                <option value="find-replace">Find & Replace Text</option>
+              </select>
+            </div>
+
+            {bulkEditForm.operation === 'set-category' && (
+              <>
+                <div className="form-group">
+                  <label>Category</label>
+                  <select
+                    value={bulkEditForm.category}
+                    onChange={(e) => setBulkEditForm({...bulkEditForm, category: e.target.value, subcategory: ''})}
+                  >
+                    <option value="">Select Category</option>
+                    {defaultCategories.map(cat => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {bulkEditForm.category && (
+                  <div className="form-group">
+                    <label>Subcategory (Optional)</label>
+                    <select
+                      value={bulkEditForm.subcategory}
+                      onChange={(e) => setBulkEditForm({...bulkEditForm, subcategory: e.target.value})}
+                    >
+                      <option value="">No Subcategory</option>
+                      {getAvailableSubcategories(bulkEditForm.category).map(sub => (
+                        <option key={sub.id} value={sub.name}>{sub.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
+
+            {bulkEditForm.operation === 'set-account' && (
+              <div className="form-group">
+                <label>Account</label>
+                <select
+                  value={bulkEditForm.account}
+                  onChange={(e) => setBulkEditForm({...bulkEditForm, account: e.target.value})}
+                >
+                  <option value="">Select Account</option>
+                  {uniqueAccounts.map(account => (
+                    <option key={account} value={account}>{account}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {bulkEditForm.operation === 'find-replace' && (
+              <>
+                <div className="form-group">
+                  <label>Find Text</label>
+                  <input
+                    type="text"
+                    value={bulkEditForm.findText}
+                    onChange={(e) => setBulkEditForm({...bulkEditForm, findText: e.target.value})}
+                    placeholder="Text to find in descriptions"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Replace With</label>
+                  <input
+                    type="text"
+                    value={bulkEditForm.replaceText}
+                    onChange={(e) => setBulkEditForm({...bulkEditForm, replaceText: e.target.value})}
+                    placeholder="Replacement text"
+                  />
+                </div>
+
+                {bulkEditForm.findText && (
+                  <div style={{ background: '#f5f5f5', padding: '12px', borderRadius: '4px', marginTop: '8px' }}>
+                    <strong>Preview:</strong> {selectedTransactions.filter(t => 
+                      t.description.toLowerCase().includes(bulkEditForm.findText.toLowerCase())
+                    ).length} transactions will be affected
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={handleBulkEditCancel}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleBulkEditSubmit}
+                disabled={
+                  (bulkEditForm.operation === 'set-category' && !bulkEditForm.category) ||
+                  (bulkEditForm.operation === 'set-account' && !bulkEditForm.account) ||
+                  (bulkEditForm.operation === 'find-replace' && (!bulkEditForm.findText || !bulkEditForm.replaceText))
+                }
+              >
+                Apply to {selectedTransactions.length} Transaction{selectedTransactions.length !== 1 ? 's' : ''}
+              </Button>
             </div>
           </EditModalContent>
         </EditModalOverlay>
