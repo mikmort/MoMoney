@@ -691,7 +691,7 @@ Return ONLY a clean JSON response:
     console.log(`📊 Created ${batchRequests.length} batch requests for AI`);
 
     // Call AI in batch chunks to respect token limits
-    const CHUNK = 30; // conservative batch size
+  const CHUNK = 10; // smaller batch size to avoid token/rate limits
     const batchResults: AIClassificationResponse[] = [];
     for (let start = 0; start < batchRequests.length; start += CHUNK) {
       if (this.isCancelled(fileId)) {
@@ -702,7 +702,8 @@ Return ONLY a clean JSON response:
       try {
         const res = await azureOpenAIService.classifyTransactionsBatch(slice);
         batchResults.push(...res);
-        console.log(`📊 AI classification succeeded for batch ${start}-${start + slice.length}, got ${res.length} results`);
+        const uncategorizedCount = res.filter(r => (r.categoryId || '').toLowerCase() === 'uncategorized').length;
+        console.log(`📊 AI classification succeeded for batch ${start}-${start + slice.length}, got ${res.length} results (uncategorized: ${uncategorizedCount})`);
       } catch (error) {
         console.warn('⚠️ AI classification failed, using default categorization:', error);
         // Create default responses for failed AI classification
