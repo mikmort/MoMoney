@@ -10,6 +10,7 @@ import { skipAuthentication } from './config/devConfig';
 // Components
 import Dashboard from './components/Dashboard/Dashboard';
 import Transactions from './components/Transactions/Transactions';
+import Rules from './components/Rules/Rules';
 import Budgets from './components/Budgets/Budgets';
 import Reports from './components/Reports/Reports';
 import Settings from './components/Settings/Settings';
@@ -30,6 +31,7 @@ const AppContent: React.FC = () => (
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/transactions" element={<Transactions />} />
+        <Route path="/rules" element={<Rules />} />
         <Route path="/transfer-matches" element={<TransferMatchesPage />} />
         <Route path="/categories" element={<CategoriesManagement />} />
         <Route path="/budgets" element={<Budgets />} />

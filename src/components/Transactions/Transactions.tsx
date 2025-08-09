@@ -18,7 +18,6 @@ import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import { TransferMatchDialog } from './TransferMatchDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
-import { CategoryRulesManager } from './CategoryRulesManager';
 import { TransactionSplitManager } from '../shared/TransactionSplitManager';
 import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
@@ -833,8 +832,7 @@ const Transactions: React.FC = () => {
     replaceText: ''
   });
 
-  // Category rules manager state
-  const [showRulesManager, setShowRulesManager] = useState(false);
+  // Category rules manager state removed - now handled by dedicated Rules page
 
   // Transfer match dialog state
   const [showTransferMatchDialog, setShowTransferMatchDialog] = useState(false);
@@ -2510,8 +2508,7 @@ const Transactions: React.FC = () => {
         <FlexBox gap="12px">
           <Button 
             variant="outline" 
-            onClick={() => setShowRulesManager(true)}
-            disabled={showRulesManager}
+            onClick={() => navigate('/rules')}
           >
             📋 Rules
           </Button>
@@ -3034,12 +3031,6 @@ const Transactions: React.FC = () => {
         description={selectedTransaction?.description || ''}
         amount={selectedTransaction?.amount || 0}
         proxyMetadata={selectedTransaction?.aiProxyMetadata}
-      />
-
-      {/* Category Rules Manager */}
-      <CategoryRulesManager 
-        isVisible={showRulesManager}
-        onClose={() => setShowRulesManager(false)}
       />
 
       {/* Category Edit Confirmation Dialog */}
