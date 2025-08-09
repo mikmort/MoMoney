@@ -20,11 +20,11 @@ const ImportButton = styled.button`
   background: #0066cc;
   color: white;
   border: none;
-  padding: 12px 24px;
+  padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 16px;
-  margin-right: 12px;
+  font-size: 14px;
+  margin-top: 8px;
 
   &:hover {
     background: #0052a3;
@@ -110,8 +110,8 @@ const ErrorList = styled.ul`
 `;
 
 const SupportedFormats = styled.div`
-  margin-top: 8px;
-  font-size: 13px;
+  margin-top: 6px;
+  font-size: 12px;
   color: #666;
 `;
 
@@ -381,30 +381,32 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           <strong style={{ fontSize: '15px' }}>Drop your file here or click to browse</strong>
           <br />
           <span style={{ fontSize: '13px' }}>Upload bank statements, credit card statements, or transaction files</span>
+          
+          <div style={{ marginTop: '12px' }}>
+            <ImportButton 
+              onClick={handleButtonClick}
+              disabled={isImporting}
+            >
+              {isImporting ? 'Processing...' : 'Choose File'}
+            </ImportButton>
+            
+            <SupportedFormats>
+              <strong>Supported formats:</strong> CSV, Excel (.xlsx, .xls), OFX, PDF
+            </SupportedFormats>
+          </div>
         </div>
       </FileDropZone>
 
-      <div>
-        <ImportButton 
-          onClick={handleButtonClick}
-          disabled={isImporting}
-        >
-          {isImporting ? 'Processing...' : 'Choose File'}
-        </ImportButton>
-
-        {isImporting && (
+      {isImporting && (
+        <div style={{ marginTop: '12px' }}>
           <StopButton 
             onClick={handleStopImport}
             title="Cancel the current import"
           >
             🛑 Stop Import
           </StopButton>
-        )}
-        
-        <SupportedFormats>
-          <strong>Supported formats:</strong> CSV, Excel (.xlsx, .xls), OFX, PDF
-        </SupportedFormats>
-      </div>
+        </div>
+      )}
 
       <FileInput
         ref={fileInputRef}
