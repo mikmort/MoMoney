@@ -73,3 +73,7 @@ pids
 
 # Windows files
 Thumbs.db
+
+# Sample data files (do not commit real data)
+DanskeKonto-small.csv
+samples/
