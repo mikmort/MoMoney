@@ -576,6 +576,17 @@ class RulesService {
     this.rules = [];
     this.saveToStorage();
   }
+
+  // Import a full set of rules (used by backup restore)
+  async importRules(rules: CategoryRule[]): Promise<void> {
+    // Normalize date fields
+    this.rules = rules.map(r => ({
+      ...r,
+      createdDate: new Date(r.createdDate),
+      lastModifiedDate: new Date(r.lastModifiedDate),
+    }));
+    this.saveToStorage();
+  }
 }
 
 // Create singleton instance
