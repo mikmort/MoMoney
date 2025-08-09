@@ -844,6 +844,14 @@ const Transactions: React.FC = () => {
 
   // Category rules manager state removed - now handled by dedicated Rules page
 
+  // Pagination page size (persisted to localStorage)
+  const allowedPageSizes = [50, 100, 200, 500, 1000, 5000];
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('transactionsPageSize');
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return allowedPageSizes.includes(parsed) ? parsed : 50;
+  });
+
   // Transfer match dialog state
   const [showTransferMatchDialog, setShowTransferMatchDialog] = useState(false);
   const [selectedTransactionForMatching, setSelectedTransactionForMatching] = useState<Transaction | null>(null);
@@ -1314,7 +1322,23 @@ const Transactions: React.FC = () => {
     setTimeout(() => {
       params.api.sizeColumnsToFit();
     }, 0);
-  }, []);
+
+    // Apply persisted/selected page size
+    try {
+      if (pageSize && typeof params.api.paginationSetPageSize === 'function') {
+        params.api.paginationSetPageSize(pageSize);
+      }
+    } catch (e) {
+      console.warn('Unable to set pagination page size on grid ready:', e);
+    }
+  }, [pageSize]);
+
+  // Update grid when page size changes after initial render
+  useEffect(() => {
+    if (gridApi && typeof gridApi.paginationSetPageSize === 'function') {
+      gridApi.paginationSetPageSize(pageSize);
+    }
+  }, [gridApi, pageSize]);
 
   const handleDeleteTransaction = useCallback(async (id: string) => {
     try {
@@ -2608,14 +2632,33 @@ const Transactions: React.FC = () => {
       <FilterBar>
         <div className="filter-header">
           <h3>Column Filters</h3>
-          <button 
-            className="clear-filters-btn"
-            onClick={handleClearAllFilters}
-            disabled={!gridApi}
-            title="Clear all active column filters"
-          >
-            🗑️ Clear All Filters
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="filter-group" style={{ alignItems: 'flex-end' }}>
+              <label style={{ marginBottom: 2 }}>Page Size</label>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  const next = parseInt(e.target.value, 10);
+                  if (Number.isFinite(next)) {
+                    setPageSize(next);
+                    localStorage.setItem('transactionsPageSize', String(next));
+                  }
+                }}
+              >
+                {allowedPageSizes.map(size => (
+                  <option key={size} value={size}>{size.toLocaleString()}</option>
+                ))}
+              </select>
+            </div>
+            <button 
+              className="clear-filters-btn"
+              onClick={handleClearAllFilters}
+              disabled={!gridApi}
+              title="Clear all active column filters"
+            >
+              🗑️ Clear All Filters
+            </button>
+          </div>
         </div>
         <div className="filter-row">
           <div className="filter-group">
@@ -2764,7 +2807,7 @@ const Transactions: React.FC = () => {
               rowSelection="multiple"
               suppressRowClickSelection={true}
               pagination={true}
-              paginationPageSize={50}
+              paginationPageSize={pageSize}
               defaultColDef={{
                 resizable: true,
                 sortable: true,
