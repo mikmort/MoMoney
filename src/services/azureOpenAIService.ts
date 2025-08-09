@@ -415,7 +415,6 @@ Rules:
 
   async detectAnomalies(request: AnomalyDetectionRequest): Promise<AnomalyDetectionResponse> {
     const startTime = Date.now();
-
     if (!request.transactions || request.transactions.length === 0) {
       return {
         anomalies: [],
