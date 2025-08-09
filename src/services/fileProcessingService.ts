@@ -922,7 +922,7 @@ Return ONLY a clean JSON response:
       const valueStr = String(value).trim();
       
       // Handle European number format (e.g., "500.000,00")
-      if (/^\-?[\d\.]+,\d+$/.test(valueStr)) {
+      if (/^-?[\d.]+,\d+$/.test(valueStr)) {
         const cleanAmount = valueStr
           .replace(/\./g, '')
           .replace(',', '.');
@@ -932,7 +932,7 @@ Return ONLY a clean JSON response:
       
       // Handle standard US format
       const cleanAmount = valueStr
-        .replace(/[\$,\s]/g, '')
+        .replace(/[$,\s]/g, '')
         .replace(/[()]/g, '');
       
       const amount = parseFloat(cleanAmount);

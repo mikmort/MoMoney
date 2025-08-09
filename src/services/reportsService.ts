@@ -237,14 +237,17 @@ class ReportsService {
     };
   }
 
-  private async getTransactionsInRange(dateRange?: DateRange): Promise<Transaction[]> {
+  private async getTransactionsInRange(dateRange?: DateRange, includeTransfers: boolean = false): Promise<Transaction[]> {
     const allTransactions = await dataService.getAllTransactions();
     
+    // Filter out transfers by default (unless specifically requested)
+    let filteredTransactions = includeTransfers ? allTransactions : allTransactions.filter(t => t.type !== 'transfer');
+    
     if (!dateRange) {
-      return allTransactions;
+      return filteredTransactions;
     }
 
-    return allTransactions.filter(transaction => 
+    return filteredTransactions.filter(transaction => 
       transaction.date >= dateRange.startDate && 
       transaction.date <= dateRange.endDate
     );

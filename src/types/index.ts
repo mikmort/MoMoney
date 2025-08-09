@@ -8,7 +8,7 @@ export interface Transaction {
   category: string;
   subcategory?: string;
   account: string;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
   isRecurring?: boolean;
   tags?: string[];
   notes?: string;
@@ -24,6 +24,11 @@ export interface Transaction {
   reimbursementId?: string; // ID of the matching reimbursement transaction
   originalCurrency?: string; // Original currency for foreign transactions
   exchangeRate?: number; // Exchange rate if converted from foreign currency
+  // Anomaly detection fields
+  isAnomaly?: boolean; // True if amount is unusually high/low vs historical average
+  anomalyType?: 'high' | 'low'; // Whether amount is unusually high or low
+  anomalyScore?: number; // How many standard deviations from historical average (0-10 scale)
+  historicalAverage?: number; // Historical average for this category/vendor
 }
 
 export interface Account {
@@ -39,7 +44,7 @@ export interface Account {
 export interface Category {
   id: string;
   name: string;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
   subcategories: Subcategory[];
   color?: string;
   icon?: string;
@@ -222,11 +227,24 @@ export interface DuplicateTransaction {
   existingTransaction: Transaction;
   newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>;
   matchFields: string[]; // Fields that matched (e.g., ['date', 'amount', 'description', 'account'])
+  similarity: number; // Overall similarity score (0-1)
+  amountDifference?: number; // Actual amount difference for tolerance matches
+  daysDifference?: number; // Days difference for date tolerance matches
+  matchType: 'exact' | 'tolerance'; // Type of match found
+}
+
+export interface DuplicateDetectionConfig {
+  amountTolerance?: number; // Percentage tolerance for amount matching (e.g., 0.05 = 5%)
+  fixedAmountTolerance?: number; // Fixed dollar amount tolerance (e.g., 1.00)
+  dateTolerance?: number; // Days tolerance for date matching (e.g., 3 days)
+  requireExactDescription?: boolean; // Whether description must match exactly
+  requireSameAccount?: boolean; // Whether account must match exactly
 }
 
 export interface DuplicateDetectionResult {
   duplicates: DuplicateTransaction[];
   uniqueTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[];
+  config: DuplicateDetectionConfig; // Configuration used for detection
 }
 
 // Category mapping rule interfaces

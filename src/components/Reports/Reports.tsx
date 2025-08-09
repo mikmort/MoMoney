@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { 
   Chart as ChartJS, 
@@ -200,7 +200,7 @@ const Reports: React.FC = () => {
   const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
   const [spendingInsights, setSpendingInsights] = useState<SpendingInsights | null>(null);
 
-  const getCurrentDateRange = (): DateRange | undefined => {
+  const getCurrentDateRange = useCallback((): DateRange | undefined => {
     switch (dateRangeType) {
       case 'all':
         return undefined;
@@ -215,7 +215,7 @@ const Reports: React.FC = () => {
       default:
         return undefined;
     }
-  };
+  }, [dateRangeType, customDateRange]);
 
   useEffect(() => {
     const loadReportsData = async () => {
@@ -242,7 +242,7 @@ const Reports: React.FC = () => {
     };
 
     loadReportsData();
-  }, [dateRangeType, customDateRange]);
+  }, [dateRangeType, customDateRange, getCurrentDateRange]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {

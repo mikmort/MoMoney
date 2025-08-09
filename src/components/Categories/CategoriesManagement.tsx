@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Category, Subcategory } from '../../types';
+import { Category } from '../../types';
 import { defaultCategories } from '../../data/defaultCategories';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import Papa from 'papaparse';
@@ -158,7 +158,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [categoryForm, setCategoryForm] = useState({
     name: '',
-    type: 'expense' as 'income' | 'expense',
+    type: 'expense' as 'income' | 'expense' | 'transfer',
     color: '#2196F3',
     icon: '📁',
     subcategories: [] as Array<{ name: string; description: string }>
@@ -570,13 +570,6 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     });
   };
 
-  const stats = {
-    totalCategories: categories.length,
-    incomeCategories: categories.filter(c => c.type === 'income').length,
-    expenseCategories: categories.filter(c => c.type === 'expense').length,
-    totalSubcategories: categories.reduce((sum, c) => sum + c.subcategories.length, 0)
-  };
-
   return (
     <div>
       <PageHeader>
@@ -627,10 +620,11 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
                 <label>Type *</label>
                 <select
                   value={categoryForm.type}
-                  onChange={(e) => setCategoryForm({...categoryForm, type: e.target.value as 'income' | 'expense'})}
+                  onChange={(e) => setCategoryForm({...categoryForm, type: e.target.value as 'income' | 'expense' | 'transfer'})}
                 >
                   <option value="expense">Expense</option>
                   <option value="income">Income</option>
+                  <option value="transfer">Transfer</option>
                 </select>
               </div>
             </div>
