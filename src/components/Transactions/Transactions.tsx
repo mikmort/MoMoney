@@ -8,6 +8,7 @@ import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
+import { transferMatchingService } from '../../services/transferMatchingService';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { AiConfidencePopup } from './AiConfidencePopup';
@@ -143,6 +144,89 @@ const ReimbursementPanel = styled(Card)`
         .reimbursement {
           font-weight: 600;
           color: #4caf50;
+        }
+        
+        .match-details {
+          font-size: 0.9rem;
+          color: #666;
+          margin-top: 4px;
+        }
+      }
+      
+      .match-actions {
+        display: flex;
+        gap: 8px;
+      }
+      
+      .confidence-badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        
+        &.high {
+          background: #e8f5e8;
+          color: #2e7d32;
+        }
+        
+        &.medium {
+          background: #fff3cd;
+          color: #856404;
+        }
+        
+        &.low {
+          background: #f8d7da;
+          color: #721c24;
+        }
+      }
+    }
+    
+    .no-matches {
+      text-align: center;
+      color: #666;
+      padding: 20px;
+      font-style: italic;
+    }
+  }
+`;
+
+const TransferMatchingPanel = styled(Card)`
+  margin-bottom: 20px;
+  
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h3 {
+      margin: 0;
+      color: #333;
+    }
+  }
+  
+  .matches-list {
+    .match-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+      
+      .match-info {
+        flex: 1;
+        
+        .source-transfer {
+          font-weight: 600;
+          color: #9C27B0;
+        }
+        
+        .target-transfer {
+          font-weight: 600;
+          color: #673AB7;
         }
         
         .match-details {
@@ -505,6 +589,8 @@ const Transactions: React.FC = () => {
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
+  const [showTransferMatchingPanel, setShowTransferMatchingPanel] = useState(false);
+  const [showMatchedTransfersOnly, setShowMatchedTransfersOnly] = useState(false);
   
   // Account selection dialog state
   const [showAccountDialog, setShowAccountDialog] = useState(false);
@@ -626,9 +712,7 @@ const Transactions: React.FC = () => {
     error: transferMatchingError, 
     matches: transferMatches, 
     findTransferMatches, 
-    applyTransferMatches,
-    getUnmatchedTransfers,
-    countUnmatchedTransfers
+    applyTransferMatches
   } = useTransferMatching();
 
   // Category dropdown cell editor
@@ -1277,8 +1361,15 @@ const Transactions: React.FC = () => {
       filtered = filtered.filter((t: Transaction) => t.date <= new Date(filters.dateTo));
     }
 
+    // Filter for matched transfers only if enabled
+    if (showMatchedTransfersOnly) {
+      filtered = filtered.filter((t: Transaction) => 
+        t.type === 'transfer' && t.reimbursementId
+      );
+    }
+
     setFilteredTransactions(filtered);
-  }, [transactions, filters, showReimbursedTransactions, filterNonReimbursed]);
+  }, [transactions, filters, showReimbursedTransactions, showMatchedTransfersOnly, filterNonReimbursed]);
 
   useEffect(() => {
     applyFilters();
@@ -1321,6 +1412,12 @@ const Transactions: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [filteredTransactions, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
+
+  const countMatchedTransfers = (transactions: Transaction[]): number => {
+    return transactions.filter(tx => 
+      tx.type === 'transfer' && tx.reimbursementId
+    ).length;
+  };
 
   const calculateStats = () => {
     const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
@@ -1499,7 +1596,7 @@ const Transactions: React.FC = () => {
     });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
-  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
+  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, findTransferMatches, transactions]);
 
   const columnDefs: ColDef[] = [
     {
@@ -1707,6 +1804,12 @@ const Transactions: React.FC = () => {
     setTransactions(updatedTransactions);
   };
 
+  const handleApplyTransferMatch = async (match: any) => {
+    const updatedTransactions = await applyTransferMatches(transactions, [match]);
+    setTransactions(updatedTransactions);
+    setFilteredTransactions(updatedTransactions);
+  };
+
   const handleFindTransfers = async () => {
     const result = await findTransferMatches({
       transactions,
@@ -1715,7 +1818,7 @@ const Transactions: React.FC = () => {
     });
     
     if (result) {
-      alert(`Found ${result.matches.length} potential transfer matches and ${result.unmatched.length} unmatched transfers.`);
+      setShowTransferMatchingPanel(true);
     }
   };
 
@@ -1790,6 +1893,71 @@ const Transactions: React.FC = () => {
     );
   };
 
+  const renderTransferMatchingPanel = () => {
+    if (!showTransferMatchingPanel) return null;
+
+    return (
+      <TransferMatchingPanel>
+        <div className="panel-header">
+          <h3>Transfer Matches ({transferMatches.length})</h3>
+          <Button variant="outline" onClick={() => setShowTransferMatchingPanel(false)}>
+            Close
+          </Button>
+        </div>
+        
+        {transferMatchingError && (
+          <div style={{ color: '#f44336', marginBottom: '16px' }}>
+            Error: {transferMatchingError}
+          </div>
+        )}
+        
+        <div className="matches-list">
+          {transferMatches.length === 0 ? (
+            <div className="no-matches">
+              No transfer matches found. Try adjusting the date range or tolerance settings.
+            </div>
+          ) : (
+            transferMatches.map((match) => {
+              const sourceTransaction = transactions.find(t => t.id === match.sourceTransactionId);
+              const targetTransaction = transactions.find(t => t.id === match.targetTransactionId);
+              
+              if (!sourceTransaction || !targetTransaction) return null;
+              
+              return (
+                <div key={match.id} className="match-item">
+                  <div className="match-info">
+                    <div className="source-transfer">
+                      Source: {sourceTransaction.description} ({formatCurrency(sourceTransaction.amount)}) - {sourceTransaction.account}
+                    </div>
+                    <div className="target-transfer">
+                      Target: {targetTransaction.description} ({formatCurrency(targetTransaction.amount)}) - {targetTransaction.account}
+                    </div>
+                    <div className="match-details">
+                      {match.reasoning} • {match.dateDifference} days apart
+                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} amount difference`}
+                    </div>
+                  </div>
+                  <div className="match-actions">
+                    <span className={`confidence-badge ${getConfidenceClass(match.confidence)}`}>
+                      {Math.round(match.confidence * 100)}%
+                    </span>
+                    <Button 
+                      onClick={() => handleApplyTransferMatch(match)}
+                      disabled={!!sourceTransaction.reimbursementId}
+                      style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                    >
+                      {sourceTransaction.reimbursementId ? 'Applied' : 'Apply'}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </TransferMatchingPanel>
+    );
+  };
+
   // Define the overflow menu actions
   const overflowMenuActions: MenuAction[] = [
     {
@@ -1833,6 +2001,8 @@ const Transactions: React.FC = () => {
       </PageHeader>
 
       {renderReimbursementPanel()}
+
+      {renderTransferMatchingPanel()}
 
       {/* Bulk Operations Bar */}
       {selectedTransactions.length > 0 && (
@@ -1944,7 +2114,7 @@ const Transactions: React.FC = () => {
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </button>
             
-            {countUnmatchedTransfers(transactions) > 0 && (
+            {transferMatchingService.countUnmatchedTransfers(transactions) > 0 && (
               <button
                 style={{
                   padding: '8px 12px',
@@ -1960,7 +2130,27 @@ const Transactions: React.FC = () => {
                 onClick={() => setFilters({...filters, type: filters.type === 'transfer' ? '' : 'transfer'})}
                 title="Unmatched transfer transactions"
               >
-                🔄 Unmatched Transfers ({countUnmatchedTransfers(transactions)})
+                🔄 Unmatched Transfers ({transferMatchingService.countUnmatchedTransfers(transactions)})
+              </button>
+            )}
+            
+            {countMatchedTransfers(transactions) > 0 && (
+              <button
+                style={{
+                  padding: '8px 12px',
+                  border: showMatchedTransfersOnly ? '2px solid #673AB7' : '1px solid #ddd',
+                  borderRadius: '4px',
+                  background: showMatchedTransfersOnly ? '#ede7f6' : 'white',
+                  color: showMatchedTransfersOnly ? '#673AB7' : '#666',
+                  fontWeight: showMatchedTransfersOnly ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  marginLeft: '8px'
+                }}
+                onClick={() => setShowMatchedTransfersOnly(!showMatchedTransfersOnly)}
+                title="Show only matched transfer transactions"
+              >
+                ✅ Matched Transfers ({countMatchedTransfers(transactions)})
               </button>
             )}
           </div>
