@@ -47,6 +47,26 @@ const CategoriesContainer = styled.div`
       }
     }
   }
+
+  /* Match the actions cell styling from transactions */
+  .actions-cell button {
+    outline: none !important;
+    /* Make the button subtler inside the grid */
+    border-color: #d0d7de !important; /* neutral border instead of theme blue */
+    color: #444 !important;
+    padding: 6px 10px !important; /* fit narrow column */
+    border-width: 1px !important;
+    background: #fff !important;
+  }
+  .actions-cell button:focus,
+  .actions-cell button:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+  .actions-cell button:hover {
+    background: #f5f5f5 !important;
+    border-color: #c7ced6 !important;
+  }
 `;
 
 const EditModalOverlay = styled.div`
@@ -120,6 +140,11 @@ const EditModalContent = styled.div`
     h3 {
       margin-bottom: 12px;
       color: #333;
+    }
+    
+    /* Add spacing after the header section with Add Subcategory button */
+    > div:first-child {
+      margin-bottom: 20px;
     }
     
     .subcategory-item {
@@ -224,7 +249,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
           variant: 'danger'
         }
       ];
-      return <ActionsMenu menuId={`category-menu-${params.data.id}`} actions={actions} />;
+      return <div className="actions-cell"><ActionsMenu menuId={`category-menu-${params.data.id}`} actions={actions} /></div>;
     }
     return null;
   };
@@ -244,11 +269,29 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
       flex: 1,
       cellRenderer: (params: any) => {
         const isCategory = params.data.type === 'category';
-        return React.createElement('span', {
+        return React.createElement(isCategory ? 'button' : 'span', {
           style: { 
             fontWeight: isCategory ? '600' : '400', 
-            color: isCategory ? '#333' : '#666' 
-          }
+            color: isCategory ? '#333' : '#666',
+            ...(isCategory ? {
+              background: 'none',
+              border: 'none',
+              padding: '0',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              textDecorationColor: 'transparent',
+              transition: 'text-decoration-color 0.2s',
+            } : {})
+          },
+          ...(isCategory ? {
+            onMouseEnter: (e: any) => {
+              e.target.style.textDecorationColor = '#333';
+            },
+            onMouseLeave: (e: any) => {
+              e.target.style.textDecorationColor = 'transparent';
+            },
+            onClick: () => handleEditCategory(params.data.id)
+          } : {})
         }, params.value);
       }
     },
