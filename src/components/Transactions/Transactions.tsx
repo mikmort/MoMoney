@@ -24,6 +24,7 @@ import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
 import { defaultCategories as categoriesCatalog } from '../../data/defaultCategories';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -575,22 +576,67 @@ const EditModalContent = styled.div`
 
 // Custom cell renderers
 const AmountCellRenderer = (params: any) => {
+  const [displayInfo, setDisplayInfo] = useState<{
+    displayAmount: string;
+    tooltip?: string;
+    isConverted: boolean;
+  }>({ displayAmount: '$0.00', isConverted: false });
+  
   const amount = params.value;
-  const isReimbursed = params.data.reimbursed;
-  const isAnomaly = params.data.isAnomaly;
-  const anomalyType = params.data.anomalyType;
-  const anomalyScore = params.data.anomalyScore;
+  const transaction = params.data as Transaction;
+  const isReimbursed = transaction.reimbursed;
+  const isAnomaly = transaction.isAnomaly;
+  const anomalyType = transaction.anomalyType;
+  const anomalyScore = transaction.anomalyScore;
+  
+  // Initialize currency display service and format amount
+  React.useEffect(() => {
+    const formatAmount = async () => {
+      try {
+        await currencyDisplayService.initialize();
+        const result = await currencyDisplayService.formatTransactionAmount(transaction);
+        setDisplayInfo(result);
+      } catch (error) {
+        console.error('Error formatting currency:', error);
+        // Fallback to basic USD formatting
+        setDisplayInfo({
+          displayAmount: new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+          }).format(amount),
+          isConverted: false
+        });
+      }
+    };
+    
+    formatAmount();
+  }, [amount, transaction]);
   
   const className = amount >= 0 ? 'positive' : 'negative';
   const reimbursedClass = isReimbursed ? ' reimbursed' : '';
-  const formatted = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD'
-  }).format(amount);
   
   return (
-    <span className={className + reimbursedClass}>
-      {formatted}
+    <span 
+      className={className + reimbursedClass}
+      title={displayInfo.tooltip}
+      style={{ 
+        cursor: displayInfo.tooltip ? 'help' : 'default'
+      }}
+    >
+      {displayInfo.displayAmount}
+      {displayInfo.isConverted && (
+        <span 
+          style={{ 
+            marginLeft: '4px', 
+            fontSize: '10px',
+            color: '#666',
+            fontWeight: 'normal'
+          }}
+          title={displayInfo.tooltip}
+        >
+          🔄
+        </span>
+      )}
       {isAnomaly && (
         <span 
           style={{ 
@@ -1345,7 +1391,7 @@ const Transactions: React.FC = () => {
       const transaction = transactions.find(t => t.id === id);
       if (!transaction) return;
 
-      const confirmMessage = `Are you sure you want to delete this transaction?\n\n"${transaction.description}" - ${formatCurrency(transaction.amount)}\n\nThis action cannot be undone.`;
+      const confirmMessage = `Are you sure you want to delete this transaction?\n\n"${transaction.description}" - ${formatCurrencySync(transaction.amount)}\n\nThis action cannot be undone.`;
       if (!window.confirm(confirmMessage)) {
         return;
       }
@@ -2170,7 +2216,8 @@ const Transactions: React.FC = () => {
     }
   ];
 
-  const formatCurrency = (amount: number) => {
+  // Synchronous fallback for cases where we need immediate formatting
+  const formatCurrencySync = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
@@ -2366,10 +2413,10 @@ const Transactions: React.FC = () => {
                 <div key={match.id} className="match-item">
                   <div className="match-info">
                     <div className="expense">
-                      Expense: {expense.description} ({formatCurrency(expense.amount)})
+                      Expense: {expense.description} ({formatCurrencySync(expense.amount)})
                     </div>
                     <div className="reimbursement">
-                      Reimbursement: {reimbursement.description} ({formatCurrency(reimbursement.amount)})
+                      Reimbursement: {reimbursement.description} ({formatCurrencySync(reimbursement.amount)})
                     </div>
                     <div className="match-details">
                       {match.reasoning} • {match.dateDifference} days apart
@@ -2436,10 +2483,10 @@ const Transactions: React.FC = () => {
                 <div key={match.id} className="match-item">
                   <div className="match-info">
                     <div className="source-transfer">
-                      Source: {sourceTx.description} ({formatCurrency(sourceTx.amount)}) - {sourceTx.account}
+                      Source: {sourceTx.description} ({formatCurrencySync(sourceTx.amount)}) - {sourceTx.account}
                     </div>
                     <div className="target-transfer">
-                      Target: {targetTx.description} ({formatCurrency(targetTx.amount)}) - {targetTx.account}
+                      Target: {targetTx.description} ({formatCurrencySync(targetTx.amount)}) - {targetTx.account}
                     </div>
                     <div className="match-details">
                       {match.reasoning} • {match.dateDifference} days apart
@@ -2778,16 +2825,16 @@ const Transactions: React.FC = () => {
       <StatsBar>
         <div className="stat">
           <div className="label">Total Income</div>
-          <div className="value positive">{formatCurrency(stats.totalIncome)}</div>
+          <div className="value positive">{formatCurrencySync(stats.totalIncome)}</div>
         </div>
         <div className="stat">
           <div className="label">Total Expenses</div>
-          <div className="value negative">{formatCurrency(stats.totalExpenses)}</div>
+          <div className="value negative">{formatCurrencySync(stats.totalExpenses)}</div>
         </div>
         <div className="stat">
           <div className="label">Net Amount</div>
           <div className={`value ${stats.netAmount >= 0 ? 'positive' : 'negative'}`}>
-            {formatCurrency(stats.netAmount)}
+            {formatCurrencySync(stats.netAmount)}
           </div>
         </div>
         <div className="stat">
@@ -2875,7 +2922,7 @@ const Transactions: React.FC = () => {
                     </div>
                     <div style={{ fontSize: '0.9rem', color: '#444' }}>
                       <div><strong>Description:</strong> {h.data.description}</div>
-                      <div><strong>Amount:</strong> {formatCurrency(h.data.amount)}</div>
+                      <div><strong>Amount:</strong> {formatCurrencySync(h.data.amount)}</div>
                       <div><strong>Category:</strong> {h.data.category}{h.data.subcategory ? ` → ${h.data.subcategory}` : ''}</div>
                       <div><strong>Account:</strong> {h.data.account}</div>
                       <div><strong>Date:</strong> {new Date(h.data.date).toLocaleDateString()}</div>

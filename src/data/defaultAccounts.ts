@@ -48,6 +48,14 @@ export const defaultAccounts: Account[] = [
     institution: 'Personal',
     currency: 'USD',
     isActive: true
+  },
+  {
+    id: 'danske-bank-checking',
+    name: 'Danske Bank Konto',
+    type: 'checking',
+    institution: 'Danske Bank',
+    currency: 'DKK',
+    isActive: true
   }
 ];
 
@@ -91,5 +99,13 @@ export const accountDetectionPatterns = {
     'bank of america savings',
     'boa savings',
     'primary savings'
+  ],
+  'danske-bank-checking': [
+    'danske bank',
+    'danske_bank',
+    'danske-bank',
+    'danish bank',
+    'dankort',
+    'bankkonto'
   ]
 };
