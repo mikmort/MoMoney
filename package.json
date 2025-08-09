@@ -37,6 +37,7 @@
     "@types/styled-components": "^5.1.34",
     "@types/uuid": "^9.0.7",
     "fake-indexeddb": "^6.1.0",
+    "ts-jest": "^29.2.5",
     "typescript": "^4.9.5"
   },
   "scripts": {
