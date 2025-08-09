@@ -207,6 +207,139 @@ class TransferMatchingService {
   countUnmatchedTransfers(transactions: Transaction[]): number {
     return this.getUnmatchedTransfers(transactions).length;
   }
+
+  /**
+   * Unmatch a transfer match by removing the link between transactions
+   */
+  async unmatchTransfers(transactions: Transaction[], matchId: string): Promise<Transaction[]> {
+    const match = this.parseMatchId(matchId);
+    if (!match) return transactions;
+
+    const updatedTransactions = [...transactions];
+    
+    // Find the source and target transactions
+    const sourceIndex = updatedTransactions.findIndex(tx => tx.id === match.sourceId);
+    const targetIndex = updatedTransactions.findIndex(tx => tx.id === match.targetId);
+    
+    if (sourceIndex !== -1 && targetIndex !== -1) {
+      // Remove the reimbursementId link and update notes
+      updatedTransactions[sourceIndex] = {
+        ...updatedTransactions[sourceIndex],
+        reimbursementId: undefined,
+        notes: this.removeMatchNoteFromTransaction(updatedTransactions[sourceIndex].notes || '')
+      };
+      
+      updatedTransactions[targetIndex] = {
+        ...updatedTransactions[targetIndex],
+        reimbursementId: undefined,
+        notes: this.removeMatchNoteFromTransaction(updatedTransactions[targetIndex].notes || '')
+      };
+    }
+    
+    return updatedTransactions;
+  }
+
+  /**
+   * Get all matched transfers with their match details
+   */
+  getMatchedTransfers(transactions: Transaction[]): TransferMatch[] {
+    const matches: TransferMatch[] = [];
+    const processedIds = new Set<string>();
+
+    const matchedTransfers = transactions.filter(tx => 
+      tx.type === 'transfer' && tx.reimbursementId
+    );
+
+    for (const tx of matchedTransfers) {
+      if (processedIds.has(tx.id)) continue;
+
+      const matchedTx = transactions.find(t => t.id === tx.reimbursementId);
+      if (matchedTx && !processedIds.has(matchedTx.id)) {
+        const dateDiff = Math.abs((tx.date.getTime() - matchedTx.date.getTime()) / (1000 * 60 * 60 * 24));
+        const amountDiff = Math.abs(Math.abs(tx.amount) - Math.abs(matchedTx.amount));
+        
+        const match: TransferMatch = {
+          id: `transfer-match-${tx.id}-${matchedTx.id}`,
+          sourceTransactionId: tx.id,
+          targetTransactionId: matchedTx.id,
+          confidence: this.calculateMatchConfidence(tx, matchedTx, dateDiff, amountDiff),
+          matchType: 'manual', // Existing matches are considered manual/verified
+          dateDifference: dateDiff,
+          amountDifference: amountDiff,
+          reasoning: `Existing match: ${tx.account} ↔ ${matchedTx.account}`,
+          isVerified: true
+        };
+
+        matches.push(match);
+        processedIds.add(tx.id);
+        processedIds.add(matchedTx.id);
+      }
+    }
+
+    return matches;
+  }
+
+  /**
+   * Manually match two transfer transactions
+   */
+  async manuallyMatchTransfers(
+    transactions: Transaction[], 
+    sourceId: string, 
+    targetId: string
+  ): Promise<Transaction[]> {
+    const updatedTransactions = [...transactions];
+    
+    const sourceIndex = updatedTransactions.findIndex(tx => tx.id === sourceId);
+    const targetIndex = updatedTransactions.findIndex(tx => tx.id === targetId);
+    
+    if (sourceIndex !== -1 && targetIndex !== -1) {
+      const sourceTx = updatedTransactions[sourceIndex];
+      const targetTx = updatedTransactions[targetIndex];
+      
+      // Validate that this is a reasonable match
+      if (sourceTx.type !== 'transfer' || targetTx.type !== 'transfer') {
+        throw new Error('Both transactions must be transfer type');
+      }
+      
+      if (sourceTx.account === targetTx.account) {
+        throw new Error('Cannot match transfers within the same account');
+      }
+      
+      // Link the transactions
+      updatedTransactions[sourceIndex] = {
+        ...updatedTransactions[sourceIndex],
+        reimbursementId: targetId,
+        notes: updatedTransactions[sourceIndex].notes 
+          ? `${updatedTransactions[sourceIndex].notes}\n[Manual Transfer Match]`
+          : '[Manual Transfer Match]'
+      };
+      
+      updatedTransactions[targetIndex] = {
+        ...updatedTransactions[targetIndex],
+        reimbursementId: sourceId,
+        notes: updatedTransactions[targetIndex].notes 
+          ? `${updatedTransactions[targetIndex].notes}\n[Manual Transfer Match]`
+          : '[Manual Transfer Match]'
+      };
+    }
+    
+    return updatedTransactions;
+  }
+
+  private parseMatchId(matchId: string): { sourceId: string; targetId: string } | null {
+    const match = matchId.match(/transfer-match-(.+)-(.+)/);
+    if (match) {
+      return { sourceId: match[1], targetId: match[2] };
+    }
+    return null;
+  }
+
+  private removeMatchNoteFromTransaction(notes: string): string {
+    return notes
+      .replace(/\n?\[Matched Transfer: .+?\]/g, '')
+      .replace(/\n?\[Manual Transfer Match\]/g, '')
+      .trim();
+  }
 }
 
 export const transferMatchingService = new TransferMatchingService();
