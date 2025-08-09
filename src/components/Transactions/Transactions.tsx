@@ -3,10 +3,11 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account, Category } from '../../types';
+import { Transaction, ReimbursementMatch, Account } from '../../types';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
+import { useTransferMatching } from '../../hooks/useTransferMatching';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { AiConfidencePopup } from './AiConfidencePopup';
@@ -436,6 +437,10 @@ const EditModalContent = styled.div`
 const AmountCellRenderer = (params: any) => {
   const amount = params.value;
   const isReimbursed = params.data.reimbursed;
+  const isAnomaly = params.data.isAnomaly;
+  const anomalyType = params.data.anomalyType;
+  const anomalyScore = params.data.anomalyScore;
+  
   const className = amount >= 0 ? 'positive' : 'negative';
   const reimbursedClass = isReimbursed ? ' reimbursed' : '';
   const formatted = new Intl.NumberFormat('en-US', {
@@ -443,7 +448,25 @@ const AmountCellRenderer = (params: any) => {
     currency: 'USD'
   }).format(amount);
   
-  return <span className={className + reimbursedClass}>{formatted}</span>;
+  return (
+    <span className={className + reimbursedClass}>
+      {formatted}
+      {isAnomaly && (
+        <span 
+          style={{ 
+            marginLeft: '4px', 
+            fontSize: '12px',
+            color: anomalyType === 'high' ? '#f44336' : '#ff9800',
+            fontWeight: 'bold',
+            cursor: 'pointer'
+          }}
+          title={`Anomaly detected: ${anomalyType} amount (${anomalyScore} std dev from average)`}
+        >
+          {anomalyType === 'high' ? '🔺' : '🔻'}
+        </span>
+      )}
+    </span>
+  );
 };
 
 const CategoryCellRenderer = (params: any) => {
@@ -504,6 +527,10 @@ const Transactions: React.FC = () => {
   // Edit transaction modal state
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  
+  // Undo/Redo state for tracking per-transaction capabilities
+  const [undoRedoStatus, setUndoRedoStatus] = useState<{[transactionId: string]: {canUndo: boolean; canRedo: boolean}}>({});
+  
   // History modal state
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyFor, setHistoryFor] = useState<Transaction | null>(null);
@@ -593,6 +620,16 @@ const Transactions: React.FC = () => {
     accounts,
     addAccount
   } = useAccountManagement();
+
+  const { 
+    isLoading: isTransferMatchingLoading, 
+    error: transferMatchingError, 
+    matches: transferMatches, 
+    findTransferMatches, 
+    applyTransferMatches,
+    getUnmatchedTransfers,
+    countUnmatchedTransfers
+  } = useTransferMatching();
 
   // Category dropdown cell editor
   const CategoryCellEditor = React.forwardRef<any, any>((props, ref) => {
@@ -740,10 +777,97 @@ const Transactions: React.FC = () => {
       const allTransactions = await dataService.getAllTransactions();
       setTransactions(allTransactions);
       setFilteredTransactions(allTransactions);
+      // Update undo/redo status for this transaction
+      await updateUndoRedoStatus(updatedTransaction.id);
     } catch (error) {
       console.error('Failed to update transaction:', error);
     }
   };
+
+  // Update undo/redo status for a specific transaction
+  const updateUndoRedoStatus = async (transactionId: string) => {
+    try {
+      const status = await dataService.getUndoRedoStatus(transactionId);
+      setUndoRedoStatus(prev => ({
+        ...prev,
+        [transactionId]: {
+          canUndo: status.canUndo,
+          canRedo: status.canRedo
+        }
+      }));
+    } catch (error) {
+      console.error('Failed to get undo/redo status:', error);
+    }
+  };
+
+  // Refresh undo/redo status for all visible transactions
+  const refreshAllUndoRedoStatus = useCallback(async () => {
+    const statusPromises = filteredTransactions.map(async (transaction) => {
+      const status = await dataService.getUndoRedoStatus(transaction.id);
+      return {
+        transactionId: transaction.id,
+        canUndo: status.canUndo,
+        canRedo: status.canRedo
+      };
+    });
+    
+    const statuses = await Promise.all(statusPromises);
+    const statusMap: {[transactionId: string]: {canUndo: boolean; canRedo: boolean}} = {};
+    statuses.forEach(status => {
+      statusMap[status.transactionId] = {
+        canUndo: status.canUndo,
+        canRedo: status.canRedo
+      };
+    });
+    
+    setUndoRedoStatus(statusMap);
+  }, [filteredTransactions]);
+
+  // Handle undo transaction edit
+  const handleUndoTransaction = useCallback(async (transactionId: string) => {
+    try {
+      const transaction = transactions.find(t => t.id === transactionId);
+      if (!transaction) return;
+      
+      const undoedTransaction = await dataService.undoTransactionEdit(transactionId, 
+        `Undo edit of ${transaction.description}`);
+      
+      if (undoedTransaction) {
+        // Refresh transactions list
+        const allTransactions = await dataService.getAllTransactions();
+        setTransactions(allTransactions);
+        setFilteredTransactions(allTransactions);
+        await updateUndoRedoStatus(transactionId);
+        console.log('✅ Transaction edit undone successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to undo transaction edit:', error);
+      alert('Failed to undo. Please try again.');
+    }
+  }, [transactions]);
+
+  // Handle redo transaction edit
+  const handleRedoTransaction = useCallback(async (transactionId: string) => {
+    try {
+      const transaction = transactions.find(t => t.id === transactionId);
+      if (!transaction) return;
+      
+      const redoneTransaction = await dataService.redoTransactionEdit(transactionId, 
+        `Redo edit of ${transaction.description}`);
+      
+      if (redoneTransaction) {
+        // Refresh transactions list
+        const allTransactions = await dataService.getAllTransactions();
+        setTransactions(allTransactions);
+        setFilteredTransactions(allTransactions);
+        await updateUndoRedoStatus(transactionId);
+        console.log('✅ Transaction edit redone successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to redo transaction edit:', error);
+      alert('Failed to redo. Please try again.');
+    }
+  }, [transactions]);
 
   // Function to clear all column filters
   const handleClearAllFilters = () => {
@@ -821,8 +945,23 @@ const Transactions: React.FC = () => {
         console.log('🔄 Loading transactions from dataService...');
         const allTransactions = await dataService.getAllTransactions();
         console.log(`📊 Loaded ${allTransactions.length} transactions`);
-        setTransactions(allTransactions);
-        setFilteredTransactions(allTransactions);
+        
+        // Run anomaly detection if we have sufficient data
+        if (allTransactions.length > 0) {
+          console.log('🔍 Running anomaly detection...');
+          await dataService.detectAnomalies();
+          // Reload transactions to get the updated anomaly flags
+          const updatedTransactions = await dataService.getAllTransactions();
+          const anomalies = updatedTransactions.filter(t => t.isAnomaly);
+          if (anomalies.length > 0) {
+            console.log(`⚠️ Found ${anomalies.length} anomalous transactions`);
+          }
+          setTransactions(updatedTransactions);
+          setFilteredTransactions(updatedTransactions);
+        } else {
+          setTransactions(allTransactions);
+          setFilteredTransactions(allTransactions);
+        }
       } catch (error) {
         console.error('❌ Error loading transactions:', error);
         // Fall back to empty array if loading fails
@@ -844,7 +983,7 @@ const Transactions: React.FC = () => {
     }, 0);
   }, []);
 
-  const handleDeleteTransaction = async (id: string) => {
+  const handleDeleteTransaction = useCallback(async (id: string) => {
     try {
       console.log('Deleting transaction:', id);
       // For now, just remove from state since we're using mock data
@@ -854,9 +993,9 @@ const Transactions: React.FC = () => {
     } catch (error) {
       console.error('Failed to delete transaction:', error);
     }
-  };
+  }, [transactions]);
 
-  const startEditTransaction = (transaction: Transaction) => {
+  const startEditTransaction = useCallback((transaction: Transaction) => {
     console.log('Editing transaction:', transaction);
     
     // Set the transaction being edited
@@ -876,7 +1015,7 @@ const Transactions: React.FC = () => {
     
     // Show the edit modal
     setShowEditModal(true);
-  };
+  }, []);
 
   const handleEditFormChange = (field: string, value: string) => {
     setTransactionForm(prev => {
@@ -906,7 +1045,7 @@ const Transactions: React.FC = () => {
         category: transactionForm.category,
         subcategory: transactionForm.subcategory,
         account: transactionForm.account,
-        type: transactionForm.type as 'income' | 'expense',
+        type: transactionForm.type as 'income' | 'expense' | 'transfer',
         date: new Date(transactionForm.date),
         notes: transactionForm.notes,
         lastModifiedDate: new Date()
@@ -1145,14 +1284,55 @@ const Transactions: React.FC = () => {
     applyFilters();
   }, [applyFilters]);
 
+  // Refresh undo/redo status when filtered transactions change
+  useEffect(() => {
+    refreshAllUndoRedoStatus();
+  }, [refreshAllUndoRedoStatus]);
+
+  // Add keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        // Get the currently focused/selected transaction (if any)
+        // For now, we'll need a way to track which transaction is "active"
+        // This is a simplified implementation - in a real app you might track this differently
+        if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+          e.preventDefault();
+          // For demo purposes, let's undo the most recent transaction that can be undone
+          const undoableTransaction = filteredTransactions.find(t => 
+            undoRedoStatus[t.id]?.canUndo
+          );
+          if (undoableTransaction) {
+            handleUndoTransaction(undoableTransaction.id);
+          }
+        } else if ((e.key === 'y' || e.key === 'Y') || (e.key === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          // For demo purposes, let's redo the most recent transaction that can be redone
+          const redoableTransaction = filteredTransactions.find(t => 
+            undoRedoStatus[t.id]?.canRedo
+          );
+          if (redoableTransaction) {
+            handleRedoTransaction(redoableTransaction.id);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredTransactions, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
+
   const calculateStats = () => {
     const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
     
-    const totalIncome = transactionsToCalculate
+    // Exclude transfer transactions from financial calculations
+    const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer');
+    
+    const totalIncome = nonTransferTransactions
       .filter((t: Transaction) => t.type === 'income')
       .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
     
-    const totalExpenses = transactionsToCalculate
+    const totalExpenses = nonTransferTransactions
       .filter((t: Transaction) => t.type === 'expense')
       .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount), 0);
 
@@ -1160,7 +1340,7 @@ const Transactions: React.FC = () => {
       totalIncome,
       totalExpenses,
       netAmount: totalIncome - totalExpenses,
-      count: transactionsToCalculate.length
+      count: nonTransferTransactions.length
     };
   };
 
@@ -1168,12 +1348,23 @@ const Transactions: React.FC = () => {
 
   // Actions cell renderer component
   const ActionsCellRenderer = React.useCallback((params: any) => {
+    const transactionId = params.data.id;
+    const transactionStatus = undoRedoStatus[transactionId];
+    
     const handleEditClick = () => {
       startEditTransaction(params.data);
     };
 
     const handleDeleteClick = () => {
       handleDeleteTransaction(params.data.id);
+    };
+
+    const handleUndoClick = () => {
+      handleUndoTransaction(transactionId);
+    };
+
+    const handleRedoClick = () => {
+      handleRedoTransaction(transactionId);
     };
 
     const handleSuggestCategory = async () => {
@@ -1221,12 +1412,64 @@ const Transactions: React.FC = () => {
       await openHistory(params.data);
     };
 
+    const handleFindMatchingTransfers = async () => {
+      if (params.data.type !== 'transfer') {
+        alert('This action is only available for transfer transactions.');
+        return;
+      }
+      
+      try {
+        const result = await findTransferMatches({
+          transactions,
+          maxDaysDifference: 7,
+          tolerancePercentage: 0.01
+        });
+        
+        if (result && result.matches.length > 0) {
+          const relatedMatches = result.matches.filter(m => 
+            m.sourceTransactionId === params.data.id || m.targetTransactionId === params.data.id
+          );
+          
+          if (relatedMatches.length > 0) {
+            alert(`Found ${relatedMatches.length} potential matching transfer(s)!`);
+          } else {
+            alert('No matching transfers found for this transaction.');
+          }
+        } else {
+          alert('No matching transfers found for this transaction.');
+        }
+      } catch (error) {
+        console.error('Error finding matching transfers:', error);
+        alert('Failed to find matching transfers.');
+      }
+    };
+
     const actions: MenuAction[] = [
       {
         icon: '✏️',
         label: 'Edit Transaction',
         onClick: handleEditClick
-      },
+      }
+    ];
+
+    // Add undo/redo actions if available
+    if (transactionStatus?.canUndo) {
+      actions.push({
+        icon: '↶',
+        label: 'Undo Edit',
+        onClick: handleUndoClick
+      });
+    }
+    
+    if (transactionStatus?.canRedo) {
+      actions.push({
+        icon: '↷',
+        label: 'Redo Edit',
+        onClick: handleRedoClick
+      });
+    }
+
+    actions.push(
       {
         icon: '🤖',
         label: 'Suggest Category',
@@ -1236,17 +1479,27 @@ const Transactions: React.FC = () => {
         icon: '🕘',
         label: 'History',
         onClick: handleHistory
-      },
-      {
-        icon: '🗑️',
-        label: 'Delete Transaction',
-        onClick: handleDeleteClick,
-        variant: 'danger'
       }
-    ];
+    );
+
+    // Add transfer-specific action if this is a transfer transaction
+    if (params.data.type === 'transfer') {
+      actions.push({
+        icon: '🔄',
+        label: 'Find Matching Transfer(s)',
+        onClick: handleFindMatchingTransfers
+      });
+    }
+
+    actions.push({
+      icon: '🗑️',
+      label: 'Delete Transaction',
+      onClick: handleDeleteClick,
+      variant: 'danger'
+    });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
-  }, [startEditTransaction, handleDeleteTransaction]);
+  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
 
   const columnDefs: ColDef[] = [
     {
@@ -1382,9 +1635,88 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleAutoCategorizeUncategorized = async () => {
+    try {
+      // Find all uncategorized transactions
+      const uncategorizedTransactions = transactions.filter(t => t.category === 'Uncategorized');
+      
+      if (uncategorizedTransactions.length === 0) {
+        alert('No uncategorized transactions found!');
+        return;
+      }
+
+      const confirmMessage = `Found ${uncategorizedTransactions.length} uncategorized transaction(s). Do you want to auto-categorize them using AI?`;
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      console.log(`🤖 Starting AI categorization for ${uncategorizedTransactions.length} transactions...`);
+
+      // Process transactions in batches to avoid overwhelming the AI service
+      for (const transaction of uncategorizedTransactions) {
+        try {
+          const [result] = await azureOpenAIService.classifyTransactionsBatch([
+            {
+              transactionText: transaction.description,
+              amount: transaction.amount,
+              date: transaction.date.toISOString(),
+              availableCategories: categoriesCatalog,
+            },
+          ]);
+
+          // Map returned ids to display names using categoriesCatalog
+          const idToNameCategory = new Map(categoriesCatalog.map(c => [c.id, c.name]));
+          const subMap = new Map<string, { name: string; parentId: string }>();
+          categoriesCatalog.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
+
+          let categoryName = idToNameCategory.get(result.categoryId) || (result.categoryId || 'Uncategorized');
+          let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
+
+          // Update the transaction with AI suggested category
+          const updates: Partial<Transaction> = {
+            category: categoryName,
+            subcategory: subName,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            isVerified: false,
+          };
+
+          const note = `AI Auto-Categorize: Uncategorized → ${updates.category}${updates.subcategory ? ' → ' + updates.subcategory : ''}`;
+          await dataService.updateTransaction(transaction.id, updates, note);
+
+          console.log(`✅ Categorized: ${transaction.description} → ${categoryName}${subName ? ' → ' + subName : ''}`);
+        } catch (error) {
+          console.error(`❌ Failed to categorize transaction: ${transaction.description}`, error);
+        }
+      }
+
+      // Refresh the transactions list
+      const updatedTransactions = await dataService.getAllTransactions();
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+
+      alert(`Successfully auto-categorized ${uncategorizedTransactions.length} transaction(s)!`);
+    } catch (error) {
+      console.error('Auto-categorization failed:', error);
+      alert('Failed to auto-categorize transactions. Please try again.');
+    }
+  };
+
   const handleApplyMatch = async (match: ReimbursementMatch) => {
     const updatedTransactions = await applyMatches(transactions, [match]);
     setTransactions(updatedTransactions);
+  };
+
+  const handleFindTransfers = async () => {
+    const result = await findTransferMatches({
+      transactions,
+      maxDaysDifference: 7,
+      tolerancePercentage: 0.01
+    });
+    
+    if (result) {
+      alert(`Found ${result.matches.length} potential transfer matches and ${result.unmatched.length} unmatched transfers.`);
+    }
   };
 
   const getConfidenceClass = (confidence: number) => {
@@ -1458,6 +1790,20 @@ const Transactions: React.FC = () => {
     );
   };
 
+  // Define the overflow menu actions
+  const overflowMenuActions: MenuAction[] = [
+    {
+      icon: '💰',
+      label: isMatchingLoading ? 'Finding...' : 'Find Reimbursements',
+      onClick: handleFindReimbursements
+    },
+    {
+      icon: '🤖',
+      label: 'Auto Categorize Uncategorized Transactions',
+      onClick: handleAutoCategorizeUncategorized
+    }
+  ];
+
   return (
     <div>
       <PageHeader>
@@ -1470,8 +1816,19 @@ const Transactions: React.FC = () => {
           >
             {isMatchingLoading ? 'Finding...' : 'Find Reimbursements'}
           </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleFindTransfers}
+            disabled={isTransferMatchingLoading}
+          >
+            {isTransferMatchingLoading ? 'Finding...' : 'Find Transfer Matches'}
+          </Button>
           <Button variant="outline">Export</Button>
           <Button>Add Transaction</Button>
+          <ActionsMenu 
+            menuId="transactions-overflow-menu" 
+            actions={overflowMenuActions} 
+          />
         </FlexBox>
       </PageHeader>
 
@@ -1542,6 +1899,7 @@ const Transactions: React.FC = () => {
               <option value="">All Types</option>
               <option value="income">Income</option>
               <option value="expense">Expense</option>
+              <option value="transfer">Transfer</option>
             </select>
           </div>
           
@@ -1585,6 +1943,26 @@ const Transactions: React.FC = () => {
             >
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </button>
+            
+            {countUnmatchedTransfers(transactions) > 0 && (
+              <button
+                style={{
+                  padding: '8px 12px',
+                  border: filters.type === 'transfer' ? '2px solid #9C27B0' : '1px solid #ddd',
+                  borderRadius: '4px',
+                  background: filters.type === 'transfer' ? '#f3e5f5' : 'white',
+                  color: filters.type === 'transfer' ? '#9C27B0' : '#666',
+                  fontWeight: filters.type === 'transfer' ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  marginLeft: '8px'
+                }}
+                onClick={() => setFilters({...filters, type: filters.type === 'transfer' ? '' : 'transfer'})}
+                title="Unmatched transfer transactions"
+              >
+                🔄 Unmatched Transfers ({countUnmatchedTransfers(transactions)})
+              </button>
+            )}
           </div>
           
           <div className="filter-group">
@@ -1852,6 +2230,7 @@ const Transactions: React.FC = () => {
                   <option value="">Select Type</option>
                   <option value="income">Income</option>
                   <option value="expense">Expense</option>
+                  <option value="transfer">Transfer</option>
                 </select>
               </div>
             </div>

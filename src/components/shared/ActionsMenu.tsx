@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { menuStateManager } from '../../utils/menuStateManager';
@@ -33,54 +33,6 @@ const MenuButton = styled.button`
   }
 `;
 
-const MenuDropdown = styled.div.withConfig({
-  shouldForwardProp: (prop) => prop !== 'isOpen',
-})<{ isOpen: boolean }>`
-  position: absolute;
-  top: 100%;
-  right: 0;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  z-index: 10000;
-  min-width: 150px;
-  display: ${props => props.isOpen ? 'block' : 'none'};
-  max-height: 200px;
-  overflow-y: auto;
-`;
-
-const MenuItem = styled.button.withConfig({
-  shouldForwardProp: (prop) => prop !== 'variant',
-})<{ variant?: 'danger' }>`
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  background: white;
-  text-align: left;
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  
-  &:hover {
-    background: ${props => props.variant === 'danger' ? '#fff5f5' : '#f5f5f5'};
-  }
-  
-  &:first-child {
-    border-top-left-radius: 4px;
-    border-top-right-radius: 4px;
-  }
-  
-  &:last-child {
-    border-bottom-left-radius: 4px;
-    border-bottom-right-radius: 4px;
-  }
-  
-  color: ${props => props.variant === 'danger' ? '#f44336' : '#333'};
-`;
-
 export interface MenuAction {
   icon: string;
   label: string;
@@ -101,7 +53,7 @@ const ActionsMenuComponent: React.FC<ActionsMenuProps> = ({ actions, menuId }) =
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Function to trigger re-render when external state changes
-  const updateState = (newIsOpen: boolean) => {
+  const updateState = useCallback((newIsOpen: boolean) => {
     if (newIsOpen && menuRef.current) {
       // Calculate position when opening
       const rect = menuRef.current.getBoundingClientRect();
@@ -134,7 +86,7 @@ const ActionsMenuComponent: React.FC<ActionsMenuProps> = ({ actions, menuId }) =
     }
     menuStateManager.setMenuOpen(menuId, newIsOpen);
     forceRender(prev => prev + 1); // Force re-render
-  };
+  }, [actions.length, menuId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -155,7 +107,7 @@ const ActionsMenuComponent: React.FC<ActionsMenuProps> = ({ actions, menuId }) =
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isOpen, menuId]);
+  }, [isOpen, menuId, updateState]);
 
   const handleMenuClick = (e: React.MouseEvent) => {
     e.preventDefault();

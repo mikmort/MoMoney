@@ -1,4 +1,4 @@
-import { Transaction, DuplicateDetectionResult, DuplicateTransaction } from '../types';
+import { Transaction, DuplicateDetectionResult, DuplicateTransaction, DuplicateDetectionConfig } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 class DataService {
@@ -6,6 +6,11 @@ class DataService {
   private storageKey = 'mo-money-transactions';
   private historyStorageKey = 'mo-money-transaction-history';
   private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
+  
+  // In-memory undo/redo stacks for fast operations during active editing
+  private undoStacks: { [transactionId: string]: Transaction[] } = {};
+  private redoStacks: { [transactionId: string]: Transaction[] } = {};
+  private readonly MAX_UNDO_STACK_SIZE = 10;
 
   constructor() {
     this.loadFromStorage();
@@ -80,6 +85,43 @@ class DataService {
         confidence: 0.99,
         reasoning: 'Rent payment clearly identified',
         isVerified: true
+      },
+      // Sample transfer transactions for testing
+      {
+        date: new Date('2025-08-01'),
+        description: 'Transfer to Savings - Chase Online',
+        category: 'Internal Transfer',
+        subcategory: 'Between Accounts',
+        amount: -500.00,
+        account: 'Chase Checking',
+        type: 'transfer',
+        confidence: 0.95,
+        reasoning: 'Internal transfer identified',
+        isVerified: false
+      },
+      {
+        date: new Date('2025-08-01'),
+        description: 'Transfer from Checking - Chase Online',
+        category: 'Internal Transfer',
+        subcategory: 'Between Accounts',
+        amount: 500.00,
+        account: 'Chase Savings',
+        type: 'transfer',
+        confidence: 0.95,
+        reasoning: 'Internal transfer identified',
+        isVerified: false
+      },
+      {
+        date: new Date('2025-07-28'),
+        description: 'ATM Withdrawal - Chase ATM #1234',
+        category: 'Internal Transfer',
+        subcategory: 'Withdrawal',
+        amount: -100.00,
+        account: 'Chase Checking',
+        type: 'transfer',
+        confidence: 0.90,
+        reasoning: 'ATM withdrawal identified',
+        isVerified: false
       }
     ];
 
@@ -132,8 +174,16 @@ class DataService {
   async updateTransaction(id: string, updates: Partial<Transaction>, note?: string): Promise<Transaction | null> {
     const index = this.transactions.findIndex(t => t.id === id);
     if (index === -1) return null;
-    // Record a snapshot of the current transaction before updating
+    
     const current = this.transactions[index];
+    
+    // Add current state to undo stack before making changes
+    this.addToUndoStack(id, { ...current });
+    
+    // Clear redo stack when making a new change
+    this.clearRedoStack(id);
+    
+    // Record a snapshot of the current transaction before updating (persistent history)
     this.addHistorySnapshot(current.id, current, note);
 
     this.transactions[index] = {
@@ -425,25 +475,113 @@ class DataService {
 
   async clearAllData(): Promise<void> {
     this.transactions = [];
-  this.history = {};
+    this.history = {};
+    this.undoStacks = {};
+    this.redoStacks = {};
     this.saveToStorage();
-  this.saveHistoryToStorage();
+    this.saveHistoryToStorage();
+  }
+
+  // Anomaly detection methods
+  async detectAnomalies(): Promise<void> {
+    for (const transaction of this.transactions) {
+      const anomalyInfo = this.calculateAnomalyScore(transaction);
+      
+      if (anomalyInfo.isAnomaly) {
+        transaction.isAnomaly = true;
+        transaction.anomalyType = anomalyInfo.type;
+        transaction.anomalyScore = anomalyInfo.score;
+        transaction.historicalAverage = anomalyInfo.historicalAverage;
+      }
+    }
+    this.saveToStorage();
+  }
+
+  private calculateAnomalyScore(transaction: Transaction): {
+    isAnomaly: boolean;
+    type?: 'high' | 'low';
+    score: number;
+    historicalAverage: number;
+  } {
+    // Get historical transactions for the same category and/or vendor
+    const historicalTransactions = this.getHistoricalTransactions(transaction);
+    
+    if (historicalTransactions.length < 3) {
+      // Not enough historical data to determine anomalies
+      return { isAnomaly: false, score: 0, historicalAverage: 0 };
+    }
+
+    const amounts = historicalTransactions.map(t => Math.abs(t.amount));
+    const average = amounts.reduce((sum, amount) => sum + amount, 0) / amounts.length;
+    const variance = amounts.reduce((sum, amount) => sum + Math.pow(amount - average, 2), 0) / amounts.length;
+    const standardDeviation = Math.sqrt(variance);
+    
+    const currentAmount = Math.abs(transaction.amount);
+    const deviationFromMean = Math.abs(currentAmount - average);
+    const standardDeviations = standardDeviation > 0 ? deviationFromMean / standardDeviation : 0;
+    
+    // Consider it an anomaly if it's more than 2 standard deviations from the mean
+    // and the amount is significantly different (at least 50% different from average)
+    const isSignificantlyDifferent = Math.abs(currentAmount - average) / average > 0.5;
+    const isStatisticalAnomaly = standardDeviations > 2;
+    
+    if (isStatisticalAnomaly && isSignificantlyDifferent) {
+      return {
+        isAnomaly: true,
+        type: currentAmount > average ? 'high' : 'low',
+        score: Math.min(10, Math.round(standardDeviations)), // Cap at 10
+        historicalAverage: average
+      };
+    }
+
+    return { 
+      isAnomaly: false, 
+      score: Math.round(standardDeviations), 
+      historicalAverage: average 
+    };
+  }
+
+  private getHistoricalTransactions(transaction: Transaction): Transaction[] {
+    // Get transactions from the same category and/or vendor, excluding the current transaction
+    return this.transactions.filter(t => 
+      t.id !== transaction.id && 
+      t.type === transaction.type && 
+      (
+        // Same category
+        t.category === transaction.category ||
+        // Same vendor (if available)
+        (transaction.vendor && t.vendor && t.vendor === transaction.vendor) ||
+        // Similar description (for vendors not explicitly tagged)
+        this.calculateStringSimilarity(t.description, transaction.description) > 0.6
+      )
+    );
+  }
+
+  // Method to get anomalous transactions
+  async getAnomalousTransactions(): Promise<Transaction[]> {
+    return this.transactions.filter(t => t.isAnomaly === true);
   }
 
   // Duplicate detection
-  async detectDuplicates(newTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<DuplicateDetectionResult> {
+  async detectDuplicates(newTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[], config?: DuplicateDetectionConfig): Promise<DuplicateDetectionResult> {
+    // Default configuration for duplicate detection
+    const defaultConfig: DuplicateDetectionConfig = {
+      amountTolerance: 0.02, // 2% tolerance
+      fixedAmountTolerance: 1.00, // $1.00 fixed tolerance
+      dateTolerance: 3, // 3 days tolerance
+      requireExactDescription: false, // Allow similar descriptions
+      requireSameAccount: true, // Account must match
+    };
+
+    const finalConfig = { ...defaultConfig, ...config };
     const duplicates: DuplicateTransaction[] = [];
     const uniqueTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [];
 
     for (const newTransaction of newTransactions) {
-      const existingTransaction = this.findDuplicate(newTransaction);
+      const duplicateInfo = this.findDuplicate(newTransaction, finalConfig);
       
-      if (existingTransaction) {
-        duplicates.push({
-          existingTransaction,
-          newTransaction,
-          matchFields: ['date', 'amount', 'description', 'account']
-        });
+      if (duplicateInfo) {
+        duplicates.push(duplicateInfo);
       } else {
         uniqueTransactions.push(newTransaction);
       }
@@ -451,24 +589,267 @@ class DataService {
 
     return {
       duplicates,
-      uniqueTransactions
+      uniqueTransactions,
+      config: finalConfig
     };
   }
 
-  private findDuplicate(newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Transaction | null {
-    return this.transactions.find(existing => {
-      // Compare date (same day)
-      const existingDate = new Date(existing.date);
-      const newDate = new Date(newTransaction.date);
-      const sameDate = existingDate.toDateString() === newDate.toDateString();
+  private findDuplicate(newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>, config: DuplicateDetectionConfig): DuplicateTransaction | null {
+    for (const existing of this.transactions) {
+      const matchInfo = this.calculateTransactionSimilarity(existing, newTransaction, config);
       
-      // Compare other fields
-      const sameAmount = existing.amount === newTransaction.amount;
-      const sameDescription = existing.description === newTransaction.description;
-      const sameAccount = existing.account === newTransaction.account;
-      
-      return sameDate && sameAmount && sameDescription && sameAccount;
-    }) || null;
+      if (matchInfo.similarity >= 0.8) { // 80% similarity threshold for duplicates
+        return {
+          existingTransaction: existing,
+          newTransaction,
+          matchFields: matchInfo.matchFields,
+          similarity: matchInfo.similarity,
+          amountDifference: matchInfo.amountDifference,
+          daysDifference: matchInfo.daysDifference,
+          matchType: matchInfo.matchType
+        };
+      }
+    }
+    return null;
+  }
+
+  private calculateTransactionSimilarity(existing: Transaction, newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>, config: DuplicateDetectionConfig): {
+    similarity: number;
+    matchFields: string[];
+    amountDifference?: number;
+    daysDifference?: number;
+    matchType: 'exact' | 'tolerance';
+  } {
+    let score = 0;
+    let maxScore = 0;
+    const matchFields: string[] = [];
+    let amountDifference: number | undefined;
+    let daysDifference: number | undefined;
+    let isExactMatch = true;
+
+    // Date comparison (weight: 25%)
+    const existingDate = new Date(existing.date);
+    const newDate = new Date(newTransaction.date);
+    const daysDiff = Math.abs((existingDate.getTime() - newDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    maxScore += 25;
+    if (daysDiff === 0) {
+      score += 25; // Exact date match
+      matchFields.push('date');
+    } else if (daysDiff <= (config.dateTolerance || 0)) {
+      score += Math.max(10, 25 - (daysDiff * 3)); // Reduced score based on days difference
+      matchFields.push('date');
+      daysDifference = daysDiff;
+      isExactMatch = false;
+    }
+
+    // Amount comparison (weight: 30%)
+    const amountDiff = Math.abs(existing.amount - newTransaction.amount);
+    const percentageDiff = Math.abs(amountDiff / Math.abs(existing.amount));
+    
+    maxScore += 30;
+    if (amountDiff === 0) {
+      score += 30; // Exact amount match
+      matchFields.push('amount');
+    } else if (
+      (config.amountTolerance && percentageDiff <= config.amountTolerance) ||
+      (config.fixedAmountTolerance && amountDiff <= config.fixedAmountTolerance)
+    ) {
+      score += Math.max(15, 30 - (percentageDiff * 100)); // Reduced score based on difference
+      matchFields.push('amount');
+      amountDifference = amountDiff;
+      isExactMatch = false;
+    }
+
+    // Description comparison (weight: 30%)
+    maxScore += 30;
+    if (existing.description === newTransaction.description) {
+      score += 30; // Exact description match
+      matchFields.push('description');
+    } else if (!config.requireExactDescription) {
+      const similarity = this.calculateStringSimilarity(existing.description, newTransaction.description);
+      if (similarity > 0.7) { // 70% string similarity
+        score += similarity * 30;
+        matchFields.push('description');
+        if (similarity < 1) isExactMatch = false;
+      }
+    }
+
+    // Account comparison (weight: 15%)
+    maxScore += 15;
+    if (existing.account === newTransaction.account) {
+      score += 15;
+      matchFields.push('account');
+    } else if (!config.requireSameAccount) {
+      // If account matching is not required, still give some points for same account
+      // but don't penalize for different accounts
+      score += 5;
+    }
+
+    return {
+      similarity: maxScore > 0 ? score / maxScore : 0,
+      matchFields,
+      amountDifference,
+      daysDifference,
+      matchType: isExactMatch ? 'exact' : 'tolerance'
+    };
+  }
+
+  private calculateStringSimilarity(str1: string, str2: string): number {
+    const longer = str1.length > str2.length ? str1.toLowerCase() : str2.toLowerCase();
+    const shorter = str1.length > str2.length ? str2.toLowerCase() : str1.toLowerCase();
+    
+    if (longer.length === 0) return 1.0;
+    
+    // Simple character-based similarity
+    let matches = 0;
+    const shorterChars = shorter.split('');
+    const longerChars = longer.split('');
+    
+    for (let i = 0; i < shorterChars.length; i++) {
+      const char = shorterChars[i];
+      const index = longerChars.indexOf(char);
+      if (index !== -1) {
+        matches++;
+        longerChars.splice(index, 1); // Remove matched character to avoid double counting
+      }
+    }
+    
+    return matches / longer.length;
+  }
+
+  // In-memory undo/redo functionality for fast operations during active editing
+  private addToUndoStack(transactionId: string, transactionState: Transaction): void {
+    if (!this.undoStacks[transactionId]) {
+      this.undoStacks[transactionId] = [];
+    }
+    
+    this.undoStacks[transactionId].push({ ...transactionState });
+    
+    // Limit stack size to prevent memory issues
+    if (this.undoStacks[transactionId].length > this.MAX_UNDO_STACK_SIZE) {
+      this.undoStacks[transactionId].shift(); // Remove oldest entry
+    }
+  }
+  
+  private addToRedoStack(transactionId: string, transactionState: Transaction): void {
+    if (!this.redoStacks[transactionId]) {
+      this.redoStacks[transactionId] = [];
+    }
+    
+    this.redoStacks[transactionId].push({ ...transactionState });
+    
+    // Limit stack size to prevent memory issues
+    if (this.redoStacks[transactionId].length > this.MAX_UNDO_STACK_SIZE) {
+      this.redoStacks[transactionId].shift(); // Remove oldest entry
+    }
+  }
+  
+  private clearRedoStack(transactionId: string): void {
+    this.redoStacks[transactionId] = [];
+  }
+  
+  async canUndoTransaction(transactionId: string): Promise<boolean> {
+    const undoStack = this.undoStacks[transactionId] || [];
+    const historyItems = this.history[transactionId] || [];
+    return undoStack.length > 0 || historyItems.length > 0;
+  }
+  
+  async canRedoTransaction(transactionId: string): Promise<boolean> {
+    const redoStack = this.redoStacks[transactionId] || [];
+    return redoStack.length > 0;
+  }
+  
+  async undoTransactionEdit(transactionId: string, note?: string): Promise<Transaction | null> {
+    const index = this.transactions.findIndex(t => t.id === transactionId);
+    if (index === -1) return null;
+    
+    const current = this.transactions[index];
+    const undoStack = this.undoStacks[transactionId] || [];
+    
+    let previousState: Transaction | null = null;
+    
+    // First try to get from in-memory undo stack
+    if (undoStack.length > 0) {
+      previousState = undoStack.pop()!;
+    } else {
+      // Fall back to persistent history if no in-memory undo available
+      const historyItems = this.history[transactionId] || [];
+      if (historyItems.length > 0) {
+        // Get the most recent history item
+        const sortedHistory = [...historyItems].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        previousState = sortedHistory[0].data;
+      }
+    }
+    
+    if (!previousState) return null;
+    
+    // Add current state to redo stack
+    this.addToRedoStack(transactionId, current);
+    
+    // Restore previous state
+    const restoredTransaction: Transaction = {
+      ...previousState,
+      id: transactionId, // Ensure ID remains the same
+      lastModifiedDate: new Date()
+    };
+    
+    this.transactions[index] = restoredTransaction;
+    
+    // Add a history snapshot for the undo operation
+    this.addHistorySnapshot(transactionId, current, note ? `Undo: ${note}` : 'Undo edit operation');
+    
+    this.saveToStorage();
+    this.saveHistoryToStorage();
+    return restoredTransaction;
+  }
+  
+  async redoTransactionEdit(transactionId: string, note?: string): Promise<Transaction | null> {
+    const index = this.transactions.findIndex(t => t.id === transactionId);
+    if (index === -1) return null;
+    
+    const redoStack = this.redoStacks[transactionId] || [];
+    if (redoStack.length === 0) return null;
+    
+    const current = this.transactions[index];
+    const nextState = redoStack.pop()!;
+    
+    // Add current state to undo stack
+    this.addToUndoStack(transactionId, current);
+    
+    // Restore next state
+    const restoredTransaction: Transaction = {
+      ...nextState,
+      id: transactionId, // Ensure ID remains the same
+      lastModifiedDate: new Date()
+    };
+    
+    this.transactions[index] = restoredTransaction;
+    
+    // Add a history snapshot for the redo operation
+    this.addHistorySnapshot(transactionId, current, note ? `Redo: ${note}` : 'Redo edit operation');
+    
+    this.saveToStorage();
+    this.saveHistoryToStorage();
+    return restoredTransaction;
+  }
+  
+  async getUndoRedoStatus(transactionId: string): Promise<{
+    canUndo: boolean;
+    canRedo: boolean;
+    undoStackSize: number;
+    redoStackSize: number;
+  }> {
+    const undoStack = this.undoStacks[transactionId] || [];
+    const redoStack = this.redoStacks[transactionId] || [];
+    const historyItems = this.history[transactionId] || [];
+    
+    return {
+      canUndo: undoStack.length > 0 || historyItems.length > 0,
+      canRedo: redoStack.length > 0,
+      undoStackSize: undoStack.length,
+      redoStackSize: redoStack.length
+    };
   }
 }
 
