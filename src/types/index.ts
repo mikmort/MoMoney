@@ -228,3 +228,37 @@ export interface DuplicateDetectionResult {
   duplicates: DuplicateTransaction[];
   uniqueTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[];
 }
+
+// Category mapping rule interfaces
+export interface CategoryRule {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  priority: number; // Lower numbers = higher priority
+  conditions: RuleCondition[];
+  action: RuleAction;
+  createdDate: Date;
+  lastModifiedDate: Date;
+}
+
+export interface RuleCondition {
+  field: 'description' | 'amount' | 'account' | 'date';
+  operator: 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'greaterThan' | 'lessThan' | 'between' | 'regex';
+  value: string | number | Date;
+  valueEnd?: string | number | Date; // For 'between' operator
+  caseSensitive?: boolean; // For string operations
+}
+
+export interface RuleAction {
+  categoryId: string;
+  categoryName: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+}
+
+export interface RuleMatchResult {
+  matched: boolean;
+  rule?: CategoryRule;
+  confidence: number;
+}

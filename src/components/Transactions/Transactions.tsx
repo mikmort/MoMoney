@@ -13,6 +13,7 @@ import { AiConfidencePopup } from './AiConfidencePopup';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
+import { CategoryRulesManager } from './CategoryRulesManager';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { defaultCategories as categoriesCatalog } from '../../data/defaultCategories';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -463,6 +464,9 @@ const Transactions: React.FC = () => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyFor, setHistoryFor] = useState<Transaction | null>(null);
   const [historyItems, setHistoryItems] = useState<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>>([]);
+
+  // Category rules manager state
+  const [showRulesManager, setShowRulesManager] = useState(false);
 
   // Compute a simple diff summary between two transactions
   const summarizeDiff = (a: Transaction, b: Transaction) => {
@@ -1300,6 +1304,13 @@ const Transactions: React.FC = () => {
         <FlexBox gap="12px">
           <Button 
             variant="outline" 
+            onClick={() => setShowRulesManager(true)}
+            disabled={showRulesManager}
+          >
+            📋 Rules
+          </Button>
+          <Button 
+            variant="outline" 
             onClick={handleFindReimbursements}
             disabled={isMatchingLoading}
           >
@@ -1628,6 +1639,12 @@ const Transactions: React.FC = () => {
         subcategory={selectedTransaction?.subcategory}
         description={selectedTransaction?.description || ''}
         amount={selectedTransaction?.amount || 0}
+      />
+
+      {/* Category Rules Manager */}
+      <CategoryRulesManager 
+        isVisible={showRulesManager}
+        onClose={() => setShowRulesManager(false)}
       />
     </div>
   );

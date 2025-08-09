@@ -1,5 +1,6 @@
-import { Transaction, DuplicateDetectionResult, DuplicateTransaction } from '../types';
+import { Transaction, DuplicateDetectionResult, DuplicateTransaction, CategoryRule } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { rulesService } from './rulesService';
 
 class DataService {
   private transactions: Transaction[] = [];
@@ -453,6 +454,23 @@ class DataService {
       duplicates,
       uniqueTransactions
     };
+  }
+
+  // Category rules management - delegated to rulesService
+  async getAllCategoryRules(): Promise<CategoryRule[]> {
+    return await rulesService.getAllRules();
+  }
+
+  async addCategoryRule(rule: Omit<CategoryRule, 'id' | 'createdDate' | 'lastModifiedDate'>): Promise<CategoryRule> {
+    return await rulesService.addRule(rule);
+  }
+
+  async updateCategoryRule(id: string, updates: Partial<CategoryRule>): Promise<CategoryRule | null> {
+    return await rulesService.updateRule(id, updates);
+  }
+
+  async deleteCategoryRule(id: string): Promise<boolean> {
+    return await rulesService.deleteRule(id);
   }
 
   private findDuplicate(newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Transaction | null {
