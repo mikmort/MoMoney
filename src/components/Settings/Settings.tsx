@@ -4,6 +4,7 @@ import { PageHeader, Card, Button } from '../../styles/globalStyles';
 import { defaultConfig } from '../../config/appConfig';
 import { dataService } from '../../services/dataService';
 import { userPreferencesService } from '../../services/userPreferencesService';
+import { simplifiedImportExportService } from '../../services/simplifiedImportExportService';
 import { AccountsManagement } from './AccountsManagement';
 import { UserPreferences } from '../../types';
 
@@ -129,6 +130,8 @@ const Settings: React.FC = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     loadPreferences();
@@ -179,6 +182,54 @@ const Settings: React.FC = () => {
     } finally {
       setIsResetting(false);
       setShowConfirmDialog(false);
+    }
+  };
+
+  const handleExportData = async () => {
+    setIsExporting(true);
+    try {
+      const exportData = await simplifiedImportExportService.exportData();
+      const timestamp = new Date().toISOString().split('T')[0];
+      const filename = `momoney-backup-${timestamp}.json`;
+      simplifiedImportExportService.downloadFile(exportData, filename);
+      alert('✅ Data exported successfully! Your backup file has been downloaded.');
+    } catch (error) {
+      console.error('Failed to export data:', error);
+      alert('❌ Failed to export data. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.json')) {
+      alert('❌ Please select a valid JSON backup file (.json)');
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const fileText = await simplifiedImportExportService.readFileAsText(file);
+      const importData = JSON.parse(fileText);
+      const result = await simplifiedImportExportService.importData(importData);
+      
+      alert(`✅ Data imported successfully!\n\n` +
+            `• ${result.transactions} transactions imported\n` +
+            `• ${result.preferences ? 'Preferences imported' : 'No preferences found'}\n` +
+            `• ${result.historyEntries} history entries imported\n\n` +
+            `The page will reload to reflect the changes.`);
+      
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to import data:', error);
+      alert('❌ Failed to import data. Please ensure you selected a valid Mo Money backup file and try again.');
+    } finally {
+      setIsImporting(false);
+      // Clear the file input
+      event.target.value = '';
     }
   };
   return (
@@ -271,6 +322,50 @@ const Settings: React.FC = () => {
       <Card>
         <h3>Data Management</h3>
         <p>Manage your transaction data and application state.</p>
+        
+        <div style={{ marginBottom: '20px' }}>
+          <h4>📦 Backup & Restore</h4>
+          <p>Export all your data to a structured backup file, or restore from a previous backup.</p>
+          
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
+            <Button 
+              onClick={handleExportData}
+              disabled={isExporting}
+              style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white' }}
+            >
+              {isExporting ? 'Exporting...' : '💾 Export Data'}
+            </Button>
+            
+            <label style={{ position: 'relative', cursor: 'pointer' }}>
+              <Button 
+                as="span"
+                disabled={isImporting}
+                style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white' }}
+              >
+                {isImporting ? 'Importing...' : '📁 Import Data'}
+              </Button>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportData}
+                style={{ 
+                  position: 'absolute', 
+                  left: 0, 
+                  top: 0, 
+                  width: '100%', 
+                  height: '100%', 
+                  opacity: 0, 
+                  cursor: 'pointer' 
+                }}
+                disabled={isImporting}
+              />
+            </label>
+          </div>
+          
+          <div style={{ marginTop: '12px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', fontSize: '14px', color: '#1976d2' }}>
+            <strong>💡 Tip:</strong> Regular backups help protect your financial data. Export files are in JSON format and contain all transactions, categories, transaction history, and settings. The format is structured similarly to SQLite database schemas for compatibility.
+          </div>
+        </div>
         
         <DangerZone>
           <h4 style={{ color: '#f44336', margin: '0 0 12px 0' }}>⚠️ Danger Zone</h4>
