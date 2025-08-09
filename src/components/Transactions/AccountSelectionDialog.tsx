@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import { Account } from '../../types';
 import { Button } from '../../styles/globalStyles';
+import { userPreferencesService } from '../../services/userPreferencesService';
 
 const DialogOverlay = styled.div`
   position: fixed;
@@ -211,6 +212,7 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
     name: '',
     type: 'checking' as const,
     institution: '',
+    currency: 'USD',
     isActive: true
   });
 
@@ -338,6 +340,19 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
                 onChange={(e) => setNewAccount({ ...newAccount, institution: e.target.value })}
                 placeholder="e.g., JPMorgan Chase Bank"
               />
+            </div>
+            <div className="form-group">
+              <label>Currency *</label>
+              <select
+                value={newAccount.currency}
+                onChange={(e) => setNewAccount({ ...newAccount, currency: e.target.value })}
+              >
+                {userPreferencesService.getCurrencyOptions().map(currency => (
+                  <option key={currency.value} value={currency.value}>
+                    {currency.label} ({currency.symbol})
+                  </option>
+                ))}
+              </select>
             </div>
           </NewAccountForm>
         )}

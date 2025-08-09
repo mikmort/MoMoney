@@ -5,6 +5,7 @@ import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
 import { Account } from '../../types';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
+import { userPreferencesService } from '../../services/userPreferencesService';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -98,6 +99,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     name: '',
     type: 'checking' as Account['type'],
     institution: '',
+    currency: 'USD',
     balance: 0,
     isActive: true
   });
@@ -110,6 +112,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         name: account.name,
         type: account.type,
         institution: account.institution,
+        currency: account.currency,
         balance: account.balance || 0,
         isActive: account.isActive
       });
@@ -123,6 +126,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       name: '',
       type: 'checking',
       institution: '',
+      currency: 'USD',
       balance: 0,
       isActive: true
     });
@@ -218,6 +222,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       width: 200
     },
     {
+      headerName: 'Currency',
+      field: 'currency',
+      width: 100
+    },
+    {
       headerName: 'Balance',
       field: 'balance',
       width: 150,
@@ -300,14 +309,30 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
               </div>
             </div>
 
-            <div className="form-group">
-              <label>Institution *</label>
-              <input
-                type="text"
-                value={accountForm.institution}
-                onChange={(e) => handleFormChange('institution', e.target.value)}
-                placeholder="e.g., Chase Bank"
-              />
+            <div className="form-row">
+              <div className="form-group">
+                <label>Institution *</label>
+                <input
+                  type="text"
+                  value={accountForm.institution}
+                  onChange={(e) => handleFormChange('institution', e.target.value)}
+                  placeholder="e.g., Chase Bank"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Currency *</label>
+                <select
+                  value={accountForm.currency}
+                  onChange={(e) => handleFormChange('currency', e.target.value)}
+                >
+                  {userPreferencesService.getCurrencyOptions().map(currency => (
+                    <option key={currency.value} value={currency.value}>
+                      {currency.label} ({currency.symbol})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="form-group">
