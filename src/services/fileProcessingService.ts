@@ -869,6 +869,27 @@ Return ONLY a clean JSON response:
         reasoning: aiClassification.reasoning,
       };
 
+      // Auto-create rule from AI classification if confidence is high enough and category is not "Uncategorized"
+      if (aiClassification.confidence >= 0.8 && 
+          aiClassification.categoryId && 
+          aiClassification.categoryId !== 'Uncategorized' && 
+          aiClassification.categoryId !== 'uncategorized') {
+        
+        try {
+          await rulesService.createAutoRuleFromAI(
+            baseTransaction.account,
+            description,
+            aiClassification.categoryId,
+            aiClassification.subcategoryId,
+            aiClassification.confidence
+          );
+          console.log(`📋 Auto-created rule for: ${description} (${baseTransaction.account}) → ${aiClassification.categoryId}`);
+        } catch (error) {
+          console.warn('Failed to create auto-rule from AI classification:', error);
+          // Don't fail the transaction processing if rule creation fails
+        }
+      }
+
       return transaction;
     } catch (error) {
       console.warn('Failed to process row:', row, error);

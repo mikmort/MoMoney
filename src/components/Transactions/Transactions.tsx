@@ -12,11 +12,13 @@ import { transferMatchingService } from '../../services/transferMatchingService'
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { AiConfidencePopup } from './AiConfidencePopup';
+import { CategoryEditConfirmDialog } from './CategoryEditConfirmDialog';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { CategoryRulesManager } from './CategoryRulesManager';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
+import { rulesService } from '../../services/rulesService';
 import { defaultCategories as categoriesCatalog } from '../../data/defaultCategories';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -601,6 +603,15 @@ const Transactions: React.FC = () => {
   // AI Confidence popup state
   const [showConfidencePopup, setShowConfidencePopup] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+
+  // Category edit confirmation dialog state
+  const [showCategoryEditDialog, setShowCategoryEditDialog] = useState(false);
+  const [categoryEditData, setCategoryEditData] = useState<{
+    transaction: Transaction;
+    newCategory: string;
+    newSubcategory?: string;
+    updatedTransaction: Transaction;
+  } | null>(null);
   
   const [filters, setFilters] = useState({
     category: '',
@@ -1139,7 +1150,23 @@ const Transactions: React.FC = () => {
         lastModifiedDate: new Date()
       };
 
-      // Update the transaction
+      // Check if category or subcategory has changed (user made a manual categorization change)
+      const categoryChanged = editingTransaction.category !== updatedTransaction.category;
+      const subcategoryChanged = editingTransaction.subcategory !== updatedTransaction.subcategory;
+      
+      if (categoryChanged || subcategoryChanged) {
+        // Store the data and show the confirmation dialog
+        setCategoryEditData({
+          transaction: editingTransaction,
+          newCategory: updatedTransaction.category,
+          newSubcategory: updatedTransaction.subcategory,
+          updatedTransaction
+        });
+        setShowCategoryEditDialog(true);
+        return; // Don't update yet, wait for user confirmation
+      }
+
+      // No category change, proceed with normal update
       await dataService.updateTransaction(editingTransaction.id, {
         description: updatedTransaction.description,
         amount: updatedTransaction.amount,
@@ -1181,6 +1208,82 @@ const Transactions: React.FC = () => {
       date: '',
       notes: ''
     });
+  };
+
+  const handleCategoryEditConfirm = async (option: 'current' | 'future' | 'all') => {
+    if (!categoryEditData) return;
+    
+    const { transaction, updatedTransaction, newCategory, newSubcategory } = categoryEditData;
+    
+    try {
+      if (option === 'current') {
+        // Just update this transaction
+        await dataService.updateTransaction(transaction.id, {
+          description: updatedTransaction.description,
+          amount: updatedTransaction.amount,
+          category: updatedTransaction.category,
+          subcategory: updatedTransaction.subcategory,
+          account: updatedTransaction.account,
+          type: updatedTransaction.type,
+          date: updatedTransaction.date,
+          notes: updatedTransaction.notes,
+          lastModifiedDate: updatedTransaction.lastModifiedDate
+        }, 'User manual categorization - current transaction only');
+        
+      } else {
+        // Update this transaction and create/update rule
+        await dataService.updateTransaction(transaction.id, {
+          description: updatedTransaction.description,
+          amount: updatedTransaction.amount,
+          category: updatedTransaction.category,
+          subcategory: updatedTransaction.subcategory,
+          account: updatedTransaction.account,
+          type: updatedTransaction.type,
+          date: updatedTransaction.date,
+          notes: updatedTransaction.notes,
+          lastModifiedDate: updatedTransaction.lastModifiedDate
+        }, `User manual categorization - ${option === 'future' ? 'future only' : 'existing + future'}`);
+        
+        // Create or update rule
+        const applyToExisting = option === 'all';
+        const result = await rulesService.createOrUpdateRuleFromUserEdit(
+          transaction.account,
+          transaction.description,
+          newCategory,
+          newSubcategory,
+          applyToExisting
+        );
+        
+        if (result.reclassifiedCount && result.reclassifiedCount > 0) {
+          alert(`Rule ${result.isNew ? 'created' : 'updated'} successfully!\n\nReclassified ${result.reclassifiedCount} existing transaction(s) with the same description and account.`);
+        } else if (result.isNew) {
+          alert('Rule created successfully!\n\nFuture transactions with the same description and account will be automatically categorized.');
+        } else {
+          alert('Rule updated successfully!\n\nFuture transactions with the same description and account will use the new categorization.');
+        }
+      }
+      
+      // Refresh the transactions list
+      const refreshedTransactions = await dataService.getAllTransactions();
+      setTransactions(refreshedTransactions);
+      setFilteredTransactions(refreshedTransactions);
+      
+      // Close dialogs
+      setShowCategoryEditDialog(false);
+      setCategoryEditData(null);
+      setShowEditModal(false);
+      setEditingTransaction(null);
+      
+      console.log(`✅ Category edit applied with option: ${option}`);
+    } catch (error) {
+      console.error('❌ Error applying category edit:', error);
+      alert('Failed to apply category change. Please try again.');
+    }
+  };
+
+  const handleCategoryEditCancel = () => {
+    setShowCategoryEditDialog(false);
+    setCategoryEditData(null);
   };
 
   // Bulk edit operations
@@ -2493,6 +2596,18 @@ const Transactions: React.FC = () => {
       <CategoryRulesManager 
         isVisible={showRulesManager}
         onClose={() => setShowRulesManager(false)}
+      />
+
+      {/* Category Edit Confirmation Dialog */}
+      <CategoryEditConfirmDialog
+        isOpen={showCategoryEditDialog}
+        onClose={handleCategoryEditCancel}
+        onConfirm={handleCategoryEditConfirm}
+        transactionDescription={categoryEditData?.transaction.description || ''}
+        oldCategory={categoryEditData?.transaction.category || ''}
+        oldSubcategory={categoryEditData?.transaction.subcategory}
+        newCategory={categoryEditData?.newCategory || ''}
+        newSubcategory={categoryEditData?.newSubcategory}
       />
     </div>
   );
