@@ -274,6 +274,128 @@ const TransferMatchingPanel = styled(Card)`
   }
 `;
 
+const AnomalyPanel = styled(Card)`
+  margin-bottom: 20px;
+  border-left: 4px solid #ff5722;
+  background: #fff8f5;
+  
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h3 {
+      margin: 0;
+      color: #bf360c;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+  }
+  
+  .anomaly-list {
+    .anomaly-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 16px;
+      border: 1px solid #ffccbc;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      background: white;
+      
+      .anomaly-info {
+        flex: 1;
+        
+        .transaction-summary {
+          font-weight: 600;
+          color: #333;
+          margin-bottom: 4px;
+        }
+        
+        .anomaly-details {
+          font-size: 0.9rem;
+          color: #666;
+          margin-bottom: 8px;
+        }
+        
+        .reasoning {
+          font-size: 0.9rem;
+          color: #555;
+          font-style: italic;
+          background: #f5f5f5;
+          padding: 8px;
+          border-radius: 4px;
+        }
+      }
+      
+      .anomaly-badges {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        align-items: flex-end;
+        
+        .severity-badge {
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          
+          &.high {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef5350;
+          }
+          
+          &.medium {
+            background: #fff3e0;
+            color: #ef6c00;
+            border: 1px solid #ffb74d;
+          }
+          
+          &.low {
+            background: #f3e5f5;
+            color: #7b1fa2;
+            border: 1px solid #ba68c8;
+          }
+        }
+        
+        .confidence-badge {
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          background: #e3f2fd;
+          color: #1565c0;
+          border: 1px solid #90caf9;
+        }
+        
+        .type-badge {
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 0.75rem;
+          font-weight: 500;
+          background: #f8bbd9;
+          color: #880e4f;
+          border: 1px solid #f06292;
+          text-transform: capitalize;
+        }
+      }
+    }
+    
+    .no-anomalies {
+      text-align: center;
+      color: #4caf50;
+      padding: 20px;
+      font-style: italic;
+      background: #e8f5e8;
+      border-radius: 6px;
+    }
+  }
+`;
+
 const FilterBar = styled(Card)`
   margin-bottom: 20px;
   
@@ -592,6 +714,18 @@ const Transactions: React.FC = () => {
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
   const [showTransferMatchingPanel, setShowTransferMatchingPanel] = useState(false);
   const [showMatchedTransfersOnly, setShowMatchedTransfersOnly] = useState(false);
+  
+  // Anomaly detection state
+  const [showAnomalyPanel, setShowAnomalyPanel] = useState(false);
+  const [isAnomalyDetectionLoading, setIsAnomalyDetectionLoading] = useState(false);
+  const [anomalyResults, setAnomalyResults] = useState<Array<{
+    transactionId: string;
+    isAnomaly: boolean;
+    anomalyType: 'unusual_amount' | 'unusual_timing' | 'unusual_merchant' | 'unusual_category' | 'duplicate_suspicious';
+    severity: 'low' | 'medium' | 'high';
+    confidence: number;
+    reasoning: string;
+  }>>([]);
   
   // Account selection dialog state
   const [showAccountDialog, setShowAccountDialog] = useState(false);
@@ -1803,6 +1937,56 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleSearchAnomalies = async () => {
+    if (transactions.length === 0) {
+      alert('No transactions available for anomaly detection.');
+      return;
+    }
+
+    if (transactions.length < 10) {
+      const proceed = window.confirm(
+        'Anomaly detection works best with larger datasets. You have fewer than 10 transactions. Continue anyway?'
+      );
+      if (!proceed) return;
+    }
+
+    setIsAnomalyDetectionLoading(true);
+    
+    try {
+      console.log(`🔍 Starting anomaly detection for ${transactions.length} transactions...`);
+      
+      // Prepare transaction data for AI analysis
+      const transactionData = transactions.map(tx => ({
+        id: tx.id,
+        description: tx.description,
+        amount: tx.amount,
+        date: tx.date.toISOString(),
+        category: tx.category,
+        account: tx.account
+      }));
+
+      // Call Azure OpenAI for anomaly detection
+      const results = await azureOpenAIService.detectTransactionAnomalies(transactionData);
+      
+      console.log(`🎯 Anomaly detection completed. Found ${results.length} anomalies.`);
+      
+      setAnomalyResults(results);
+      setShowAnomalyPanel(true);
+      
+      if (results.length === 0) {
+        alert('Great news! No unusual transactions detected in your dataset.');
+      } else {
+        alert(`Found ${results.length} potentially unusual transaction(s). Check the anomaly panel for details.`);
+      }
+      
+    } catch (error) {
+      console.error('Anomaly detection failed:', error);
+      alert('Failed to detect anomalies. Please ensure Azure OpenAI is configured and try again.');
+    } finally {
+      setIsAnomalyDetectionLoading(false);
+    }
+  };
+
   const handleApplyMatch = async (match: ReimbursementMatch) => {
     const updatedTransactions = await applyMatches(transactions, [match]);
     setTransactions(updatedTransactions);
@@ -1929,6 +2113,65 @@ const Transactions: React.FC = () => {
     );
   };
 
+  const renderAnomalyPanel = () => {
+    if (!showAnomalyPanel) return null;
+
+    return (
+      <AnomalyPanel>
+        <div className="panel-header">
+          <h3>
+            <span>🔍</span>
+            Anomaly Detection Results ({anomalyResults.length})
+          </h3>
+          <Button variant="outline" onClick={() => setShowAnomalyPanel(false)}>
+            Close
+          </Button>
+        </div>
+        
+        <div className="anomaly-list">
+          {anomalyResults.length === 0 ? (
+            <div className="no-anomalies">
+              ✅ No anomalies detected! All transactions appear normal based on your spending patterns.
+            </div>
+          ) : (
+            anomalyResults.map((anomaly) => {
+              const transaction = transactions.find(t => t.id === anomaly.transactionId);
+              
+              if (!transaction) return null;
+              
+              return (
+                <div key={anomaly.transactionId} className="anomaly-item">
+                  <div className="anomaly-info">
+                    <div className="transaction-summary">
+                      {transaction.description} - {formatCurrency(transaction.amount)}
+                    </div>
+                    <div className="anomaly-details">
+                      {transaction.account} • {new Date(transaction.date).toLocaleDateString()} • {transaction.category}
+                    </div>
+                    <div className="reasoning">
+                      💡 {anomaly.reasoning}
+                    </div>
+                  </div>
+                  <div className="anomaly-badges">
+                    <span className={`severity-badge ${anomaly.severity}`}>
+                      {anomaly.severity} risk
+                    </span>
+                    <span className="confidence-badge">
+                      {Math.round(anomaly.confidence * 100)}% confidence
+                    </span>
+                    <span className="type-badge">
+                      {anomaly.anomalyType.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </AnomalyPanel>
+    );
+  };
+
   // Define the overflow menu actions
   const overflowMenuActions: MenuAction[] = [
     {
@@ -1937,8 +2180,13 @@ const Transactions: React.FC = () => {
       onClick: handleFindReimbursements
     },
     {
+      icon: '🔍',
+      label: isAnomalyDetectionLoading ? 'Analyzing...' : 'Search for anomolies',
+      onClick: handleSearchAnomalies
+    },
+    {
       icon: '🤖',
-      label: 'Auto Categorize Uncategorized Transactions',
+      label: 'Auto Categorize',
       onClick: handleAutoCategorizeUncategorized
     }
   ];
@@ -1981,6 +2229,8 @@ const Transactions: React.FC = () => {
       {renderReimbursementPanel()}
 
       {renderTransferMatchingPanel()}
+
+      {renderAnomalyPanel()}
 
       {/* Bulk Operations Bar */}
       {selectedTransactions.length > 0 && (

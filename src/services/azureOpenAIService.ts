@@ -409,6 +409,99 @@ Rules:
     });
   }
 
+  async detectTransactionAnomalies(transactions: Array<{
+    id: string;
+    description: string;
+    amount: number;
+    date: string;
+    category: string;
+    account: string;
+  }>): Promise<Array<{
+    transactionId: string;
+    isAnomaly: boolean;
+    anomalyType: 'unusual_amount' | 'unusual_timing' | 'unusual_merchant' | 'unusual_category' | 'duplicate_suspicious';
+    severity: 'low' | 'medium' | 'high';
+    confidence: number;
+    reasoning: string;
+  }>> {
+    await this.initializeClient();
+    
+    if (!this.client) {
+      throw new Error('Azure OpenAI client not initialized');
+    }
+
+    if (!transactions.length) return [];
+
+    try {
+      const systemPrompt = `You are a financial fraud and anomaly detection expert. Analyze the provided transaction dataset and identify transactions that appear highly unusual or potentially anomalous.
+
+Focus on detecting:
+1. Amounts that are significantly different from the user's typical spending patterns
+2. Unusual timing (transactions at odd times/dates)  
+3. Merchants/descriptions that seem out of pattern
+4. Categories that don't match typical user behavior
+5. Potentially duplicate or suspicious transactions
+
+Return ONLY a JSON array with objects matching this exact schema:
+{
+  "transactionId": "the original transaction id",
+  "isAnomaly": boolean,
+  "anomalyType": "unusual_amount|unusual_timing|unusual_merchant|unusual_category|duplicate_suspicious",
+  "severity": "low|medium|high", 
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation of why this transaction is anomalous"
+}
+
+Only flag transactions as anomalies if you have high confidence they are truly unusual based on the patterns in the dataset.`;
+
+      const userPrompt = `Analyze these transactions for anomalies. Look for patterns in amounts, timing, merchants, and categories, then identify outliers:
+
+${JSON.stringify(transactions, null, 2)}
+
+Return a JSON array of anomaly detections for unusual transactions only. If no anomalies are found, return an empty array.`;
+
+      const completion = await this.client.chat.completions.create({
+        model: this.deploymentName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 2000,
+        temperature: 0.1
+      });
+
+      const responseContent = completion.choices[0]?.message?.content;
+      if (!responseContent) {
+        throw new Error('No response from Azure OpenAI');
+      }
+
+      // Clean and parse the response
+      const cleanedResponse = this.cleanAIResponse(responseContent);
+      const parsed = JSON.parse(cleanedResponse);
+      
+      // Ensure we have an array
+      if (!Array.isArray(parsed)) {
+        console.warn('Anomaly detection response is not an array, returning empty results');
+        return [];
+      }
+
+      // Validate and normalize each result
+      return parsed.map((item: any) => ({
+        transactionId: String(item.transactionId || ''),
+        isAnomaly: Boolean(item.isAnomaly),
+        anomalyType: item.anomalyType || 'unusual_amount',
+        severity: ['low', 'medium', 'high'].includes(item.severity) ? item.severity : 'medium',
+        confidence: typeof item.confidence === 'number' ? Math.max(0, Math.min(1, item.confidence)) : 0.5,
+        reasoning: String(item.reasoning || 'Detected as anomalous by AI analysis')
+      })).filter((item: any) => item.isAnomaly && item.transactionId); // Only return actual anomalies
+
+    } catch (error) {
+      console.error('Error detecting transaction anomalies:', error);
+      // Return empty array instead of throwing to gracefully handle AI service issues
+      return [];
+    }
+  }
+
   async getServiceInfo(): Promise<{ status: string; model: string; initialized: boolean }> {
     return {
       status: this.initialized ? 'ready' : 'not initialized',

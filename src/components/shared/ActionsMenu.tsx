@@ -13,13 +13,14 @@ const MenuButton = styled.button`
   background: white;
   border: 1px solid #ddd;
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 10px 12px;
   cursor: pointer;
   font-size: 14px;
   display: flex;
   align-items: center;
-  min-width: 20px;
-  min-height: 20px;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
   z-index: 1000;
   position: relative;
   
