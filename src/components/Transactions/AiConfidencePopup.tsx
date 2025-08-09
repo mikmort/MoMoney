@@ -118,6 +118,83 @@ const PopupContent = styled.div`
       background: #1976d2;
     }
   }
+
+  .metadata-section {
+    margin: 16px 0;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #fafafa;
+    
+    .section-header {
+      padding: 12px 16px;
+      background: #f5f5f5;
+      border-bottom: 1px solid #e0e0e0;
+      font-weight: 600;
+      color: #444;
+      font-size: 0.95rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-content {
+      padding: 12px 16px;
+      
+      .metadata-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 12px;
+        
+        .metadata-item {
+          display: flex;
+          justify-content: space-between;
+          padding: 6px 8px;
+          background: #fff;
+          border-radius: 4px;
+          border: 1px solid #e8e8e8;
+          font-size: 0.85rem;
+          
+          .label {
+            font-weight: 500;
+            color: #666;
+          }
+          
+          .value {
+            color: #333;
+            font-weight: 600;
+          }
+        }
+      }
+
+      .tokens-list {
+        margin-top: 12px;
+        
+        .tokens-header {
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #555;
+          margin-bottom: 8px;
+        }
+        
+        .token-tags {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          
+          .token-tag {
+            padding: 4px 8px;
+            background: #e3f2fd;
+            color: #1565c0;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border: 1px solid #bbdefb;
+          }
+        }
+      }
+    }
+  }
 `;
 
 interface AiConfidencePopupProps {
@@ -129,6 +206,17 @@ interface AiConfidencePopupProps {
   subcategory?: string;
   description: string;
   amount: number;
+  proxyMetadata?: {
+    model?: string;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    finishReason?: string;
+    requestId?: string;
+    created?: number;
+    keyTokens?: string[];
+    processingTime?: number;
+  };
 }
 
 export const AiConfidencePopup: React.FC<AiConfidencePopupProps> = ({
@@ -139,7 +227,8 @@ export const AiConfidencePopup: React.FC<AiConfidencePopupProps> = ({
   category,
   subcategory,
   description,
-  amount
+  amount,
+  proxyMetadata
 }) => {
   if (!isOpen) return null;
 
@@ -194,6 +283,66 @@ export const AiConfidencePopup: React.FC<AiConfidencePopupProps> = ({
             <h4>🧠 AI Reasoning</h4>
             <div className="reasoning-text">
               No detailed reasoning available for this classification.
+            </div>
+          </div>
+        )}
+
+        {/* Enhanced proxy metadata for trust building */}
+        {proxyMetadata && (
+          <div className="metadata-section">
+            <div className="section-header">
+              <span>🔍 Classification Details</span>
+            </div>
+            <div className="section-content">
+              <div className="metadata-grid">
+                {proxyMetadata.model && (
+                  <div className="metadata-item">
+                    <span className="label">AI Model:</span>
+                    <span className="value">{proxyMetadata.model}</span>
+                  </div>
+                )}
+                {proxyMetadata.processingTime && (
+                  <div className="metadata-item">
+                    <span className="label">Processing Time:</span>
+                    <span className="value">{proxyMetadata.processingTime}ms</span>
+                  </div>
+                )}
+                {proxyMetadata.totalTokens && (
+                  <div className="metadata-item">
+                    <span className="label">Total Tokens:</span>
+                    <span className="value">{proxyMetadata.totalTokens.toLocaleString()}</span>
+                  </div>
+                )}
+                {proxyMetadata.finishReason && (
+                  <div className="metadata-item">
+                    <span className="label">Finish Reason:</span>
+                    <span className="value">{proxyMetadata.finishReason}</span>
+                  </div>
+                )}
+                {proxyMetadata.promptTokens && (
+                  <div className="metadata-item">
+                    <span className="label">Prompt Tokens:</span>
+                    <span className="value">{proxyMetadata.promptTokens.toLocaleString()}</span>
+                  </div>
+                )}
+                {proxyMetadata.completionTokens && (
+                  <div className="metadata-item">
+                    <span className="label">Response Tokens:</span>
+                    <span className="value">{proxyMetadata.completionTokens.toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+              
+              {proxyMetadata.keyTokens && proxyMetadata.keyTokens.length > 0 && (
+                <div className="tokens-list">
+                  <div className="tokens-header">Key Classification Tokens:</div>
+                  <div className="token-tags">
+                    {proxyMetadata.keyTokens.map((token, index) => (
+                      <span key={index} className="token-tag">{token}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -115,6 +115,7 @@ export class AzureOpenAIService {
   }
 
   async classifyTransaction(request: AIClassificationRequest): Promise<AIClassificationResponse> {
+    const startTime = Date.now();
     try {
       // Build an explicit catalog of allowed categories/subcategories (IDs only) for the model
       const categoriesCatalog = request.availableCategories
@@ -137,13 +138,14 @@ ${subs}
   "categoryId": "one of the allowed category ids",
   "subcategoryId": "one of the allowed subcategory ids for the chosen category or null",
   "confidence": 0.0-1.0,
-  "reasoning": "brief explanation"
+  "reasoning": "detailed explanation of your classification decision including key factors considered"
 }
 
 Rules:
 - Use EXACT ids from the catalog below (do not invent or transform ids or names)
 - If unsure, set subcategoryId to null
-- If you cannot determine a category confidently, set categoryId to "uncategorized" and confidence <= 0.3`;
+- If you cannot determine a category confidently, set categoryId to "uncategorized" and confidence <= 0.3
+- Provide detailed reasoning explaining your classification logic and key terms that influenced the decision`;
 
       const userPrompt = `Classify this transaction using ONLY the following catalog:
 Allowed Categories Catalog (ids and names):
@@ -181,6 +183,9 @@ Date: ${request.date}`;
       const cleanedResponse = this.cleanAIResponse(responseContent);
       const parsed = JSON.parse(cleanedResponse);
 
+      // Extract key terms from transaction description for transparency
+      const keyTokens = this.extractKeyTokens(request.transactionText);
+
       // Normalize then constrain to provided catalog
       const normalized = {
         categoryId: (parsed.categoryId || parsed.category || 'uncategorized') as string,
@@ -189,14 +194,35 @@ Date: ${request.date}`;
         reasoning: (parsed.reasoning || 'AI classification') as string
       };
 
-      return this.constrainToCatalog(normalized, request.availableCategories as any);
+      // Create enhanced response with proxy metadata
+      const constrainedResult = this.constrainToCatalog(normalized, request.availableCategories as any);
+      
+      // Add proxy metadata for transparency
+      constrainedResult.proxyMetadata = {
+        model: response.data.model || this.deploymentName,
+        promptTokens: response.data.usage?.prompt_tokens,
+        completionTokens: response.data.usage?.completion_tokens,
+        totalTokens: response.data.usage?.total_tokens,
+        finishReason: response.data.choices[0]?.finish_reason,
+        requestId: response.data.id,
+        created: response.data.created,
+        keyTokens,
+        processingTime: Date.now() - startTime
+      };
+
+      return constrainedResult;
     } catch (error) {
       console.error('Error classifying transaction:', error);
       
       return {
         categoryId: 'uncategorized',
         confidence: 0.1,
-        reasoning: 'Failed to classify using AI - using fallback'
+        reasoning: 'Failed to classify using AI - using fallback',
+        proxyMetadata: {
+          model: this.deploymentName,
+          processingTime: Date.now() - startTime,
+          keyTokens: this.extractKeyTokens(request.transactionText)
+        }
       };
     }
   }
@@ -572,6 +598,25 @@ ${JSON.stringify(transactionData, null, 2)}`;
       console.error('Error making OpenAI proxy request:', error);
       throw error;
     }
+  }
+
+  private extractKeyTokens(transactionText: string): string[] {
+    // Extract meaningful tokens that help explain the classification
+    const text = transactionText.toLowerCase();
+    const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were']);
+    
+    // Split by various delimiters and filter meaningful tokens
+    const tokens = text
+      .split(/[\s\-#@.,;:()/\\]+/)
+      .filter(token => 
+        token.length >= 2 && 
+        !commonWords.has(token) &&
+        !token.match(/^\d+$/) && // Skip pure numbers
+        token.match(/^[a-zA-Z0-9]+$/) // Keep alphanumeric only
+      )
+      .slice(0, 8); // Limit to 8 key tokens
+    
+    return tokens;
   }
 
   private cleanAIResponse(response: string): string {
