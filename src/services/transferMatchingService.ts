@@ -1,5 +1,5 @@
 import { Transaction } from '../types';
-import { azureOpenAIService } from './azureOpenAIService';
+// TODO: Implement AI-powered transfer matching with azureOpenAIService
 
 export interface TransferMatch {
   id: string;

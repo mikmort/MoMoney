@@ -1,5 +1,5 @@
-import { dataService } from './dataService';
-import { Transaction, DuplicateDetectionConfig } from '../types';
+import { dataService } from '../services/dataService';
+import { DuplicateDetectionConfig } from '../types';
 
 describe('Enhanced Duplicate Detection', () => {
   beforeEach(async () => {

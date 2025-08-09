@@ -256,7 +256,7 @@ Rules:
         date: r.date
       }));
 
-  const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same \"index\" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
+  const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same "index" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
 
       const completion = await this.client.chat.completions.create({
         model: this.deploymentName,
