@@ -49,6 +49,16 @@ export interface SpendingInsights {
   needsReviewCount: number;
 }
 
+export interface BurnRateAnalysis {
+  dailyBurnRate: number; // Average daily spending
+  monthlyBurnRate: number; // Average monthly spending
+  projectedMonthlySpending: number; // Based on current month's partial data
+  daysRemaining: number; // Days remaining in current month
+  projectedEndOfMonthBalance: number; // Estimated balance at month end
+  burnRateTrend: 'increasing' | 'decreasing' | 'stable'; // Trend over last 3 months
+  recommendedDailySpending: number; // To stay within budget if applicable
+}
+
 export interface DateRange {
   startDate: Date;
   endDate: Date;
@@ -207,6 +217,91 @@ class ReportsService {
       smallestTransaction,
       recentTransactions,
       monthlyTrend
+    };
+  }
+
+  async getBurnRateAnalysis(dateRange?: DateRange): Promise<BurnRateAnalysis> {
+    const allTransactions = await this.getTransactionsInRange(dateRange);
+    const expenseTransactions = allTransactions.filter(t => t.type === 'expense' || t.amount < 0);
+    
+    if (expenseTransactions.length === 0) {
+      return {
+        dailyBurnRate: 0,
+        monthlyBurnRate: 0,
+        projectedMonthlySpending: 0,
+        daysRemaining: 0,
+        projectedEndOfMonthBalance: 0,
+        burnRateTrend: 'stable',
+        recommendedDailySpending: 0
+      };
+    }
+
+    // Calculate daily burn rate
+    const totalSpending = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const earliestDate = new Date(Math.min(...expenseTransactions.map(t => t.date.getTime())));
+    const latestDate = new Date(Math.max(...expenseTransactions.map(t => t.date.getTime())));
+    const daysDiff = Math.max(1, Math.ceil((latestDate.getTime() - earliestDate.getTime()) / (1000 * 60 * 60 * 24)));
+    const dailyBurnRate = totalSpending / daysDiff;
+    const monthlyBurnRate = dailyBurnRate * 30;
+
+    // Current month analysis
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const daysInMonth = currentMonthEnd.getDate();
+    const daysPassed = now.getDate();
+    const daysRemaining = Math.max(0, daysInMonth - daysPassed);
+
+    const currentMonthExpenses = expenseTransactions
+      .filter(t => t.date >= currentMonthStart && t.date <= now)
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    
+    const projectedMonthlySpending = daysPassed > 0 ? (currentMonthExpenses / daysPassed) * daysInMonth : monthlyBurnRate;
+
+    // Get income for balance projection
+    const currentMonthIncome = allTransactions
+      .filter(t => (t.type === 'income' || t.amount > 0) && t.date >= currentMonthStart && t.date <= now)
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+    const projectedEndOfMonthBalance = currentMonthIncome - projectedMonthlySpending;
+
+    // Calculate trend (last 3 months)
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(now.getMonth() - 3);
+    const last3MonthsExpenses = expenseTransactions.filter(t => t.date >= threeMonthsAgo);
+    
+    // Group by month for trend analysis
+    const monthlySpending: { [month: string]: number } = {};
+    last3MonthsExpenses.forEach(t => {
+      const monthKey = t.date.toISOString().slice(0, 7);
+      monthlySpending[monthKey] = (monthlySpending[monthKey] || 0) + Math.abs(t.amount);
+    });
+
+    const monthlyValues = Object.values(monthlySpending);
+    let burnRateTrend: 'increasing' | 'decreasing' | 'stable' = 'stable';
+    
+    if (monthlyValues.length >= 2) {
+      const recentAvg = monthlyValues.slice(-2).reduce((a, b) => a + b, 0) / 2;
+      const earlierAvg = monthlyValues.slice(0, -1).reduce((a, b) => a + b, 0) / (monthlyValues.length - 1);
+      
+      if (recentAvg > earlierAvg * 1.1) {
+        burnRateTrend = 'increasing';
+      } else if (recentAvg < earlierAvg * 0.9) {
+        burnRateTrend = 'decreasing';
+      }
+    }
+
+    // Simple recommended daily spending (could be enhanced with budget integration)
+    const recommendedDailySpending = monthlyBurnRate / 30;
+
+    return {
+      dailyBurnRate,
+      monthlyBurnRate,
+      projectedMonthlySpending,
+      daysRemaining,
+      projectedEndOfMonthBalance,
+      burnRateTrend,
+      recommendedDailySpending
     };
   }
 
