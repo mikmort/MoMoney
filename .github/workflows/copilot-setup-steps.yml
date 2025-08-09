@@ -1,18 +1,12 @@
 name: Copilot Setup - Preinstall Tools and Warm Caches
 
-# This workflow dramatically reduces "agent is getting ready" time by:
-# - Pre-installing Node.js and npm with caching
-# - Pre-warming dependency caches 
-# - Setting up consistent toolchain with Corepack
-# - Validating the build works
-
 on:
   workflow_dispatch: # Can be triggered manually
   schedule:
     - cron: '0 2 * * 1' # Weekly on Monday at 2 AM UTC to keep caches warm
 
 jobs:
-  setup-and-cache:
+  copilot-setup-steps:  # <-- must be this exact key
     runs-on: ubuntu-latest
     name: Setup Tools and Warm Caches
     
@@ -47,20 +41,17 @@ jobs:
 
       - name: Install dependencies with clean cache
         run: |
-          # Clean install for reproducible builds
           npm ci --prefer-offline --no-audit
           echo "Dependencies installed and cached"
 
       - name: Warm build cache
         run: |
-          # Warm up TypeScript and build caches
           echo "Warming build caches..."
           CI=false npm run build
           echo "Build cache warmed successfully"
 
-      - name: Warm test cache  
+      - name: Warm test cache
         run: |
-          # Run tests to warm Jest cache (allow failures for unrelated test issues)
           echo "Warming test caches..."
           npm test -- --watchAll=false --passWithNoTests --silent || echo "Test cache warming completed (some test failures ignored)"
           echo "Test cache warmed successfully"
