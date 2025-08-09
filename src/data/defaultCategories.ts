@@ -183,6 +183,30 @@ export const defaultCategories: Category[] = [
     ]
   },
   {
+    id: 'penalties-fines',
+    name: 'Penalties & Fines',
+    type: 'expense',
+    color: '#A52A2A',
+    icon: '⚠️',
+    subcategories: [
+      { id: 'penalties-parking-tickets', name: 'Parking Tickets', description: 'Parking violations and citations', keywords: ['parking ticket', 'citation', 'meter violation', 'parking violation', 'city parking'] },
+      { id: 'penalties-traffic-speeding', name: 'Traffic/Speeding Fines', description: 'Traffic violations and speeding fines', keywords: ['speeding', 'traffic fine', 'moving violation', 'red light', 'camera ticket'] },
+      { id: 'penalties-other-government', name: 'Other Government Violations', description: 'Other fines or penalties from government agencies', keywords: ['fine', 'penalty', 'code violation', 'municipal', 'permit'] }
+    ]
+  },
+  {
+    id: 'fees-charges',
+    name: 'Fees & Charges',
+    type: 'expense',
+    color: '#8D6E63',
+    icon: '💸',
+    subcategories: [
+      { id: 'fees-bank-fees', name: 'Bank Fees', description: 'Fees charged by banks and credit unions', keywords: ['bank fee', 'service charge', 'maintenance fee', 'atm fee', 'overdraft', 'nsf', 'wire fee'] },
+      { id: 'fees-late-fees', name: 'Late Fees (bills, utilities)', description: 'Late payment fees on bills and utilities', keywords: ['late fee', 'late charge', 'past due', 'delinquent', 'penalty fee'] },
+      { id: 'fees-service-fees', name: 'Service Fees', description: 'Service or convenience/processing fees', keywords: ['service fee', 'convenience fee', 'processing fee', 'platform fee', 'transaction fee'] }
+    ]
+  },
+  {
     id: 'uncategorized',
     name: 'Uncategorized',
     type: 'expense',

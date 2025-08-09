@@ -6,6 +6,7 @@ export const defaultAccounts: Account[] = [
     name: 'Chase Checking',
     type: 'checking',
     institution: 'JPMorgan Chase Bank',
+    currency: 'USD',
     isActive: true
   },
   {
@@ -13,6 +14,7 @@ export const defaultAccounts: Account[] = [
     name: 'Chase Credit',
     type: 'credit',
     institution: 'JPMorgan Chase Bank',
+    currency: 'USD',
     isActive: true
   },
   {
@@ -20,6 +22,7 @@ export const defaultAccounts: Account[] = [
     name: 'Primary Savings',
     type: 'savings',
     institution: 'Bank of America',
+    currency: 'USD',
     isActive: true
   },
   {
@@ -27,6 +30,7 @@ export const defaultAccounts: Account[] = [
     name: 'AmEx Platinum',
     type: 'credit',
     institution: 'American Express',
+    currency: 'USD',
     isActive: true
   },
   {
@@ -34,6 +38,7 @@ export const defaultAccounts: Account[] = [
     name: 'Discover Card',
     type: 'credit',
     institution: 'Discover Bank',
+    currency: 'USD',
     isActive: true
   },
   {
@@ -41,6 +46,7 @@ export const defaultAccounts: Account[] = [
     name: 'Cash',
     type: 'cash',
     institution: 'Personal',
+    currency: 'USD',
     isActive: true
   }
 ];

@@ -309,28 +309,28 @@ const TransferMatchingPanel = styled(Card)`
 `;
 
 const FilterBar = styled(Card)`
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   
   .filter-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     
     h3 {
       margin: 0;
-      font-size: 1.1rem;
+      font-size: 1rem;
       color: #333;
     }
     
     .clear-filters-btn {
-      padding: 6px 12px;
+      padding: 4px 10px;
       background: #f44336;
       color: white;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: 500;
       transition: background-color 0.2s;
       
@@ -347,7 +347,7 @@ const FilterBar = styled(Card)`
   
   .filter-row {
     display: flex;
-    gap: 16px;
+    gap: 12px;
     align-items: center;
     flex-wrap: wrap;
   }
@@ -355,39 +355,86 @@ const FilterBar = styled(Card)`
   .filter-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
     
     label {
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       font-weight: 500;
       color: #666;
     }
     
     select, input {
-      min-width: 150px;
+      min-width: 140px;
+      padding: 6px 8px;
+      font-size: 0.9rem;
     }
+  }
+  
+  .quick-filters-section {
+    margin-top: 10px;
+    
+    .quick-filters-label {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #666;
+      margin-bottom: 6px;
+    }
+    
+    .quick-filters-container {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+  }
+`;
+
+const QuickFilterButton = styled.button.withConfig({
+  shouldForwardProp: (prop) => !['isActive', 'activeColor', 'activeBackground'].includes(prop),
+})<{ isActive: boolean; activeColor: string; activeBackground: string }>`
+  padding: 5px 8px;
+  border: ${props => props.isActive ? `2px solid ${props.activeColor}` : '1px solid #ddd'};
+  border-radius: 4px;
+  background: ${props => props.isActive ? props.activeBackground : 'white'};
+  color: ${props => props.isActive ? props.activeColor : '#666'};
+  font-weight: ${props => props.isActive ? 'bold' : 'normal'};
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  
+  &:hover {
+    border-color: ${props => props.isActive ? props.activeColor : '#bbb'};
+    background: ${props => props.isActive ? props.activeBackground : '#f5f5f5'};
+  }
+  
+  &:active {
+    transform: translateY(1px);
   }
 `;
 
 const StatsBar = styled.div`
   display: flex;
-  gap: 24px;
-  margin-bottom: 20px;
+  gap: 20px;
+  margin-bottom: 16px;
   
   .stat {
     background: white;
-    padding: 16px;
+    padding: 12px;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     
     .label {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: #666;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     
     .value {
-      font-size: 1.1rem;
+      font-size: 1rem;
       font-weight: 600;
       
       &.positive {
@@ -445,6 +492,7 @@ const BulkOperationsBar = styled(Card)`
     flex-wrap: wrap;
   }
 `;
+
 
 // Edit Transaction Modal styles
 const EditModalOverlay = styled.div`
@@ -2579,83 +2627,54 @@ const Transactions: React.FC = () => {
               onChange={(e) => setFilters({...filters, search: e.target.value})}
             />
           </div>
-
-          <div className="filter-group">
-            <label>Quick Filters</label>
-            <button
-              style={{
-                padding: '8px 12px',
-                border: filters.category === 'Uncategorized' ? '2px solid #ff9800' : '1px solid #ddd',
-                borderRadius: '4px',
-                background: filters.category === 'Uncategorized' ? '#fff3e0' : 'white',
-                color: filters.category === 'Uncategorized' ? '#ff9800' : '#666',
-                fontWeight: filters.category === 'Uncategorized' ? 'bold' : 'normal',
-                cursor: 'pointer',
-                fontSize: '14px'
-              }}
+        </div>
+        
+        <div className="quick-filters-section">
+          <div className="quick-filters-label">Quick Filters</div>
+          <div className="quick-filters-container">
+            <QuickFilterButton
+              isActive={filters.category === 'Uncategorized'}
+              activeColor="#ff9800"
+              activeBackground="#fff3e0"
               onClick={() => setFilters({...filters, category: filters.category === 'Uncategorized' ? '' : 'Uncategorized'})}
             >
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
-            </button>
+            </QuickFilterButton>
             
             {transferMatchingService.countUnmatchedTransfers(transactions) > 0 && (
-              <button
-                style={{
-                  padding: '8px 12px',
-                  border: filters.type === 'transfer' ? '2px solid #9C27B0' : '1px solid #ddd',
-                  borderRadius: '4px',
-                  background: filters.type === 'transfer' ? '#f3e5f5' : 'white',
-                  color: filters.type === 'transfer' ? '#9C27B0' : '#666',
-                  fontWeight: filters.type === 'transfer' ? 'bold' : 'normal',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  marginLeft: '8px'
-                }}
+              <QuickFilterButton
+                isActive={filters.type === 'transfer'}
+                activeColor="#9C27B0"
+                activeBackground="#f3e5f5"
                 onClick={() => setFilters({...filters, type: filters.type === 'transfer' ? '' : 'transfer'})}
                 title="Unmatched transfer transactions"
               >
                 🔄 Unmatched Transfers ({transferMatchingService.countUnmatchedTransfers(transactions)})
-              </button>
+              </QuickFilterButton>
             )}
             
             {countMatchedTransfers(transactions) > 0 && (
-              <button
-                style={{
-                  padding: '8px 12px',
-                  border: showMatchedTransfersOnly ? '2px solid #673AB7' : '1px solid #ddd',
-                  borderRadius: '4px',
-                  background: showMatchedTransfersOnly ? '#ede7f6' : 'white',
-                  color: showMatchedTransfersOnly ? '#673AB7' : '#666',
-                  fontWeight: showMatchedTransfersOnly ? 'bold' : 'normal',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  marginLeft: '8px'
-                }}
+              <QuickFilterButton
+                isActive={showMatchedTransfersOnly}
+                activeColor="#673AB7"
+                activeBackground="#ede7f6"
                 onClick={() => setShowMatchedTransfersOnly(!showMatchedTransfersOnly)}
                 title="Show only matched transfer transactions"
               >
                 ✅ Matched Transfers ({countMatchedTransfers(transactions)})
-              </button>
+              </QuickFilterButton>
             )}
             
             {countReimbursedTransactions(transactions) > 0 && (
-              <button
-                style={{
-                  padding: '8px 12px',
-                  border: showReimbursedTransactions ? '2px solid #4CAF50' : '1px solid #ddd',
-                  borderRadius: '4px',
-                  background: showReimbursedTransactions ? '#e8f5e8' : 'white',
-                  color: showReimbursedTransactions ? '#4CAF50' : '#666',
-                  fontWeight: showReimbursedTransactions ? 'bold' : 'normal',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  marginLeft: '8px'
-                }}
+              <QuickFilterButton
+                isActive={showReimbursedTransactions}
+                activeColor="#4CAF50"
+                activeBackground="#e8f5e8"
                 onClick={() => setShowReimbursedTransactions(!showReimbursedTransactions)}
                 title="Toggle showing reimbursed transactions"
               >
                 💰 Show Reimbursed ({countReimbursedTransactions(transactions)})
-              </button>
+              </QuickFilterButton>
             )}
           </div>
         </div>
