@@ -234,8 +234,9 @@ ${subs}
         })
         .join(',\n');
 
-      const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
-Return ONLY a JSON array where each element strictly matches:
+  const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
+Return ONLY a JSON array with the EXACT SAME NUMBER OF ITEMS as the input list, in the SAME ORDER.
+Each element must strictly match (you may include an "index" number copied from the input to preserve order):
 {
   "categoryId": "one of the allowed category ids",
   "subcategoryId": "one of the allowed subcategory ids for the chosen category or null",
@@ -255,7 +256,7 @@ Rules:
         date: r.date
       }));
 
-      const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order):\n${JSON.stringify(items, null, 2)}`;
+  const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same \"index\" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
 
       const completion = await this.client.chat.completions.create({
         model: this.deploymentName,
@@ -270,17 +271,76 @@ Rules:
       const responseContent = completion.choices[0]?.message?.content;
       if (!responseContent) throw new Error('No response from Azure OpenAI');
 
+      // Attempt robust parsing: direct JSON, then extract first JSON array substring, then object.results
       const cleaned = this.cleanAIResponse(responseContent);
-      let parsed: any[] = [];
-      try {
-        parsed = JSON.parse(cleaned);
-        if (!Array.isArray(parsed)) throw new Error('Expected array');
-      } catch (e) {
-        console.warn('Batch parse failed, falling back to per-item defaults:', e);
-        return requests.map(() => ({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Batch parse failed' }));
+
+      const tryParseArray = (text: string): any[] | null => {
+        try {
+          const j = JSON.parse(text);
+          if (Array.isArray(j)) return j;
+          if (j && Array.isArray(j.results)) return j.results;
+        } catch {}
+        // Try to extract the first JSON array block
+        const start = text.indexOf('[');
+        const end = text.lastIndexOf(']');
+        if (start !== -1 && end !== -1 && end > start) {
+          const slice = text.slice(start, end + 1);
+          try {
+            const j = JSON.parse(slice);
+            if (Array.isArray(j)) return j;
+          } catch {}
+        }
+        return null;
+      };
+
+      let parsed: any[] | null = tryParseArray(cleaned);
+      if (!parsed) {
+        console.warn('Batch parse failed (no JSON array found). Falling back to per-item classification.');
+        // Fallback: classify each item individually to avoid blanket Uncategorized
+        const singles = [] as AIClassificationResponse[];
+        for (const r of requests) {
+          try {
+            const one = await this.classifyTransaction(r);
+            singles.push(one);
+          } catch (e) {
+            singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Single fallback failed' });
+          }
+        }
+        return singles;
       }
 
-      // Normalize each item
+      // If the array length mismatches, try to reorder by index field or pad via single calls
+      if (parsed.length !== requests.length) {
+        // Attempt to sort by an 'index' property if provided
+        if (parsed.every((p) => typeof p?.index === 'number')) {
+          parsed.sort((a, b) => (a.index as number) - (b.index as number));
+        }
+
+        if (parsed.length !== requests.length) {
+          console.warn(`Batch length mismatch: got ${parsed.length}, expected ${requests.length}. Filling via single fallbacks for missing.`);
+          const results: AIClassificationResponse[] = [];
+          for (let i = 0; i < requests.length; i++) {
+            const p = parsed[i];
+            if (p) {
+              const categoryId = (p.categoryId || p.category || 'uncategorized') as string;
+              const subcategoryId = (p.subcategoryId || p.subcategory || null) as string | null;
+              const confidence = typeof p.confidence === 'number' ? p.confidence : 0.5;
+              const reasoning = (p.reasoning || 'AI classification') as string;
+              results.push({ categoryId, subcategoryId: subcategoryId || undefined, confidence, reasoning });
+            } else {
+              // Fallback classify for this item
+              try {
+                results.push(await this.classifyTransaction(requests[i]));
+              } catch {
+                results.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Missing batch item' });
+              }
+            }
+          }
+          return results;
+        }
+      }
+
+      // Normalize 1:1
       return parsed.map((p) => {
         const categoryId = (p?.categoryId || p?.category || 'uncategorized') as string;
         const subcategoryId = (p?.subcategoryId || p?.subcategory || null) as string | null;
