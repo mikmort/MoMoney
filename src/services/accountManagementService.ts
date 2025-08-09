@@ -36,9 +36,11 @@ export interface AccountDetectionResponse {
 export class AccountManagementService {
   private azureOpenAIService: AzureOpenAIService;
   private accounts: Account[] = [...defaultAccounts];
+  private readonly storageKey = 'mo-money-accounts';
 
   constructor() {
     this.azureOpenAIService = new AzureOpenAIService();
+    this.loadFromStorage();
   }
 
   // Get all active accounts
@@ -59,6 +61,7 @@ export class AccountManagementService {
     };
     
     this.accounts.push(newAccount);
+    this.saveToStorage();
     return newAccount;
   }
 
@@ -68,6 +71,7 @@ export class AccountManagementService {
     if (index === -1) return null;
 
     this.accounts[index] = { ...this.accounts[index], ...updates };
+    this.saveToStorage();
     return this.accounts[index];
   }
 
@@ -93,11 +97,18 @@ export class AccountManagementService {
       if (index === -1) return false;
 
       this.accounts.splice(index, 1);
+      this.saveToStorage();
       return true;
     } catch (error) {
       console.error('Error checking account transactions:', error);
       throw error;
     }
+  }
+
+  // Replace all accounts (used for import)
+  replaceAccounts(accounts: Account[]): void {
+    this.accounts = [...accounts];
+    this.saveToStorage();
   }
 
   // Detect account from file information
@@ -272,6 +283,27 @@ ${userPrompt}`;
     const cleanName = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
     const cleanInstitution = institution.toLowerCase().replace(/[^a-z0-9]/g, '-');
     return `${cleanInstitution}-${cleanName}`;
+  }
+
+  // Persistence helpers
+  private loadFromStorage(): void {
+    try {
+      const stored = localStorage.getItem(this.storageKey);
+      if (stored) {
+        this.accounts = JSON.parse(stored);
+      }
+    } catch (err) {
+      console.error('Failed to load accounts from storage:', err);
+      // keep defaults
+    }
+  }
+
+  private saveToStorage(): void {
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify(this.accounts));
+    } catch (err) {
+      console.error('Failed to save accounts to storage:', err);
+    }
   }
 }
 
