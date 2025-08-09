@@ -14,6 +14,7 @@
     "chart.js": "^4.4.0",
     "chartjs-adapter-date-fns": "^3.0.0",
     "date-fns": "^2.30.0",
+    "dexie": "^4.0.11",
     "openai": "^5.11.0",
     "papaparse": "^5.5.3",
     "pdf-parse": "^1.1.1",
@@ -27,6 +28,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^16.18.68",
     "@types/papaparse": "^5.3.16",
@@ -34,6 +36,7 @@
     "@types/react-dom": "^18.2.17",
     "@types/styled-components": "^5.1.34",
     "@types/uuid": "^9.0.7",
+    "fake-indexeddb": "^6.1.0",
     "typescript": "^4.9.5"
   },
   "scripts": {

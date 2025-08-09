@@ -2,9 +2,9 @@ import { dataService } from './dataService';
 import { Transaction, DuplicateDetectionConfig } from '../types';
 
 describe('Enhanced Duplicate Detection', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     // Clear data before each test
-    dataService.clearAllData();
+    await dataService.clearAllData();
   });
 
   it('should detect exact duplicates', async () => {
