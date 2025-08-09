@@ -60,6 +60,7 @@ export interface Account {
   name: string;
   type: 'checking' | 'savings' | 'credit' | 'investment' | 'cash';
   institution: string;
+  currency: string;
   balance?: number;
   lastSyncDate?: Date;
   isActive: boolean;
