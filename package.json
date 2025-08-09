@@ -27,6 +27,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^16.18.68",
     "@types/papaparse": "^5.3.16",
     "@types/react": "^18.2.42",
