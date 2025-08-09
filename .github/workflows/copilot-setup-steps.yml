@@ -17,16 +17,19 @@ jobs:
           submodules: true
           lfs: false
 
-      - name: Read Node.js version from .nvmrc
-        id: node-version
-        run: echo "node-version=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+      - name: Verify preinstalled Node.js version
+        run: |
+          echo "Node.js version: $(node --version)"
+          echo "npm version: $(npm --version)"
+          echo "Using preinstalled Node.js for faster GitHub agent startup"
 
-      - name: Setup Node.js with caching
-        uses: actions/setup-node@v4
+      - name: Setup npm cache
+        uses: actions/cache@v4
         with:
-          node-version: ${{ steps.node-version.outputs.node-version }}
-          cache: 'npm'
-          cache-dependency-path: 'package-lock.json'
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Enable Corepack for consistent package managers
         run: |
@@ -58,7 +61,7 @@ jobs:
 
       - name: Cache summary
         run: |
-          echo "✅ Node.js ${{ steps.node-version.outputs.node-version }} cached"
+          echo "✅ Using preinstalled Node.js $(node --version) - no installation time!"
           echo "✅ npm dependencies cached" 
           echo "✅ TypeScript build cache warmed"
           echo "✅ Jest test cache warmed"
