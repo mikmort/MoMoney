@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { CategoryRule, RuleCondition } from '../../types';
 import { dataService } from '../../services/dataService';
+import { rulesService } from '../../services/rulesService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { Button, Card } from '../../styles/globalStyles';
 
@@ -152,6 +153,9 @@ export const CategoryRulesManager: React.FC<CategoryRulesManagerProps> = ({
 
   const loadRules = async () => {
     try {
+      // Initialize rules from existing transactions if no rules exist
+      await rulesService.initializeRulesFromExistingTransactions();
+      
       const allRules = await dataService.getAllCategoryRules();
       setRules(allRules);
     } catch (error) {

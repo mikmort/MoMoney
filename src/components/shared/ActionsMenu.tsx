@@ -11,7 +11,7 @@ const MenuContainer = styled.div`
 
 const MenuButton = styled.button`
   background: white;
-  border: 2px solid ${props => props.theme?.primary || '#1976d2'};
+  border: 1px solid ${props => props.theme?.primary || '#1976d2'};
   border-radius: 4px;
   padding: 10px 20px;
   cursor: pointer;
@@ -33,6 +33,7 @@ const MenuButton = styled.button`
   &:active {
     background: #e0e0e0;
   }
+
 `;
 
 export interface MenuAction {

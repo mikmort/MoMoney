@@ -68,6 +68,56 @@ export const useTransferMatching = () => {
     return transferMatchingService.countUnmatchedTransfers(transactions);
   };
 
+  const unmatchTransfers = async (transactions: Transaction[], matchId: string): Promise<Transaction[]> => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log('🔓 Unmatching transfers...', matchId);
+      const updatedTransactions = await transferMatchingService.unmatchTransfers(transactions, matchId);
+      console.log('✅ Transfer unmatch completed successfully');
+      return updatedTransactions;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setError(errorMessage);
+      console.error('❌ Error unmatching transfers:', err);
+      return transactions; // Return original on error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getMatchedTransfers = (transactions: Transaction[]) => {
+    return transferMatchingService.getMatchedTransfers(transactions);
+  };
+
+  const manuallyMatchTransfers = async (
+    transactions: Transaction[], 
+    sourceId: string, 
+    targetId: string
+  ): Promise<Transaction[]> => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log('🔗 Manually matching transfers...', sourceId, targetId);
+      const updatedTransactions = await transferMatchingService.manuallyMatchTransfers(
+        transactions, 
+        sourceId, 
+        targetId
+      );
+      console.log('✅ Manual transfer match completed successfully');
+      return updatedTransactions;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setError(errorMessage);
+      console.error('❌ Error manually matching transfers:', err);
+      return transactions; // Return original on error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return {
     isLoading,
     error,
@@ -76,6 +126,9 @@ export const useTransferMatching = () => {
     findTransferMatches,
     applyTransferMatches,
     getUnmatchedTransfers,
-    countUnmatchedTransfers
+    countUnmatchedTransfers,
+    unmatchTransfers,
+    getMatchedTransfers,
+    manuallyMatchTransfers
   };
 };

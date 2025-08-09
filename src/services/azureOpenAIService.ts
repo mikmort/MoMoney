@@ -430,14 +430,23 @@ ${JSON.stringify(transactionData, null, 2)}`;
       };
 
       const response = await this.callOpenAIProxy(proxyRequest);
-
+      
       if (!response.success || !response.data) {
-        throw new Error(response.error || 'No response from OpenAI proxy');
+        console.error('Anomaly detection proxy call failed:', response.error);
+        return {
+          anomalies: [],
+          totalAnalyzed: request.transactions.length,
+          processingTime: Date.now() - startTime
+        };
       }
 
       const responseContent = response.data.choices[0]?.message?.content;
       if (!responseContent) {
-        throw new Error('No response from Azure OpenAI');
+        return {
+          anomalies: [],
+          totalAnalyzed: request.transactions.length,
+          processingTime: Date.now() - startTime
+        };
       }
 
       // Clean and parse the response
