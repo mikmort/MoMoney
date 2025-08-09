@@ -22,8 +22,10 @@ import {
   MonthlySpendingTrend, 
   IncomeExpenseAnalysis,
   SpendingInsights,
+  BurnRateAnalysis,
   DateRange 
 } from '../../services/reportsService';
+import CategoryDrilldownModal from './CategoryDrilldownModal';
 
 // Register Chart.js components
 ChartJS.register(
@@ -153,6 +155,15 @@ const CategoryTable = styled.div`
     align-items: center;
     padding: 12px 0;
     border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    
+    &:hover {
+      background-color: #f5f5f5;
+      border-radius: 4px;
+      margin: 0 -8px;
+      padding: 12px 8px;
+    }
     
     &:last-child {
       border-bottom: none;
@@ -165,6 +176,11 @@ const CategoryTable = styled.div`
     .category-name {
       font-weight: 500;
       margin-bottom: 4px;
+      color: #2196f3;
+      
+      &:hover {
+        text-decoration: underline;
+      }
     }
     
     .category-stats {
@@ -189,6 +205,64 @@ const CategoryTable = styled.div`
   }
 `;
 
+const BurnRateCard = styled(Card)`
+  .burn-rate-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+  }
+  
+  .burn-rate-item {
+    text-align: center;
+    
+    .value {
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin: 8px 0;
+      
+      &.positive {
+        color: #4caf50;
+      }
+      
+      &.negative {
+        color: #f44336;
+      }
+      
+      &.warning {
+        color: #ff9800;
+      }
+      
+      &.neutral {
+        color: #2196f3;
+      }
+    }
+    
+    .label {
+      color: #666;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .trend {
+      font-size: 0.8rem;
+      margin-top: 4px;
+      
+      &.increasing {
+        color: #f44336;
+      }
+      
+      &.decreasing {
+        color: #4caf50;
+      }
+      
+      &.stable {
+        color: #666;
+      }
+    }
+  }
+`;
+
 type DateRangeType = 'all' | 'current-month' | 'last-3-months' | 'last-12-months' | 'custom';
 
 const Reports: React.FC = () => {
@@ -199,6 +273,8 @@ const Reports: React.FC = () => {
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
   const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
   const [spendingInsights, setSpendingInsights] = useState<SpendingInsights | null>(null);
+  const [burnRateAnalysis, setBurnRateAnalysis] = useState<BurnRateAnalysis | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const getCurrentDateRange = useCallback((): DateRange | undefined => {
     switch (dateRangeType) {
@@ -223,17 +299,19 @@ const Reports: React.FC = () => {
       try {
         const dateRange = getCurrentDateRange();
         
-        const [categoryData, trendsData, analysisData, insightsData] = await Promise.all([
+        const [categoryData, trendsData, analysisData, insightsData, burnRateData] = await Promise.all([
           reportsService.getSpendingByCategory(dateRange),
           reportsService.getMonthlySpendingTrends(dateRange),
           reportsService.getIncomeExpenseAnalysis(dateRange),
-          reportsService.getSpendingInsights(dateRange)
+          reportsService.getSpendingInsights(dateRange),
+          reportsService.getBurnRateAnalysis(dateRange)
         ]);
         
         setSpendingByCategory(categoryData);
         setMonthlyTrends(trendsData);
         setIncomeExpenseAnalysis(analysisData);
         setSpendingInsights(insightsData);
+        setBurnRateAnalysis(burnRateData);
       } catch (error) {
         console.error('Failed to load reports data:', error);
       } finally {
@@ -253,6 +331,22 @@ const Reports: React.FC = () => {
 
   const formatPercentage = (percentage: number) => {
     return `${percentage.toFixed(1)}%`;
+  };
+
+  const getTrendIcon = (trend: string) => {
+    switch (trend) {
+      case 'increasing': return '📈';
+      case 'decreasing': return '📉';
+      default: return '➡️';
+    }
+  };
+
+  const getTrendText = (trend: string) => {
+    switch (trend) {
+      case 'increasing': return 'Increasing';
+      case 'decreasing': return 'Decreasing';
+      default: return 'Stable';
+    }
   };
 
   // Chart data preparations
@@ -398,6 +492,41 @@ const Reports: React.FC = () => {
             <div className="percentage">of income saved</div>
           </StatsCard>
         </Grid>
+      )}
+
+      {/* Burn Rate Analysis */}
+      {burnRateAnalysis && (
+        <BurnRateCard>
+          <h3>💸 Burn Rate Analysis</h3>
+          <div className="burn-rate-grid">
+            <div className="burn-rate-item">
+              <div className="label">Daily Burn Rate</div>
+              <div className="value negative">{formatCurrency(burnRateAnalysis.dailyBurnRate)}</div>
+            </div>
+            
+            <div className="burn-rate-item">
+              <div className="label">Monthly Burn Rate</div>
+              <div className="value negative">{formatCurrency(burnRateAnalysis.monthlyBurnRate)}</div>
+            </div>
+            
+            <div className="burn-rate-item">
+              <div className="label">Projected Month-End Balance</div>
+              <div className={`value ${burnRateAnalysis.projectedEndOfMonthBalance >= 0 ? 'positive' : 'negative'}`}>
+                {formatCurrency(burnRateAnalysis.projectedEndOfMonthBalance)}
+              </div>
+            </div>
+            
+            <div className="burn-rate-item">
+              <div className="label">Spending Trend</div>
+              <div className={`value ${burnRateAnalysis.burnRateTrend === 'decreasing' ? 'positive' : burnRateAnalysis.burnRateTrend === 'increasing' ? 'negative' : 'neutral'}`}>
+                {getTrendIcon(burnRateAnalysis.burnRateTrend)}
+              </div>
+              <div className={`trend ${burnRateAnalysis.burnRateTrend}`}>
+                {getTrendText(burnRateAnalysis.burnRateTrend)}
+              </div>
+            </div>
+          </div>
+        </BurnRateCard>
       )}
 
       <Grid columns={2} gap="20px">
@@ -574,10 +703,15 @@ const Reports: React.FC = () => {
       {/* Category Breakdown Table */}
       {spendingByCategory.length > 0 && (
         <Card>
-          <h3>Category Breakdown</h3>
+          <h3>Category Breakdown (Click for Details)</h3>
           <CategoryTable>
             {spendingByCategory.map((category, index) => (
-              <div key={index} className="category-row">
+              <div 
+                key={index} 
+                className="category-row"
+                onClick={() => setSelectedCategory(category.categoryName)}
+                title={`Click to view detailed analysis of ${category.categoryName}`}
+              >
                 <div className="category-info">
                   <div className="category-name">{category.categoryName}</div>
                   <div className="category-stats">
@@ -592,6 +726,15 @@ const Reports: React.FC = () => {
             ))}
           </CategoryTable>
         </Card>
+      )}
+
+      {/* Category Drilldown Modal */}
+      {selectedCategory && (
+        <CategoryDrilldownModal
+          categoryName={selectedCategory}
+          dateRange={getCurrentDateRange()}
+          onClose={() => setSelectedCategory(null)}
+        />
       )}
     </ReportsContainer>
   );
