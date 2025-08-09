@@ -2,6 +2,11 @@
   "name": "mo-money",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@10.8.2",
+  "engines": {
+    "node": ">=20.19.4",
+    "npm": ">=10.8.2"
+  },
   "dependencies": {
     "@azure/msal-browser": "^3.7.1",
     "@azure/msal-react": "^2.0.11",

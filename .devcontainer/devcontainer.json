@@ -1,0 +1,56 @@
+{
+  "name": "Mo Money - Financial Tracking App",
+  "dockerFile": "Dockerfile",
+  
+  // Features for additional tooling
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "installDirectlyFromGitHubRelease": true
+    }
+  },
+  
+  // Forward the dev server port
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Development Server",
+      "onAutoForward": "notify"
+    }
+  },
+  
+  // VS Code customizations for optimal React development
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.vscode-typescript-next",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-eslint",
+        "formulahendry.auto-rename-tag",
+        "ms-vscode.vscode-json"
+      ],
+      "settings": {
+        "typescript.preferences.preferTypeOnlyAutoImports": true,
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "eslint.format.enable": true
+      }
+    }
+  },
+  
+  // Don't run postCreateCommand during prebuilds - dependencies are baked into image
+  "onCreateCommand": "echo 'Container created - dependencies already installed'",
+  
+  // Start the dev server after container creation
+  "postStartCommand": "npm start",
+  
+  // Keep container running
+  "overrideCommand": false,
+  
+  // Enable prebuilds - this is key for speed!
+  "prebuild": {
+    "commands": [
+      "npm ci --prefer-offline --no-audit"
+    ]
+  }
+}
