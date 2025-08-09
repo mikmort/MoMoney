@@ -286,6 +286,184 @@ class RulesService {
     });
   }
 
+  // Auto-generate rule from AI classification for unique account + description combination
+  async createAutoRuleFromAI(
+    account: string,
+    description: string,
+    categoryName: string,
+    subcategoryName?: string,
+    confidence: number = 1.0
+  ): Promise<CategoryRule> {
+    // Check if a rule already exists for this exact account + description combination
+    const existingRule = this.rules.find(rule => 
+      rule.isActive && 
+      rule.conditions.length === 2 &&
+      rule.conditions.some(c => c.field === 'account' && c.operator === 'equals' && c.value === account) &&
+      rule.conditions.some(c => c.field === 'description' && c.operator === 'equals' && c.value === description)
+    );
+
+    if (existingRule) {
+      console.log(`Auto-rule already exists for ${account} + "${description}"`);
+      return existingRule;
+    }
+
+    const ruleName = `Auto: ${description} (${account})`;
+    const ruleDescription = `Auto-generated from AI classification (confidence: ${Math.round(confidence * 100)}%)`;
+    
+    return this.addRule({
+      name: ruleName,
+      description: ruleDescription,
+      isActive: true,
+      priority: 50, // Higher priority than manual rules (lower number = higher priority)
+      conditions: [
+        {
+          field: 'account',
+          operator: 'equals',
+          value: account,
+          caseSensitive: false,
+        },
+        {
+          field: 'description',
+          operator: 'equals',
+          value: description,
+          caseSensitive: false,
+        },
+      ],
+      action: {
+        categoryId: this.getCategoryIdByName(categoryName) || 'uncategorized',
+        categoryName,
+        subcategoryId: subcategoryName ? this.getSubcategoryIdByName(subcategoryName, categoryName) : undefined,
+        subcategoryName,
+      },
+    });
+  }
+
+  // Create or update rule from user manual categorization
+  async createOrUpdateRuleFromUserEdit(
+    account: string,
+    description: string,
+    categoryName: string,
+    subcategoryName?: string,
+    applyToExisting: boolean = false
+  ): Promise<{ rule: CategoryRule; isNew: boolean; reclassifiedCount?: number }> {
+    // Check if a rule already exists for this exact account + description combination
+    const existingRuleIndex = this.rules.findIndex(rule => 
+      rule.isActive && 
+      rule.conditions.length === 2 &&
+      rule.conditions.some(c => c.field === 'account' && c.operator === 'equals' && c.value === account) &&
+      rule.conditions.some(c => c.field === 'description' && c.operator === 'equals' && c.value === description)
+    );
+
+    let rule: CategoryRule;
+    let isNew: boolean = false;
+    let reclassifiedCount: number | undefined;
+
+    if (existingRuleIndex !== -1) {
+      // Update existing rule
+      const updates: Partial<CategoryRule> = {
+        action: {
+          categoryId: this.getCategoryIdByName(categoryName) || 'uncategorized',
+          categoryName,
+          subcategoryId: subcategoryName ? this.getSubcategoryIdByName(subcategoryName, categoryName) : undefined,
+          subcategoryName,
+        },
+        lastModifiedDate: new Date(),
+      };
+
+      rule = await this.updateRule(this.rules[existingRuleIndex].id, updates) as CategoryRule;
+      console.log(`Updated existing auto-rule for ${account} + "${description}"`);
+    } else {
+      // Create new rule
+      const ruleName = `User: ${description} (${account})`;
+      const ruleDescription = `Created from user manual categorization`;
+      
+      rule = await this.addRule({
+        name: ruleName,
+        description: ruleDescription,
+        isActive: true,
+        priority: 25, // Very high priority for user-created rules
+        conditions: [
+          {
+            field: 'account',
+            operator: 'equals',
+            value: account,
+            caseSensitive: false,
+          },
+          {
+            field: 'description',
+            operator: 'equals',
+            value: description,
+            caseSensitive: false,
+          },
+        ],
+        action: {
+          categoryId: this.getCategoryIdByName(categoryName) || 'uncategorized',
+          categoryName,
+          subcategoryId: subcategoryName ? this.getSubcategoryIdByName(subcategoryName, categoryName) : undefined,
+          subcategoryName,
+        },
+      });
+      
+      isNew = true;
+      console.log(`Created new user-rule for ${account} + "${description}"`);
+    }
+
+    // If requested, reclassify existing transactions
+    if (applyToExisting) {
+      reclassifiedCount = await this.reclassifyExistingTransactions(rule);
+    }
+
+    return { rule, isNew, reclassifiedCount };
+  }
+
+  // Reclassify existing transactions that match a rule
+  async reclassifyExistingTransactions(rule: CategoryRule): Promise<number> {
+    try {
+      // Import dataService here to avoid circular dependency
+      const { dataService } = await import('./dataService');
+      
+      const allTransactions = await dataService.getAllTransactions();
+      let reclassifiedCount = 0;
+
+      for (const transaction of allTransactions) {
+        // Create a transaction-like object for rule evaluation
+        const transactionForRule = {
+          date: transaction.date,
+          description: transaction.description,
+          amount: transaction.amount,
+          account: transaction.account,
+          category: transaction.category, // Add required fields
+          type: transaction.type,
+        };
+
+        // Check if this transaction matches the rule conditions
+        if (this.evaluateRule(transactionForRule, rule)) {
+          // Only update if the categorization would actually change
+          const wouldChange = transaction.category !== rule.action.categoryName || 
+                            transaction.subcategory !== rule.action.subcategoryName;
+
+          if (wouldChange) {
+            await dataService.updateTransaction(transaction.id, {
+              category: rule.action.categoryName,
+              subcategory: rule.action.subcategoryName,
+              confidence: 1.0,
+              reasoning: `Reclassified by rule: ${rule.name}`,
+              isVerified: false, // Mark as unverified since it was auto-changed
+            }, `Reclassified by rule: ${rule.name}`);
+            
+            reclassifiedCount++;
+          }
+        }
+      }
+
+      console.log(`Reclassified ${reclassifiedCount} existing transactions using rule: ${rule.name}`);
+      return reclassifiedCount;
+    } catch (error) {
+      console.error('Failed to reclassify existing transactions:', error);
+      return 0;
+    }
+  }
+
   // Helper methods for category/subcategory mapping
   private getCategoryIdByName(categoryName: string): string | undefined {
     // In a real implementation, this would query the categories service
