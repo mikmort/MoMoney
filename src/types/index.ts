@@ -1,5 +1,14 @@
 // Core data models for the Mo Money application
 
+export interface TransactionSplit {
+  id: string;
+  amount: number;
+  category: string;
+  subcategory?: string;
+  description?: string; // Optional override for split-specific description
+  notes?: string;
+}
+
 export interface Transaction {
   id: string;
   date: Date;
@@ -29,6 +38,9 @@ export interface Transaction {
   anomalyType?: 'high' | 'low'; // Whether amount is unusually high or low
   anomalyScore?: number; // How many standard deviations from historical average (0-10 scale)
   historicalAverage?: number; // Historical average for this category/vendor
+  // Split transaction support
+  splits?: TransactionSplit[]; // Optional array of splits for this transaction
+  isSplit?: boolean; // Convenience flag to indicate if transaction has splits
 }
 
 export interface Account {
