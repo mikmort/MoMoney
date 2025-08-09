@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { PageHeader, Card, Button } from '../../styles/globalStyles';
 import { defaultConfig } from '../../config/appConfig';
 import { dataService } from '../../services/dataService';
 import { AccountsManagement } from './AccountsManagement';
+import { AddBankConnection, BankConnectionManager } from '../BankConnection';
+import { bankConnectivityService } from '../../services/bankConnectivityService';
+import { BankConnection } from '../../types';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -72,6 +75,36 @@ const ConfirmContent = styled.div`
 const Settings: React.FC = () => {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [bankConnections, setBankConnections] = useState<BankConnection[]>([]);
+  const [loadingConnections, setLoadingConnections] = useState(true);
+
+  useEffect(() => {
+    loadBankConnections();
+  }, []);
+
+  const loadBankConnections = async () => {
+    try {
+      setLoadingConnections(true);
+      const connections = await bankConnectivityService.getConnections();
+      setBankConnections(connections);
+    } catch (error) {
+      console.error('Failed to load bank connections:', error);
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const handleConnectionAdded = (connection: BankConnection) => {
+    setBankConnections(prev => [...prev, connection]);
+  };
+
+  const handleConnectionRemoved = (connectionId: string) => {
+    setBankConnections(prev => prev.filter(conn => conn.id !== connectionId));
+  };
+
+  const handleConnectionUpdated = () => {
+    loadBankConnections(); // Reload connections after sync
+  };
 
   const handleResetData = async () => {
     setIsResetting(true);
@@ -120,6 +153,31 @@ const Settings: React.FC = () => {
           <li>Auto-categorization settings</li>
           <li>Default account selection</li>
         </ul>
+      </Card>
+
+      <Card>
+        <h3>🏦 Bank Connections</h3>
+        <p>Connect your bank accounts to automatically import transactions using secure OAuth authentication.</p>
+        
+        {loadingConnections ? (
+          <div>Loading bank connections...</div>
+        ) : (
+          <>
+            <BankConnectionManager
+              connections={bankConnections}
+              onConnectionRemoved={handleConnectionRemoved}
+              onConnectionUpdated={handleConnectionUpdated}
+            />
+            
+            <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #e0e0e0' }}>
+              <h4>Add New Bank Connection</h4>
+              <AddBankConnection
+                onConnectionAdded={handleConnectionAdded}
+                disabled={isResetting}
+              />
+            </div>
+          </>
+        )}
       </Card>
 
       <Card>

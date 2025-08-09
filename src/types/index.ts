@@ -246,3 +246,61 @@ export interface DuplicateDetectionResult {
   uniqueTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[];
   config: DuplicateDetectionConfig; // Configuration used for detection
 }
+
+// Bank connectivity types
+export interface BankConnection {
+  id: string;
+  institutionId: string;
+  institutionName: string;
+  plaidItemId: string;
+  accessToken: string; // Encrypted/secured in production
+  connectedDate: Date;
+  lastSyncDate?: Date;
+  isActive: boolean;
+  accounts: BankAccount[];
+}
+
+export interface BankAccount {
+  id: string;
+  plaidAccountId: string;
+  name: string;
+  officialName?: string;
+  type: 'checking' | 'savings' | 'credit_card' | 'investment' | 'loan' | 'other';
+  subtype: string;
+  mask?: string; // Last 4 digits
+  availableBalance?: number;
+  currentBalance?: number;
+  isoCurrencyCode?: string;
+  isEnabled: boolean; // Whether to sync transactions from this account
+}
+
+export interface BankTransaction {
+  plaidTransactionId: string;
+  accountId: string;
+  amount: number;
+  date: Date;
+  name: string;
+  merchantName?: string;
+  categoryId?: string;
+  category: string[];
+  subcategory?: string;
+  isoCurrencyCode?: string;
+  location?: {
+    address?: string;
+    city?: string;
+    region?: string;
+    postalCode?: string;
+    country?: string;
+  };
+  paymentChannel: 'online' | 'in store' | 'other';
+  pending: boolean;
+}
+
+export interface BankSyncResult {
+  connectionId: string;
+  accountId: string;
+  newTransactions: number;
+  updatedTransactions: number;
+  errors: string[];
+  syncDate: Date;
+}
