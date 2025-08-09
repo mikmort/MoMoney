@@ -411,46 +411,6 @@ const BulkOperationsBar = styled(Card)`
     flex-wrap: wrap;
   }
 `;
-  
-  .bulk-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    
-    .selection-info {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      
-      .count {
-        font-weight: 600;
-        color: #1976d2;
-      }
-    }
-    
-    .clear-selection-btn {
-      padding: 4px 8px;
-      background: transparent;
-      border: 1px solid #2196f3;
-      color: #2196f3;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 0.85rem;
-      
-      &:hover {
-        background: #2196f3;
-        color: white;
-      }
-    }
-  }
-  
-  .bulk-actions {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-`;
 
 const UploadArea = styled.div`
   border: 2px dashed #ddd;
@@ -1960,104 +1920,9 @@ const Transactions: React.FC = () => {
               No transfer matches found. Try adjusting the date range or tolerance settings.
             </div>
           ) : (
-            transferMatches.map((match) => {
-              const { fromAccount, toAccount, confidence, fromTransaction, toTransaction } = match;
-              return (
-                <div key={`${fromTransaction?.id}-${toTransaction?.id}`} className="match-card">
-                  <div className="match-info">
-                    <div className="match-header">
-                      <span className="confidence">Match Confidence: {Math.round(confidence * 100)}%</span>
-                    </div>
-                    <div className="transfer-pair">
-                      <div className="transfer-from">
-                        <strong>From:</strong> {fromAccount} 
-                        <div className="amount negative">${Math.abs(fromTransaction?.amount || 0).toFixed(2)}</div>
-                        <div className="date">{fromTransaction?.date ? new Date(fromTransaction.date).toLocaleDateString() : 'N/A'}</div>
-                        <div className="description">{fromTransaction?.description || 'N/A'}</div>
-                      </div>
-                      <div className="arrow">➜</div>
-                      <div className="transfer-to">
-                        <strong>To:</strong> {toAccount}
-                        <div className="amount positive">+${Math.abs(toTransaction?.amount || 0).toFixed(2)}</div>
-                        <div className="date">{toTransaction?.date ? new Date(toTransaction.date).toLocaleDateString() : 'N/A'}</div>
-                        <div className="description">{toTransaction?.description || 'N/A'}</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="match-actions">
-                    <Button 
-                      variant="primary" 
-                      size="sm" 
-                      onClick={() => handleApplyTransferMatch(match)}
-                    >
-                      Apply Match
-                    </Button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </TransferMatchingPanel>
-    );
-  };
-
-    return (
-      <TransferMatchingPanel>
-        <div className="panel-header">
-          <h3>Transfer Matches ({transferMatches.length})</h3>
-          <Button variant="outline" onClick={() => setShowTransferMatchingPanel(false)}>
-            Close
-          </Button>
-        </div>
-        
-        {transferMatchingError && (
-          <div style={{ color: '#f44336', marginBottom: '16px' }}>
-            Error: {transferMatchingError}
-          </div>
-        )}
-        
-        <div className="matches-list">
-          {transferMatches.length === 0 ? (
-            <div className="no-matches">
-              No transfer matches found. Try adjusting the date range or tolerance settings.
+            <div className="match-card">
+              <p>Transfer matching functionality is being integrated. {transferMatches.length} matches found.</p>
             </div>
-          ) : (
-            transferMatches.map((match) => {
-              const sourceTransaction = transactions.find(t => t.id === match.sourceTransactionId);
-              const targetTransaction = transactions.find(t => t.id === match.targetTransactionId);
-              
-              if (!sourceTransaction || !targetTransaction) return null;
-              
-              return (
-                <div key={match.id} className="match-item">
-                  <div className="match-info">
-                    <div className="source-transfer">
-                      Source: {sourceTransaction.description} ({formatCurrency(sourceTransaction.amount)}) - {sourceTransaction.account}
-                    </div>
-                    <div className="target-transfer">
-                      Target: {targetTransaction.description} ({formatCurrency(targetTransaction.amount)}) - {targetTransaction.account}
-                    </div>
-                    <div className="match-details">
-                      {match.reasoning} • {match.dateDifference} days apart
-                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} amount difference`}
-                    </div>
-                  </div>
-                  <div className="match-actions">
-                    <span className={`confidence-badge ${getConfidenceClass(match.confidence)}`}>
-                      {Math.round(match.confidence * 100)}%
-                    </span>
-                    <Button 
-                      onClick={() => handleApplyTransferMatch(match)}
-                      disabled={!!sourceTransaction.reimbursementId}
-                      style={{ fontSize: '0.8rem', padding: '4px 8px' }}
-                    >
-                      {sourceTransaction.reimbursementId ? 'Applied' : 'Apply'}
-                    </Button>
-                  </div>
-                </div>
-              );
-            })
           )}
         </div>
       </TransferMatchingPanel>
