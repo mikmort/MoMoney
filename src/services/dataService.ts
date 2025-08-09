@@ -199,6 +199,7 @@ class DataService {
     console.log(`DataService: Total transactions now: ${this.transactions.length}`);
     await this.saveToDB();
     console.log(`DataService: Saved to IndexedDB`);
+    
     return newTransactions;
   }
 

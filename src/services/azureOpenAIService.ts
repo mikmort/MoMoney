@@ -372,12 +372,6 @@ Rules:
 
   async detectAnomalies(request: AnomalyDetectionRequest): Promise<AnomalyDetectionResponse> {
     const startTime = Date.now();
-    
-    await this.initializeClient();
-    
-    if (!this.client) {
-      throw new Error('Azure OpenAI client not initialized');
-    }
 
     if (!request.transactions || request.transactions.length === 0) {
       return {
@@ -425,17 +419,23 @@ Rules:
       const userPrompt = `Analyze these transactions for anomalies:
 ${JSON.stringify(transactionData, null, 2)}`;
 
-      const completion = await this.client.chat.completions.create({
-        model: this.deploymentName,
+      const proxyRequest: OpenAIProxyRequest = {
+        deployment: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 2000,
         temperature: 0.2
-      });
+      };
 
-      const responseContent = completion.choices[0]?.message?.content;
+      const response = await this.callOpenAIProxy(proxyRequest);
+      
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to get response from OpenAI');
+      }
+
+      const responseContent = response.data.choices[0]?.message?.content;
       if (!responseContent) {
         throw new Error('No response from Azure OpenAI');
       }
