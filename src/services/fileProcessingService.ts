@@ -727,7 +727,7 @@ Return ONLY a clean JSON response:
     // Step 3: Call AI in batch chunks only for unmatched transactions
     const batchResults: AIClassificationResponse[] = [];
     if (batchRequests.length > 0) {
-      const CHUNK = 10; // smaller batch size to avoid token/rate limits
+      const CHUNK = 20; // increased batch size to 20 to speed up processing
       for (let start = 0; start < batchRequests.length; start += CHUNK) {
         if (this.isCancelled(fileId)) {
           console.log('🛑 Transaction processing cancelled during batch classification');
