@@ -24,6 +24,18 @@ export interface Transaction {
   reimbursementId?: string; // ID of the matching reimbursement transaction
   originalCurrency?: string; // Original currency for foreign transactions
   exchangeRate?: number; // Exchange rate if converted from foreign currency
+  // Enhanced AI proxy metadata for detailed reasoning transparency
+  aiProxyMetadata?: {
+    model?: string;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    finishReason?: string;
+    requestId?: string;
+    created?: number;
+    keyTokens?: string[];
+    processingTime?: number;
+  };
   // Anomaly detection fields
   isAnomaly?: boolean; // True if amount is unusually high/low vs historical average
   anomalyType?: 'high' | 'low'; // Whether amount is unusually high or low
@@ -136,6 +148,19 @@ export interface AIClassificationResponse {
   reasoning?: string;
   suggestedVendor?: string;
   suggestedTags?: string[];
+  // Enhanced proxy response metadata for detailed reasoning
+  proxyMetadata?: {
+    model?: string;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    finishReason?: string;
+    requestId?: string;
+    created?: number;
+    // Token breakdown for transparency
+    keyTokens?: string[];
+    processingTime?: number;
+  };
 }
 
 export interface DashboardStats {

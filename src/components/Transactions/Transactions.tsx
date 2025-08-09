@@ -1748,6 +1748,7 @@ const Transactions: React.FC = () => {
           subcategory: subName,
           confidence: result.confidence,
           reasoning: result.reasoning,
+          aiProxyMetadata: result.proxyMetadata,
           isVerified: false,
   };
 
@@ -2021,6 +2022,7 @@ const Transactions: React.FC = () => {
             subcategory: subName,
             confidence: result.confidence,
             reasoning: result.reasoning,
+            aiProxyMetadata: result.proxyMetadata,
             isVerified: false,
           };
 
@@ -2893,6 +2895,7 @@ const Transactions: React.FC = () => {
         subcategory={selectedTransaction?.subcategory}
         description={selectedTransaction?.description || ''}
         amount={selectedTransaction?.amount || 0}
+        proxyMetadata={selectedTransaction?.aiProxyMetadata}
       />
 
       {/* Category Rules Manager */}
