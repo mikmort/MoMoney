@@ -15,22 +15,30 @@ jobs:
     runs-on: ubuntu-latest
     name: Build and Deploy Job
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
           lfs: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: Read Node.js version from .nvmrc
+        id: node-version
+        run: echo "node-version=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js with enhanced caching
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ steps.node-version.outputs.node-version }}
           cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Enable Corepack for consistent toolchain
+        run: corepack enable
 
-      - name: Build application
-        run: npm run build
+      - name: Install dependencies with optimized settings
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Build application with optimizations
+        run: CI=false npm run build
         env:
           REACT_APP_AZURE_OPENAI_ENDPOINT: ${{ secrets.REACT_APP_AZURE_OPENAI_ENDPOINT }}
           REACT_APP_AZURE_OPENAI_API_KEY: ${{ secrets.REACT_APP_AZURE_OPENAI_API_KEY }}

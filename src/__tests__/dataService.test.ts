@@ -1,4 +1,4 @@
-import { dataService } from './dataService';
+import { dataService } from '../services/dataService';
 import { Transaction, DuplicateDetectionConfig } from '../types';
 
 describe('Enhanced Duplicate Detection', () => {
