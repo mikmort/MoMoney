@@ -1257,13 +1257,30 @@ const Transactions: React.FC = () => {
 
   const handleDeleteTransaction = useCallback(async (id: string) => {
     try {
+      const transaction = transactions.find(t => t.id === id);
+      if (!transaction) return;
+
+      const confirmMessage = `Are you sure you want to delete this transaction?\n\n"${transaction.description}" - ${formatCurrency(transaction.amount)}\n\nThis action cannot be undone.`;
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
       console.log('Deleting transaction:', id);
-      // For now, just remove from state since we're using mock data
-      const updatedTransactions = transactions.filter(t => t.id !== id);
-      setTransactions(updatedTransactions);
-      setFilteredTransactions(updatedTransactions);
+      const deleted = await dataService.deleteTransaction(id);
+      
+      if (deleted) {
+        // Refresh transactions list
+        const allTransactions = await dataService.getAllTransactions();
+        setTransactions(allTransactions);
+        setFilteredTransactions(allTransactions);
+        console.log('✅ Transaction deleted successfully');
+      } else {
+        console.log('❌ Transaction not found or could not be deleted');
+        alert('Failed to delete transaction. It may have already been deleted.');
+      }
     } catch (error) {
-      console.error('Failed to delete transaction:', error);
+      console.error('❌ Failed to delete transaction:', error);
+      alert('Failed to delete transaction. Please try again.');
     }
   }, [transactions]);
 
@@ -1473,7 +1490,7 @@ const Transactions: React.FC = () => {
     setCategoryEditData(null);
   };
 
-  // Bulk edit operations
+  // Bulk operations
   const handleBulkEdit = () => {
     if (selectedTransactions.length === 0) return;
     setBulkEditForm({
@@ -1485,6 +1502,77 @@ const Transactions: React.FC = () => {
       replaceText: ''
     });
     setShowBulkEditModal(true);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedTransactions.length === 0) return;
+
+    const confirmMessage = `Are you sure you want to delete ${selectedTransactions.length} transaction(s)?\n\nThis action cannot be undone.`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      const transactionIds = selectedTransactions.map(t => t.id);
+      const deletedCount = await dataService.deleteTransactions(transactionIds);
+      
+      if (deletedCount > 0) {
+        // Refresh transactions list
+        const allTransactions = await dataService.getAllTransactions();
+        setTransactions(allTransactions);
+        setFilteredTransactions(allTransactions);
+        
+        // Clear selection
+        if (gridApi) {
+          gridApi.deselectAll();
+        }
+        setSelectedTransactions([]);
+        
+        console.log(`✅ Successfully deleted ${deletedCount} transactions`);
+      }
+    } catch (error) {
+      console.error('❌ Error during bulk delete:', error);
+      alert('Failed to delete transactions. Please try again.');
+    }
+  };
+
+  const handleBulkMarkAsVerified = async () => {
+    if (selectedTransactions.length === 0) return;
+
+    const unverifiedTransactions = selectedTransactions.filter(t => !t.isVerified);
+    if (unverifiedTransactions.length === 0) {
+      alert('All selected transactions are already verified.');
+      return;
+    }
+
+    const confirmMessage = `Mark ${unverifiedTransactions.length} transaction(s) as verified?`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      let updateCount = 0;
+
+      for (const transaction of unverifiedTransactions) {
+        const updates: Partial<Transaction> = {
+          isVerified: true,
+          lastModifiedDate: new Date()
+        };
+
+        await dataService.updateTransaction(transaction.id, updates, 'Bulk operation: Mark as verified');
+        updateCount++;
+      }
+
+      // Refresh transactions
+      const allTransactions = await dataService.getAllTransactions();
+      setTransactions(allTransactions);
+      setFilteredTransactions(allTransactions);
+
+      console.log(`✅ Bulk verify completed for ${updateCount} transactions`);
+    } catch (error) {
+      console.error('❌ Error during bulk verify:', error);
+      alert('Failed to verify transactions. Please try again.');
+    }
   };
 
   const handleBulkEditCancel = () => {
@@ -2448,7 +2536,13 @@ const Transactions: React.FC = () => {
           </div>
           <div className="bulk-actions">
             <Button variant="outline" onClick={handleBulkEdit}>
-              📝 Bulk Edit
+              📝 Edit
+            </Button>
+            <Button variant="outline" onClick={handleBulkMarkAsVerified}>
+              ✅ Mark Verified
+            </Button>
+            <Button variant="outline" onClick={handleBulkDelete} style={{ color: '#f44336', borderColor: '#f44336' }}>
+              🗑️ Delete
             </Button>
           </div>
         </BulkOperationsBar>
