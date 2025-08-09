@@ -433,6 +433,10 @@ const Transactions: React.FC = () => {
   // Edit transaction modal state
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  
+  // Undo/Redo state for tracking per-transaction capabilities
+  const [undoRedoStatus, setUndoRedoStatus] = useState<{[transactionId: string]: {canUndo: boolean; canRedo: boolean}}>({});
+  
   // History modal state
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyFor, setHistoryFor] = useState<Transaction | null>(null);
@@ -659,10 +663,97 @@ const Transactions: React.FC = () => {
       const allTransactions = await dataService.getAllTransactions();
       setTransactions(allTransactions);
       setFilteredTransactions(allTransactions);
+      // Update undo/redo status for this transaction
+      await updateUndoRedoStatus(updatedTransaction.id);
     } catch (error) {
       console.error('Failed to update transaction:', error);
     }
   };
+
+  // Update undo/redo status for a specific transaction
+  const updateUndoRedoStatus = async (transactionId: string) => {
+    try {
+      const status = await dataService.getUndoRedoStatus(transactionId);
+      setUndoRedoStatus(prev => ({
+        ...prev,
+        [transactionId]: {
+          canUndo: status.canUndo,
+          canRedo: status.canRedo
+        }
+      }));
+    } catch (error) {
+      console.error('Failed to get undo/redo status:', error);
+    }
+  };
+
+  // Refresh undo/redo status for all visible transactions
+  const refreshAllUndoRedoStatus = useCallback(async () => {
+    const statusPromises = filteredTransactions.map(async (transaction) => {
+      const status = await dataService.getUndoRedoStatus(transaction.id);
+      return {
+        transactionId: transaction.id,
+        canUndo: status.canUndo,
+        canRedo: status.canRedo
+      };
+    });
+    
+    const statuses = await Promise.all(statusPromises);
+    const statusMap: {[transactionId: string]: {canUndo: boolean; canRedo: boolean}} = {};
+    statuses.forEach(status => {
+      statusMap[status.transactionId] = {
+        canUndo: status.canUndo,
+        canRedo: status.canRedo
+      };
+    });
+    
+    setUndoRedoStatus(statusMap);
+  }, [filteredTransactions]);
+
+  // Handle undo transaction edit
+  const handleUndoTransaction = useCallback(async (transactionId: string) => {
+    try {
+      const transaction = transactions.find(t => t.id === transactionId);
+      if (!transaction) return;
+      
+      const undoedTransaction = await dataService.undoTransactionEdit(transactionId, 
+        `Undo edit of ${transaction.description}`);
+      
+      if (undoedTransaction) {
+        // Refresh transactions list
+        const allTransactions = await dataService.getAllTransactions();
+        setTransactions(allTransactions);
+        setFilteredTransactions(allTransactions);
+        await updateUndoRedoStatus(transactionId);
+        console.log('✅ Transaction edit undone successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to undo transaction edit:', error);
+      alert('Failed to undo. Please try again.');
+    }
+  }, [transactions]);
+
+  // Handle redo transaction edit
+  const handleRedoTransaction = useCallback(async (transactionId: string) => {
+    try {
+      const transaction = transactions.find(t => t.id === transactionId);
+      if (!transaction) return;
+      
+      const redoneTransaction = await dataService.redoTransactionEdit(transactionId, 
+        `Redo edit of ${transaction.description}`);
+      
+      if (redoneTransaction) {
+        // Refresh transactions list
+        const allTransactions = await dataService.getAllTransactions();
+        setTransactions(allTransactions);
+        setFilteredTransactions(allTransactions);
+        await updateUndoRedoStatus(transactionId);
+        console.log('✅ Transaction edit redone successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to redo transaction edit:', error);
+      alert('Failed to redo. Please try again.');
+    }
+  }, [transactions]);
 
   // Function to clear all column filters
   const handleClearAllFilters = () => {
@@ -975,6 +1066,44 @@ const Transactions: React.FC = () => {
     applyFilters();
   }, [applyFilters]);
 
+  // Refresh undo/redo status when filtered transactions change
+  useEffect(() => {
+    refreshAllUndoRedoStatus();
+  }, [refreshAllUndoRedoStatus]);
+
+  // Add keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        // Get the currently focused/selected transaction (if any)
+        // For now, we'll need a way to track which transaction is "active"
+        // This is a simplified implementation - in a real app you might track this differently
+        if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+          e.preventDefault();
+          // For demo purposes, let's undo the most recent transaction that can be undone
+          const undoableTransaction = filteredTransactions.find(t => 
+            undoRedoStatus[t.id]?.canUndo
+          );
+          if (undoableTransaction) {
+            handleUndoTransaction(undoableTransaction.id);
+          }
+        } else if ((e.key === 'y' || e.key === 'Y') || (e.key === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          // For demo purposes, let's redo the most recent transaction that can be redone
+          const redoableTransaction = filteredTransactions.find(t => 
+            undoRedoStatus[t.id]?.canRedo
+          );
+          if (redoableTransaction) {
+            handleRedoTransaction(redoableTransaction.id);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredTransactions, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
+
   const calculateStats = () => {
     const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
     
@@ -1001,12 +1130,23 @@ const Transactions: React.FC = () => {
 
   // Actions cell renderer component
   const ActionsCellRenderer = React.useCallback((params: any) => {
+    const transactionId = params.data.id;
+    const transactionStatus = undoRedoStatus[transactionId];
+    
     const handleEditClick = () => {
       startEditTransaction(params.data);
     };
 
     const handleDeleteClick = () => {
       handleDeleteTransaction(params.data.id);
+    };
+
+    const handleUndoClick = () => {
+      handleUndoTransaction(transactionId);
+    };
+
+    const handleRedoClick = () => {
+      handleRedoTransaction(transactionId);
     };
 
     const handleSuggestCategory = async () => {
@@ -1091,7 +1231,27 @@ const Transactions: React.FC = () => {
         icon: '✏️',
         label: 'Edit Transaction',
         onClick: handleEditClick
-      },
+      }
+    ];
+
+    // Add undo/redo actions if available
+    if (transactionStatus?.canUndo) {
+      actions.push({
+        icon: '↶',
+        label: 'Undo Edit',
+        onClick: handleUndoClick
+      });
+    }
+    
+    if (transactionStatus?.canRedo) {
+      actions.push({
+        icon: '↷',
+        label: 'Redo Edit',
+        onClick: handleRedoClick
+      });
+    }
+
+    actions.push(
       {
         icon: '🤖',
         label: 'Suggest Category',
@@ -1102,7 +1262,7 @@ const Transactions: React.FC = () => {
         label: 'History',
         onClick: handleHistory
       }
-    ];
+    );
 
     // Add transfer-specific action if this is a transfer transaction
     if (params.data.type === 'transfer') {
@@ -1121,7 +1281,7 @@ const Transactions: React.FC = () => {
     });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
-  }, [startEditTransaction, handleDeleteTransaction]);
+  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
 
   const columnDefs: ColDef[] = [
     {
