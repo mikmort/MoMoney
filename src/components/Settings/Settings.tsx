@@ -327,7 +327,7 @@ const Settings: React.FC = () => {
           <h4>📦 Backup & Restore</h4>
           <p>Export all your data to a structured backup file, or restore from a previous backup.</p>
           
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px' }}>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
             <Button 
               onClick={handleExportData}
               disabled={isExporting}
@@ -336,7 +336,7 @@ const Settings: React.FC = () => {
               {isExporting ? 'Exporting...' : '💾 Export Data'}
             </Button>
             
-            <label style={{ position: 'relative', cursor: 'pointer' }}>
+            <label style={{ position: 'relative', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
               <Button 
                 as="span"
                 disabled={isImporting}
