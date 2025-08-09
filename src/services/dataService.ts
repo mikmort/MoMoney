@@ -6,6 +6,11 @@ class DataService {
   private transactions: Transaction[] = [];
   private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
   private isInitialized = false;
+  
+  // In-memory undo/redo stacks for fast operations during active editing
+  private undoStacks: { [transactionId: string]: Transaction[] } = {};
+  private redoStacks: { [transactionId: string]: Transaction[] } = {};
+  private readonly MAX_UNDO_STACK_SIZE = 10;
 
   constructor() {
     this.initialize();
@@ -201,8 +206,15 @@ class DataService {
     const index = this.transactions.findIndex(t => t.id === id);
     if (index === -1) return null;
     
-    // Record a snapshot of the current transaction before updating
     const current = this.transactions[index];
+    
+    // Add current state to undo stack before making changes
+    this.addToUndoStack(id, { ...current });
+    
+    // Clear redo stack when making a new change
+    this.clearRedoStack(id);
+    
+    // Record a snapshot of the current transaction before updating (persistent history)
     await this.addHistorySnapshot(current.id, current, note);
 
     this.transactions[index] = {
@@ -502,6 +514,8 @@ class DataService {
     await this.ensureInitialized();
     this.transactions = [];
     this.history = {};
+    this.undoStacks = {};
+    this.redoStacks = {};
     await db.clearAll();
   }
 
@@ -742,6 +756,138 @@ class DataService {
     }
     
     return matches / longer.length;
+  }
+
+  // In-memory undo/redo functionality for fast operations during active editing
+  private addToUndoStack(transactionId: string, transactionState: Transaction): void {
+    if (!this.undoStacks[transactionId]) {
+      this.undoStacks[transactionId] = [];
+    }
+    
+    this.undoStacks[transactionId].push({ ...transactionState });
+    
+    // Limit stack size to prevent memory issues
+    if (this.undoStacks[transactionId].length > this.MAX_UNDO_STACK_SIZE) {
+      this.undoStacks[transactionId].shift(); // Remove oldest entry
+    }
+  }
+  
+  private addToRedoStack(transactionId: string, transactionState: Transaction): void {
+    if (!this.redoStacks[transactionId]) {
+      this.redoStacks[transactionId] = [];
+    }
+    
+    this.redoStacks[transactionId].push({ ...transactionState });
+    
+    // Limit stack size to prevent memory issues
+    if (this.redoStacks[transactionId].length > this.MAX_UNDO_STACK_SIZE) {
+      this.redoStacks[transactionId].shift(); // Remove oldest entry
+    }
+  }
+  
+  private clearRedoStack(transactionId: string): void {
+    this.redoStacks[transactionId] = [];
+  }
+  
+  async canUndoTransaction(transactionId: string): Promise<boolean> {
+    const undoStack = this.undoStacks[transactionId] || [];
+    const historyItems = this.history[transactionId] || [];
+    return undoStack.length > 0 || historyItems.length > 0;
+  }
+  
+  async canRedoTransaction(transactionId: string): Promise<boolean> {
+    const redoStack = this.redoStacks[transactionId] || [];
+    return redoStack.length > 0;
+  }
+  
+  async undoTransactionEdit(transactionId: string, note?: string): Promise<Transaction | null> {
+    const index = this.transactions.findIndex(t => t.id === transactionId);
+    if (index === -1) return null;
+    
+    const current = this.transactions[index];
+    const undoStack = this.undoStacks[transactionId] || [];
+    
+    let previousState: Transaction | null = null;
+    
+    // First try to get from in-memory undo stack
+    if (undoStack.length > 0) {
+      previousState = undoStack.pop()!;
+    } else {
+      // Fall back to persistent history if no in-memory undo available
+      const historyItems = this.history[transactionId] || [];
+      if (historyItems.length > 0) {
+        // Get the most recent history item
+        const sortedHistory = [...historyItems].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        previousState = sortedHistory[0].data;
+      }
+    }
+    
+    if (!previousState) return null;
+    
+    // Add current state to redo stack
+    this.addToRedoStack(transactionId, current);
+    
+    // Restore previous state
+    const restoredTransaction: Transaction = {
+      ...previousState,
+      id: transactionId, // Ensure ID remains the same
+      lastModifiedDate: new Date()
+    };
+    
+    this.transactions[index] = restoredTransaction;
+    
+    // Add a history snapshot for the undo operation
+    await this.addHistorySnapshot(transactionId, current, note ? `Undo: ${note}` : 'Undo edit operation');
+    
+    await this.saveToDB();
+    return restoredTransaction;
+  }
+  
+  async redoTransactionEdit(transactionId: string, note?: string): Promise<Transaction | null> {
+    const index = this.transactions.findIndex(t => t.id === transactionId);
+    if (index === -1) return null;
+    
+    const redoStack = this.redoStacks[transactionId] || [];
+    if (redoStack.length === 0) return null;
+    
+    const current = this.transactions[index];
+    const nextState = redoStack.pop()!;
+    
+    // Add current state to undo stack
+    this.addToUndoStack(transactionId, current);
+    
+    // Restore next state
+    const restoredTransaction: Transaction = {
+      ...nextState,
+      id: transactionId, // Ensure ID remains the same
+      lastModifiedDate: new Date()
+    };
+    
+    this.transactions[index] = restoredTransaction;
+    
+    // Add a history snapshot for the redo operation
+    await this.addHistorySnapshot(transactionId, current, note ? `Redo: ${note}` : 'Redo edit operation');
+    
+    await this.saveToDB();
+    return restoredTransaction;
+  }
+  
+  async getUndoRedoStatus(transactionId: string): Promise<{
+    canUndo: boolean;
+    canRedo: boolean;
+    undoStackSize: number;
+    redoStackSize: number;
+  }> {
+    const undoStack = this.undoStacks[transactionId] || [];
+    const redoStack = this.redoStacks[transactionId] || [];
+    const historyItems = this.history[transactionId] || [];
+    
+    return {
+      canUndo: undoStack.length > 0 || historyItems.length > 0,
+      canRedo: redoStack.length > 0,
+      undoStackSize: undoStack.length,
+      redoStackSize: redoStack.length
+    };
   }
 }
 
