@@ -513,6 +513,51 @@ class RulesService {
     }
   }
 
+  // Initialize rules from existing transactions if no rules exist
+  async initializeRulesFromExistingTransactions(): Promise<number> {
+    // Only run if no rules exist yet
+    if (this.rules.length > 0) {
+      return 0;
+    }
+
+    try {
+      // Import dataService here to avoid circular dependency
+      const { dataService } = await import('./dataService');
+      
+      const allTransactions = await dataService.getAllTransactions();
+      let rulesCreated = 0;
+
+      for (const transaction of allTransactions) {
+        // Only create rules for high-confidence AI categorizations (>= 80%)
+        if (transaction.confidence && transaction.confidence >= 0.8 && 
+            transaction.category && transaction.category !== 'uncategorized' &&
+            transaction.account && transaction.description) {
+          
+          try {
+            await this.createAutoRuleFromAI(
+              transaction.account,
+              transaction.description,
+              transaction.category,
+              transaction.subcategory,
+              transaction.confidence
+            );
+            rulesCreated++;
+            console.log(`📋 Auto-created rule for: ${transaction.description} (${transaction.account}) → ${transaction.category}`);
+          } catch (error) {
+            // Don't fail the whole process if individual rule creation fails
+            console.warn(`Failed to create auto-rule for transaction ${transaction.id}:`, error);
+          }
+        }
+      }
+
+      console.log(`Created ${rulesCreated} auto-rules from existing transactions`);
+      return rulesCreated;
+    } catch (error) {
+      console.error('Failed to initialize rules from existing transactions:', error);
+      return 0;
+    }
+  }
+
   // Utility methods
   async getStats(): Promise<{
     totalRules: number;
