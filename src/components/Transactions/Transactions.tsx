@@ -4,7 +4,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account, AnomalyResult } from '../../types';
+import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit } from '../../types';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
@@ -19,6 +19,8 @@ import { TransferMatchDialog } from './TransferMatchDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { CategoryRulesManager } from './CategoryRulesManager';
+import { TransactionSplitManager } from '../shared/TransactionSplitManager';
+import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
 import { defaultCategories as categoriesCatalog } from '../../data/defaultCategories';
@@ -587,13 +589,12 @@ const AmountCellRenderer = (params: any) => {
 };
 
 const CategoryCellRenderer = (params: any) => {
-  const category = params.value;
-  const subcategory = params.data.subcategory;
-  const isReimbursed = params.data.reimbursed;
-  const isUncategorized = category === 'Uncategorized';
+  const transaction = params.data as Transaction;
+  const isReimbursed = transaction.reimbursed;
   const reimbursedClass = isReimbursed ? ' reimbursed' : '';
   
-  const displayText = subcategory ? `${category} → ${subcategory}` : category;
+  const displayText = getEffectiveCategory(transaction);
+  const isUncategorized = transaction.category === 'Uncategorized' && !transaction.splits;
   
   if (isUncategorized) {
     return (
@@ -610,6 +611,26 @@ const CategoryCellRenderer = (params: any) => {
         title="This transaction needs manual categorization"
       >
         ⚠️ {displayText}
+      </span>
+    );
+  }
+  
+  // Special styling for split transactions
+  if (transaction.splits && transaction.splits.length > 1) {
+    return (
+      <span 
+        className={reimbursedClass}
+        style={{
+          color: '#2196f3',
+          fontWeight: 'bold',
+          backgroundColor: '#e3f2fd',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          fontSize: '0.9em'
+        }}
+        title={`Split into ${transaction.splits.length} categories`}
+      >
+        💸 {displayText}
       </span>
     );
   }
@@ -848,7 +869,8 @@ const Transactions: React.FC = () => {
     account: '',
     type: '',
     date: '',
-    notes: ''
+    notes: '',
+    splits: undefined as TransactionSplit[] | undefined
   });
 
   // Get available subcategories based on selected category
@@ -1260,7 +1282,8 @@ const Transactions: React.FC = () => {
       account: transaction.account || '',
       type: transaction.type || '',
       date: transaction.date ? transaction.date.toISOString().split('T')[0] : '',
-      notes: transaction.notes || ''
+      notes: transaction.notes || '',
+      splits: transaction.splits
     });
     
     // Show the edit modal
@@ -1283,6 +1306,13 @@ const Transactions: React.FC = () => {
     });
   };
 
+  const handleSplitsChange = (splits: TransactionSplit[] | undefined) => {
+    setTransactionForm(prev => ({
+      ...prev,
+      splits
+    }));
+  };
+
   const handleEditFormSubmit = async () => {
     if (!editingTransaction) return;
     
@@ -1298,14 +1328,17 @@ const Transactions: React.FC = () => {
         type: transactionForm.type as 'income' | 'expense' | 'transfer',
         date: new Date(transactionForm.date),
         notes: transactionForm.notes,
-        lastModifiedDate: new Date()
+        lastModifiedDate: new Date(),
+        splits: transactionForm.splits,
+        isSplit: !!(transactionForm.splits && transactionForm.splits.length > 0)
       };
 
       // Check if category or subcategory has changed (user made a manual categorization change)
       const categoryChanged = editingTransaction.category !== updatedTransaction.category;
       const subcategoryChanged = editingTransaction.subcategory !== updatedTransaction.subcategory;
       
-      if (categoryChanged || subcategoryChanged) {
+      if ((categoryChanged || subcategoryChanged) && !transactionForm.splits) {
+        // Only show category change dialog for non-split transactions
         // Store the data and show the confirmation dialog
         setCategoryEditData({
           transaction: editingTransaction,
@@ -1317,7 +1350,7 @@ const Transactions: React.FC = () => {
         return; // Don't update yet, wait for user confirmation
       }
 
-      // No category change, proceed with normal update
+      // No category change or split transaction, proceed with normal update
       await dataService.updateTransaction(editingTransaction.id, {
         description: updatedTransaction.description,
         amount: updatedTransaction.amount,
@@ -1327,7 +1360,9 @@ const Transactions: React.FC = () => {
         type: updatedTransaction.type,
         date: updatedTransaction.date,
         notes: updatedTransaction.notes,
-        lastModifiedDate: updatedTransaction.lastModifiedDate
+        lastModifiedDate: updatedTransaction.lastModifiedDate,
+        splits: updatedTransaction.splits,
+        isSplit: updatedTransaction.isSplit
       });
       
       // Refresh the transactions list
@@ -1357,7 +1392,8 @@ const Transactions: React.FC = () => {
       account: '',
       type: '',
       date: '',
-      notes: ''
+      notes: '',
+      splits: undefined
     });
   };
 
@@ -2870,6 +2906,19 @@ const Transactions: React.FC = () => {
                 placeholder="Additional notes (optional)"
               />
             </div>
+
+            {/* Transaction Split Manager */}
+            {editingTransaction && (
+              <TransactionSplitManager
+                transaction={{
+                  ...editingTransaction,
+                  amount: parseFloat(transactionForm.amount) || editingTransaction.amount,
+                  splits: transactionForm.splits
+                }}
+                categories={defaultCategories}
+                onSplitsChange={handleSplitsChange}
+              />
+            )}
 
             <div className="form-actions">
               <Button variant="outline" onClick={handleEditFormCancel}>
