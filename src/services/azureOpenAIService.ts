@@ -2,7 +2,10 @@ import { defaultConfig } from '../config/appConfig';
 import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult } from '../types';
 
 // OpenAI Proxy configuration
-const OPENAI_PROXY_URL = '/api/openai/chat/completions';
+// Allow overriding the proxy URL via environment variable for production or remote Azure Function usage.
+// Example: REACT_APP_OPENAI_PROXY_URL=https://<your-func>.azurewebsites.net/api/openai/chat/completions
+const OPENAI_PROXY_URL =
+  (process.env.REACT_APP_OPENAI_PROXY_URL as string | undefined) || '/api/openai/chat/completions';
 
 // Types for the proxy API
 interface ChatMessage {
@@ -75,6 +78,42 @@ export class AzureOpenAIService {
     }
   }
 
+  // Constrain AI output to the provided categories/subcategories catalog
+  private constrainToCatalog(
+    result: { categoryId: string; subcategoryId?: string | null; confidence?: number; reasoning?: string },
+    categories: Array<{ id: string; name: string; subcategories?: Array<{ id: string; name: string }> }>
+  ): AIClassificationResponse {
+    const categoryIds = new Set(categories.map(c => c.id));
+    const nameToIdCategory = new Map(categories.map(c => [c.name.toLowerCase(), c.id]));
+
+    // Normalize category: accept exact id, else map by name, else fallback to 'uncategorized'
+    let categoryId = result.categoryId;
+    if (!categoryIds.has(categoryId)) {
+      const mapped = nameToIdCategory.get(String(categoryId).toLowerCase());
+      categoryId = mapped || 'uncategorized';
+    }
+
+    // Normalize subcategory within the chosen category
+    let subcategoryId = result.subcategoryId ?? null;
+    if (subcategoryId) {
+      const cat = categories.find(c => c.id === categoryId);
+      const subs = cat?.subcategories || [];
+      const subIds = new Set(subs.map(s => s.id));
+      if (!subIds.has(subcategoryId)) {
+        const nameToIdSub = new Map(subs.map(s => [s.name.toLowerCase(), s.id]));
+        const mappedSub = nameToIdSub.get(String(subcategoryId).toLowerCase()) || null;
+        subcategoryId = mappedSub;
+      }
+    }
+
+    return {
+      categoryId,
+      subcategoryId: subcategoryId || undefined,
+      confidence: typeof result.confidence === 'number' ? result.confidence : 0.5,
+      reasoning: result.reasoning || 'AI classification'
+    };
+  }
+
   async classifyTransaction(request: AIClassificationRequest): Promise<AIClassificationResponse> {
     try {
       // Build an explicit catalog of allowed categories/subcategories (IDs only) for the model
@@ -142,13 +181,15 @@ Date: ${request.date}`;
       const cleanedResponse = this.cleanAIResponse(responseContent);
       const parsed = JSON.parse(cleanedResponse);
 
-      // Normalize keys and provide safe defaults
-      const categoryId = (parsed.categoryId || parsed.category || 'uncategorized') as string;
-      const subcategoryId = (parsed.subcategoryId || parsed.subcategory || null) as string | null;
-      const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.5;
-      const reasoning = (parsed.reasoning || 'AI classification') as string;
+      // Normalize then constrain to provided catalog
+      const normalized = {
+        categoryId: (parsed.categoryId || parsed.category || 'uncategorized') as string,
+        subcategoryId: (parsed.subcategoryId || parsed.subcategory || null) as string | null,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+        reasoning: (parsed.reasoning || 'AI classification') as string
+      };
 
-      return { categoryId, subcategoryId: subcategoryId || undefined, confidence, reasoning };
+      return this.constrainToCatalog(normalized, request.availableCategories as any);
     } catch (error) {
       console.error('Error classifying transaction:', error);
       
@@ -296,13 +337,15 @@ Rules:
         }
       }
 
-      // Normalize 1:1
+      // Normalize 1:1 then constrain to catalog
       return parsed.map((p) => {
-        const categoryId = (p?.categoryId || p?.category || 'uncategorized') as string;
-        const subcategoryId = (p?.subcategoryId || p?.subcategory || null) as string | null;
-        const confidence = typeof p?.confidence === 'number' ? p.confidence : 0.5;
-        const reasoning = (p?.reasoning || 'AI classification') as string;
-        return { categoryId, subcategoryId: subcategoryId || undefined, confidence, reasoning };
+        const normalized = {
+          categoryId: (p?.categoryId || p?.category || 'uncategorized') as string,
+          subcategoryId: (p?.subcategoryId || p?.subcategory || null) as string | null,
+          confidence: typeof p?.confidence === 'number' ? p.confidence : 0.5,
+          reasoning: (p?.reasoning || 'AI classification') as string
+        };
+        return this.constrainToCatalog(normalized, categories as any);
       });
     } catch (error) {
       console.error('Error in batch classification:', error);
@@ -432,12 +475,21 @@ ${JSON.stringify(transactionData, null, 2)}`;
       const response = await this.callOpenAIProxy(proxyRequest);
       
       if (!response.success || !response.data) {
-        throw new Error(response.error || 'Failed to get response from OpenAI');
+        console.error('Anomaly detection proxy call failed:', response.error);
+        return {
+          anomalies: [],
+          totalAnalyzed: request.transactions.length,
+          processingTime: Date.now() - startTime
+        };
       }
 
       const responseContent = response.data.choices[0]?.message?.content;
       if (!responseContent) {
-        throw new Error('No response from Azure OpenAI');
+        return {
+          anomalies: [],
+          totalAnalyzed: request.transactions.length,
+          processingTime: Date.now() - startTime
+        };
       }
 
       // Clean and parse the response

@@ -211,6 +211,21 @@ npm start
 
 The application will open at `http://localhost:3000`.
 
+### Azure OpenAI Proxy Configuration
+
+This app calls an HTTP proxy for Azure OpenAI chat completions. By default, it targets a relative path: `/api/openai/chat/completions`. If you see 404 Not Found on that path during import, configure one of the following:
+
+1) Remote Azure Function (recommended)
+- In `.env`, set:
+   - `REACT_APP_OPENAI_PROXY_URL=https://<your-function>.azurewebsites.net/api/openai/chat/completions`
+- Restart `npm start` after updating `.env`.
+
+2) Local dev proxy to a local API
+- Add a CRA proxy file `src/setupProxy.ts` to forward `/api` to your local functions (e.g., http://localhost:7071).
+- Start your local API and then run `npm start`.
+
+When configured correctly, imports will call your proxy and AI features will return results instead of 404s.
+
 ## Usage Guide
 
 ### 1. Authentication

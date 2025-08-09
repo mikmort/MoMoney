@@ -31,6 +31,26 @@ const TransactionsContainer = styled.div`
     width: 100%;
   }
 
+  /* Remove default blue outline only for the Actions cell button to avoid visual noise */
+  .actions-cell button {
+    outline: none !important;
+    /* Make the button subtler inside the grid */
+    border-color: #d0d7de !important; /* neutral border instead of theme blue */
+    color: #444 !important;
+    padding: 6px 10px !important; /* fit narrow column */
+    border-width: 1px !important;
+    background: #fff !important;
+  }
+  .actions-cell button:focus,
+  .actions-cell button:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+  .actions-cell button:hover {
+    background: #f5f5f5 !important;
+    border-color: #c7ced6 !important;
+  }
+
   /* Style for filtered columns */
   .ag-header-cell-filtered .ag-header-cell-label {
     color: #2196f3;
@@ -109,6 +129,14 @@ const TransactionsContainer = styled.div`
     padding: 4px 12px;
     border-radius: 4px;
     font-size: 0.85rem;
+  }
+
+  /* Remove AG Grid blue focus outline specifically for the Actions cell */
+  .ag-theme-alpine .ag-cell.actions-cell.ag-cell-focus,
+  .ag-theme-alpine .ag-cell.actions-cell:focus-within {
+    outline: none !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 `;
 
@@ -1918,6 +1946,7 @@ const Transactions: React.FC = () => {
       width: 80,
       pinned: 'right',
       cellRenderer: ActionsCellRenderer,
+  cellClass: 'actions-cell',
       editable: false,
       suppressHeaderMenuButton: true,
       sortable: false,
