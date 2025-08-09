@@ -149,6 +149,52 @@ class DataService {
         confidence: 0.90,
         reasoning: 'ATM withdrawal identified',
         isVerified: false
+      },
+      // Multi-currency sample transactions
+      {
+        date: new Date('2025-07-27'),
+        description: 'Hotel Booking - Paris France',
+        category: 'Travel',
+        subcategory: 'Accommodation',
+        amount: -150.00, // Will be converted from EUR
+        originalCurrency: 'EUR',
+        exchangeRate: 1.08, // Example rate: 1 EUR = 1.08 USD
+        account: 'Chase Credit',
+        type: 'expense',
+        confidence: 0.88,
+        reasoning: 'Travel expense in foreign currency',
+        isVerified: false,
+        notes: 'Business trip to Paris'
+      },
+      {
+        date: new Date('2025-07-25'),
+        description: 'Lunch at Ramen Shop - Tokyo',
+        category: 'Food & Dining',
+        subcategory: 'Restaurants',
+        amount: -2200.00, // In JPY, will show converted value
+        originalCurrency: 'JPY',
+        exchangeRate: 0.0067, // Example rate: 1 JPY = 0.0067 USD
+        account: 'AmEx Platinum',
+        type: 'expense',
+        confidence: 0.92,
+        reasoning: 'Restaurant expense in Japanese Yen',
+        isVerified: false,
+        vendor: 'Ramen Ichiro'
+      },
+      {
+        date: new Date('2025-07-24'),
+        description: 'Coffee Shop - London Bridge',
+        category: 'Food & Dining',
+        subcategory: 'Coffee Shops',
+        amount: -4.50, // Will be converted from GBP
+        originalCurrency: 'GBP',
+        exchangeRate: 1.27, // Example rate: 1 GBP = 1.27 USD
+        account: 'Chase Credit',
+        type: 'expense',
+        confidence: 0.89,
+        reasoning: 'Coffee purchase in British Pounds',
+        isVerified: false,
+        vendor: 'Pret A Manger'
       }
     ];
 

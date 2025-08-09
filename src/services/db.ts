@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Transaction } from '../types';
+import { Transaction, UserPreferences } from '../types';
 
 // History entry interface for transaction versioning
 export interface TransactionHistoryEntry {
@@ -10,11 +10,18 @@ export interface TransactionHistoryEntry {
   note?: string;
 }
 
+// User preferences storage interface
+export interface StoredUserPreferences extends UserPreferences {
+  id: string; // Always 'default' for single-user app
+  lastModified: Date;
+}
+
 // Dexie database class
 export class MoMoneyDB extends Dexie {
   // Tables
   transactions!: Table<Transaction>;
   transactionHistory!: Table<TransactionHistoryEntry>;
+  userPreferences!: Table<StoredUserPreferences>;
 
   constructor() {
     super('MoMoneyDB');
@@ -23,6 +30,13 @@ export class MoMoneyDB extends Dexie {
     this.version(1).stores({
       transactions: 'id, date, amount, category, subcategory, account, type, addedDate, lastModifiedDate, isVerified, vendor, isAnomaly',
       transactionHistory: 'id, transactionId, timestamp'
+    });
+
+    // Version 2: Add user preferences table
+    this.version(2).stores({
+      transactions: 'id, date, amount, category, subcategory, account, type, addedDate, lastModifiedDate, isVerified, vendor, isAnomaly',
+      transactionHistory: 'id, transactionId, timestamp',
+      userPreferences: 'id, lastModified'
     });
 
     // Hooks for data handling
@@ -133,11 +147,31 @@ export class MoMoneyDB extends Dexie {
     return id.toString();
   }
 
+  // User preferences methods
+  async getUserPreferences(): Promise<UserPreferences | null> {
+    const stored = await this.userPreferences.get('default');
+    if (!stored) return null;
+    
+    // Return just the preferences without the storage metadata
+    const { id, lastModified, ...preferences } = stored;
+    return preferences;
+  }
+
+  async saveUserPreferences(preferences: UserPreferences): Promise<void> {
+    const stored: StoredUserPreferences = {
+      id: 'default',
+      ...preferences,
+      lastModified: new Date()
+    };
+    await this.userPreferences.put(stored);
+  }
+
   // Clear all data
   async clearAll(): Promise<void> {
-    await this.transaction('rw', [this.transactions, this.transactionHistory], async () => {
+    await this.transaction('rw', [this.transactions, this.transactionHistory, this.userPreferences], async () => {
       await this.transactions.clear();
       await this.transactionHistory.clear();
+      await this.userPreferences.clear();
     });
   }
 }

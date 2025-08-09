@@ -6,6 +6,9 @@ import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
 import { rulesService } from './rulesService';
 import { defaultCategories } from '../data/defaultCategories';
+import { currencyDisplayService } from './currencyDisplayService';
+import { currencyExchangeService } from './currencyExchangeService';
+import { userPreferencesService } from './userPreferencesService';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface FileProcessingResult {
@@ -24,6 +27,12 @@ export interface FileProcessingResult {
   transactions?: Transaction[];
   duplicateDetection?: DuplicateDetectionResult;
   needsDuplicateResolution?: boolean;
+  currencyPrompt?: {
+    detectedCurrencies: string[];
+    currentDefaultCurrency: string;
+    suggestCurrencyChange?: string;
+    message: string;
+  };
 }
 
 export class FileProcessingService {
@@ -51,10 +60,14 @@ export class FileProcessingService {
         const transactions = await this.parseFileTransactions(file, accountId);
         statementFile.transactionCount = transactions.length;
 
+        // Analyze currencies and create prompt if needed
+        const currencyPrompt = await this.analyzeCurrenciesAndCreatePrompt(transactions);
+
         return {
           file: statementFile,
           needsAccountSelection: false,
-          transactions
+          transactions,
+          currencyPrompt
         };
       }
 
@@ -81,11 +94,15 @@ export class FileProcessingService {
         const transactions = await this.parseFileTransactions(file, detectionResult.detectedAccountId);
         statementFile.transactionCount = transactions.length;
 
+        // Analyze currencies and create prompt if needed
+        const currencyPrompt = await this.analyzeCurrenciesAndCreatePrompt(transactions);
+
         return {
           file: statementFile,
           needsAccountSelection: false,
           detectionResult,
-          transactions
+          transactions,
+          currencyPrompt
         };
       } else {
         // Need user to select account
@@ -838,6 +855,27 @@ Return ONLY a clean JSON response:
         originalText: description
       };
 
+      // Detect currency from transaction data
+      const detectedCurrency = currencyDisplayService.detectCurrencyFromTransaction(baseTransaction);
+      if (detectedCurrency && detectedCurrency !== 'USD') {
+        // Set the original currency for foreign transactions
+        (baseTransaction as any).originalCurrency = detectedCurrency;
+        
+        // Try to get exchange rate for conversion
+        try {
+          const defaultCurrency = await userPreferencesService.getDefaultCurrency();
+          if (detectedCurrency !== defaultCurrency) {
+            const exchangeRate = await currencyExchangeService.getExchangeRate(detectedCurrency, defaultCurrency);
+            if (exchangeRate) {
+              (baseTransaction as any).exchangeRate = exchangeRate.rate;
+              // Note: Keep original amount, conversion will be handled during display
+            }
+          }
+        } catch (error) {
+          console.log(`Could not fetch exchange rate for ${detectedCurrency}:`, error);
+        }
+      }
+
       // Try to apply category rules first
       const ruleResult = await rulesService.applyRules(baseTransaction);
       
@@ -1093,6 +1131,79 @@ Return ONLY a clean JSON response:
       await dataService.addTransactions(duplicateDetection.uniqueTransactions);
       console.log(`✅ Imported ${duplicateDetection.uniqueTransactions.length} unique transactions, ignored ${duplicateDetection.duplicates.length} duplicates`);
     }
+  }
+
+  /**
+   * Analyze imported transactions for currency patterns and create user prompt if needed
+   */
+  private async analyzeCurrenciesAndCreatePrompt(transactions: Transaction[]): Promise<FileProcessingResult['currencyPrompt']> {
+    if (!transactions.length) return undefined;
+
+    // Get current user's default currency
+    const currentDefaultCurrency = await userPreferencesService.getDefaultCurrency();
+
+    // Extract unique currencies from transactions
+    const detectedCurrencies = new Set<string>();
+    let foreignCurrencyCount = 0;
+    
+    for (const transaction of transactions) {
+      if (transaction.originalCurrency) {
+        detectedCurrencies.add(transaction.originalCurrency);
+        if (transaction.originalCurrency !== currentDefaultCurrency) {
+          foreignCurrencyCount++;
+        }
+      } else {
+        // Detect currency from description
+        const detectedCurrency = currencyDisplayService.detectCurrencyFromTransaction(transaction);
+        if (detectedCurrency && detectedCurrency !== 'USD') {
+          detectedCurrencies.add(detectedCurrency);
+          if (detectedCurrency !== currentDefaultCurrency) {
+            foreignCurrencyCount++;
+          }
+        }
+      }
+    }
+
+    const currencies = Array.from(detectedCurrencies);
+    
+    // If no foreign currencies detected, no prompt needed
+    if (currencies.length === 0 || foreignCurrencyCount === 0) {
+      return undefined;
+    }
+
+    // Check if majority of transactions are in a foreign currency
+    const foreignCurrencyPercentage = foreignCurrencyCount / transactions.length;
+    
+    if (foreignCurrencyPercentage > 0.5) {
+      // Majority of transactions are in foreign currency - suggest currency change
+      const primaryForeignCurrency = currencies.find(c => c !== currentDefaultCurrency);
+      
+      if (primaryForeignCurrency) {
+        const currencyName = userPreferencesService.getCurrencyOptions()
+          .find(option => option.value === primaryForeignCurrency)?.label || primaryForeignCurrency;
+          
+        return {
+          detectedCurrencies: currencies,
+          currentDefaultCurrency,
+          suggestCurrencyChange: primaryForeignCurrency,
+          message: `Most of your imported transactions (${Math.round(foreignCurrencyPercentage * 100)}%) are in ${currencyName} (${primaryForeignCurrency}), but your default currency is set to ${currentDefaultCurrency}. Would you like to change your default currency to ${primaryForeignCurrency} for better accuracy?`
+        };
+      }
+    } else if (foreignCurrencyCount > 0) {
+      // Some foreign currency transactions detected
+      const currencyNames = currencies
+        .filter(c => c !== currentDefaultCurrency)
+        .map(c => userPreferencesService.getCurrencyOptions().find(option => option.value === c)?.label || c)
+        .join(', ');
+        
+      return {
+        detectedCurrencies: currencies,
+        currentDefaultCurrency,
+        message: `${foreignCurrencyCount} transactions were detected in foreign currencies (${currencyNames}). These will be automatically converted to ${currentDefaultCurrency} for display using current exchange rates.`
+      };
+    }
+
+    return undefined;
   }
 }
 

@@ -18,6 +18,7 @@ import 'chartjs-adapter-date-fns';
 import { Card, PageHeader, Grid, Badge } from '../../styles/globalStyles';
 import { DashboardStats, Transaction } from '../../types';
 import { dashboardService } from '../../services/dashboardService';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 // Register Chart.js components
 ChartJS.register(
@@ -114,21 +115,88 @@ const RecentTransactions = styled(Card)`
       color: #f44336;
     }
   }
+  
+  .currency-info {
+    font-size: 0.75rem;
+    color: #888;
+    margin-top: 2px;
+  }
 `;
+
+// Component for displaying transaction amounts with currency conversion
+const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
+  const [displayData, setDisplayData] = useState<{
+    displayAmount: string;
+    tooltip?: string;
+    isConverted: boolean;
+  }>({
+    displayAmount: '$0.00',
+    isConverted: false
+  });
+
+  useEffect(() => {
+    const formatAmount = async () => {
+      const data = await currencyDisplayService.formatTransactionAmount(transaction);
+      setDisplayData(data);
+    };
+    formatAmount();
+  }, [transaction]);
+
+  return (
+    <div className={`amount ${transaction.type}`} title={displayData.tooltip}>
+      {displayData.displayAmount}
+      {displayData.isConverted && displayData.tooltip && (
+        <div className="currency-info">
+          {transaction.originalCurrency}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
+  const [formattedStats, setFormattedStats] = useState<{
+    totalIncome: string;
+    totalExpenses: string;
+    netIncome: string;
+  }>({
+    totalIncome: '$0.00',
+    totalExpenses: '$0.00',
+    netIncome: '$0.00'
+  });
 
   useEffect(() => {
     const loadDashboardData = async () => {
       setLoading(true);
       try {
+        // Initialize currency display service and get default currency
+        await currencyDisplayService.initialize();
+        const currency = await currencyDisplayService.getDefaultCurrency();
+        setDefaultCurrency(currency);
+        
         const [stats, recent] = await Promise.all([
           dashboardService.getDashboardStats(),
           dashboardService.getRecentTransactions(5)
         ]);
+        
+        // Format the main stats
+        if (stats) {
+          const [totalIncomeFormatted, totalExpensesFormatted, netIncomeFormatted] = await Promise.all([
+            currencyDisplayService.formatAmount(stats.totalIncome),
+            currencyDisplayService.formatAmount(stats.totalExpenses),
+            currencyDisplayService.formatAmount(stats.netIncome)
+          ]);
+          
+          setFormattedStats({
+            totalIncome: totalIncomeFormatted,
+            totalExpenses: totalExpensesFormatted,
+            netIncome: netIncomeFormatted
+          });
+        }
         
         setStats(stats);
         setRecentTransactions(recent);
@@ -141,13 +209,6 @@ const Dashboard: React.FC = () => {
 
     loadDashboardData();
   }, []);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
 
   const categoryChartData = {
     labels: stats?.topCategories.map((cat) => cat.categoryName) || [],
@@ -208,17 +269,17 @@ const Dashboard: React.FC = () => {
       <Grid columns={4} gap="20px">
         <StatsCard>
           <div className="label">Total Income</div>
-          <div className="amount positive">{formatCurrency(stats!.totalIncome)}</div>
+          <div className="amount positive">{formattedStats.totalIncome}</div>
         </StatsCard>
         
         <StatsCard>
           <div className="label">Total Expenses</div>
-          <div className="amount negative">{formatCurrency(stats!.totalExpenses)}</div>
+          <div className="amount negative">{formattedStats.totalExpenses}</div>
         </StatsCard>
         
         <StatsCard>
           <div className="label">Net Income</div>
-          <div className="amount neutral">{formatCurrency(stats!.netIncome)}</div>
+          <div className="amount neutral">{formattedStats.netIncome}</div>
         </StatsCard>
         
         <StatsCard>
@@ -278,7 +339,11 @@ const Dashboard: React.FC = () => {
                       beginAtZero: true,
                       ticks: {
                         callback: function(value) {
-                          return '$' + value.toLocaleString();
+                          // Use the user's default currency symbol
+                          const symbol = defaultCurrency === 'EUR' ? '€' : 
+                                        defaultCurrency === 'GBP' ? '£' : 
+                                        defaultCurrency === 'JPY' ? '¥' : '$';
+                          return symbol + Number(value).toLocaleString();
                         }
                       }
                     }
@@ -312,9 +377,7 @@ const Dashboard: React.FC = () => {
                   {transaction.category} • {transaction.account} • {transaction.date.toLocaleDateString()}
                 </div>
               </div>
-              <div className={`amount ${transaction.type}`}>
-                {formatCurrency(Math.abs(transaction.amount))}
-              </div>
+              <TransactionAmount transaction={transaction} />
             </div>
           ))
         ) : (
