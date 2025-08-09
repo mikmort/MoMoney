@@ -1713,6 +1713,10 @@ const Transactions: React.FC = () => {
     ).length;
   };
 
+  const countReimbursedTransactions = (transactions: Transaction[]): number => {
+    return transactions.filter(tx => tx.reimbursed).length;
+  };
+
   const calculateStats = () => {
     const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
     
@@ -2374,6 +2378,11 @@ const Transactions: React.FC = () => {
       onClick: handleFindReimbursements
     },
     {
+      icon: '🔄',
+      label: isTransferMatchingLoading ? 'Finding...' : 'Find Transfer Matches',
+      onClick: handleFindTransfers
+    },
+    {
       icon: '🤖',
       label: 'Auto Categorize',
       onClick: handleAutoCategorizeUncategorized
@@ -2396,20 +2405,6 @@ const Transactions: React.FC = () => {
             disabled={showRulesManager}
           >
             📋 Rules
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={handleFindReimbursements}
-            disabled={isMatchingLoading}
-          >
-            {isMatchingLoading ? 'Finding...' : 'Find Reimbursements'}
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={handleFindTransfers}
-            disabled={isTransferMatchingLoading}
-          >
-            {isTransferMatchingLoading ? 'Finding...' : 'Find Transfer Matches'}
           </Button>
           <Button variant="outline">Export</Button>
           <Button>Add Transaction</Button>
@@ -2575,18 +2570,26 @@ const Transactions: React.FC = () => {
                 ✅ Matched Transfers ({countMatchedTransfers(transactions)})
               </button>
             )}
-          </div>
-          
-          <div className="filter-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={showReimbursedTransactions}
-                onChange={(e) => setShowReimbursedTransactions(e.target.checked)}
-                style={{ marginRight: '8px' }}
-              />
-              Show Reimbursed
-            </label>
+            
+            {countReimbursedTransactions(transactions) > 0 && (
+              <button
+                style={{
+                  padding: '8px 12px',
+                  border: showReimbursedTransactions ? '2px solid #4CAF50' : '1px solid #ddd',
+                  borderRadius: '4px',
+                  background: showReimbursedTransactions ? '#e8f5e8' : 'white',
+                  color: showReimbursedTransactions ? '#4CAF50' : '#666',
+                  fontWeight: showReimbursedTransactions ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  marginLeft: '8px'
+                }}
+                onClick={() => setShowReimbursedTransactions(!showReimbursedTransactions)}
+                title="Toggle showing reimbursed transactions"
+              >
+                💰 Show Reimbursed ({countReimbursedTransactions(transactions)})
+              </button>
+            )}
           </div>
         </div>
       </FilterBar>
