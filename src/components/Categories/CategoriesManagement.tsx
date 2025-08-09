@@ -7,6 +7,7 @@ import { Category } from '../../types';
 import { defaultCategories } from '../../data/defaultCategories';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import Papa from 'papaparse';
+import { v4 as uuidv4 } from 'uuid';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -21,6 +22,44 @@ const CategoriesContainer = styled.div`
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
+  }
+
+  .filters-section {
+    margin-bottom: 20px;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    
+    .filter-label {
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #333;
+    }
+    
+    .filter-buttons {
+      display: flex;
+      gap: 8px;
+      
+      .filter-btn {
+        padding: 8px 16px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: white;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.2s;
+        
+        &:hover {
+          background: #f5f5f5;
+        }
+        
+        &.active {
+          background: #2196F3;
+          color: white;
+          border-color: #2196F3;
+        }
+      }
+    }
   }
 
   .stats-bar {
@@ -176,8 +215,12 @@ const EditModalContent = styled.div`
 
 interface CategoriesManagementProps {}
 
+const CATEGORIES_STORAGE_KEY = 'mo-money-categories';
+
 export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
-  const [categories, setCategories] = useState<Category[]>(defaultCategories);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [filteredCategories, setFilteredCategories] = useState<Category[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [showEditModal, setShowEditModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -192,13 +235,44 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
 
+  // Load categories from localStorage on component mount
+  useEffect(() => {
+    const saved = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+    if (saved) {
+      try {
+        setCategories(JSON.parse(saved));
+      } catch (error) {
+        console.error('Failed to load categories from localStorage:', error);
+        setCategories(defaultCategories);
+      }
+    } else {
+      setCategories(defaultCategories);
+    }
+  }, []);
+
+  // Save categories to localStorage whenever categories change
+  useEffect(() => {
+    if (categories.length > 0) {
+      localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
+    }
+  }, [categories]);
+
+  // Apply category filter
+  useEffect(() => {
+    if (categoryFilter === 'all') {
+      setFilteredCategories(categories);
+    } else {
+      setFilteredCategories(categories.filter(cat => cat.type === categoryFilter));
+    }
+  }, [categories, categoryFilter]);
+
   // Prepare data for grid - flatten categories and subcategories
   const [gridData, setGridData] = useState<any[]>([]);
 
   useEffect(() => {
     const flatData: any[] = [];
     
-    categories.forEach(category => {
+    filteredCategories.forEach(category => {
       // Add category row
       flatData.push({
         id: category.id,
@@ -231,7 +305,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     });
     
     setGridData(flatData);
-  }, [categories]);
+  }, [filteredCategories]);
 
   // Actions cell renderer component
   const ActionsCellRenderer = (params: any) => {
@@ -355,7 +429,50 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   };
 
   const handleSaveCategory = () => {
-    // Implementation for saving category changes
+    // Validate required fields
+    if (!categoryForm.name.trim()) {
+      alert('Category name is required');
+      return;
+    }
+
+    if (editingCategory) {
+      // Update existing category
+      const updatedCategories = categories.map(cat => 
+        cat.id === editingCategory.id 
+          ? {
+              ...cat,
+              name: categoryForm.name.trim(),
+              type: categoryForm.type,
+              color: categoryForm.color,
+              icon: categoryForm.icon,
+              subcategories: categoryForm.subcategories.map((sub, index) => ({
+                id: sub.name ? `${categoryForm.name.toLowerCase().replace(/\s+/g, '-')}-${sub.name.toLowerCase().replace(/\s+/g, '-')}` : `subcategory-${index}`,
+                name: sub.name.trim(),
+                description: sub.description?.trim() || ''
+              })).filter(sub => sub.name) // Remove empty subcategories
+            }
+          : cat
+      );
+      setCategories(updatedCategories);
+    } else {
+      // Create new category
+      const newCategory: Category = {
+        id: categoryForm.name.toLowerCase().replace(/\s+/g, '-') + '-' + uuidv4().substring(0, 8),
+        name: categoryForm.name.trim(),
+        type: categoryForm.type,
+        color: categoryForm.color,
+        icon: categoryForm.icon,
+        subcategories: categoryForm.subcategories.map((sub, index) => ({
+          id: sub.name ? `${categoryForm.name.toLowerCase().replace(/\s+/g, '-')}-${sub.name.toLowerCase().replace(/\s+/g, '-')}` : `subcategory-${index}`,
+          name: sub.name.trim(),
+          description: sub.description?.trim() || ''
+        })).filter(sub => sub.name) // Remove empty subcategories
+      };
+      
+      setCategories(prev => [...prev, newCategory]);
+    }
+
+    // Close modal and reset form
     setShowEditModal(false);
     setEditingCategory(null);
   };
@@ -626,13 +743,38 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
 
       <Card>
         <CategoriesContainer>
+          {/* Category Type Filters */}
+          <div className="filters-section">
+            <div className="filter-label">Filter by Category Type:</div>
+            <div className="filter-buttons">
+              <button 
+                className={`filter-btn ${categoryFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setCategoryFilter('all')}
+              >
+                All Categories ({categories.length})
+              </button>
+              <button 
+                className={`filter-btn ${categoryFilter === 'income' ? 'active' : ''}`}
+                onClick={() => setCategoryFilter('income')}
+              >
+                Income ({categories.filter(c => c.type === 'income').length})
+              </button>
+              <button 
+                className={`filter-btn ${categoryFilter === 'expense' ? 'active' : ''}`}
+                onClick={() => setCategoryFilter('expense')}
+              >
+                Expenses ({categories.filter(c => c.type === 'expense').length})
+              </button>
+            </div>
+          </div>
+
           <div className="ag-theme-alpine">
             <AgGridReact
               columnDefs={columnDefs}
               rowData={gridData}
               onGridReady={onGridReady}
               pagination={true}
-              paginationPageSize={50}
+              paginationPageSize={200}
               defaultColDef={{
                 resizable: true,
                 sortable: true
