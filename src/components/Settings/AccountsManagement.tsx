@@ -203,9 +203,24 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   };
 
   const BalanceRenderer: React.FC<any> = (params) => {
-    const balance = params.value;
+    const balance: number | undefined = params.value;
     if (balance === undefined || balance === null) return null;
-    const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(balance);
+
+    const currencyCode: string = params.data?.currency || 'USD';
+    let formatted = '';
+
+    // Try native Intl currency formatting first
+    try {
+      formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(balance);
+    } catch {
+      // Fallback for unknown/unsupported currency codes
+      const symbol = userPreferencesService.getCurrencySymbol(currencyCode);
+      const abs = Math.abs(balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const sign = balance < 0 ? '-' : '';
+      // Place symbol before number by default; some currencies append, but keep simple here
+      formatted = `${sign}${symbol}${abs}`;
+    }
+
     const style: React.CSSProperties = { color: balance >= 0 ? '#4caf50' : '#f44336' };
     return <span style={style}>{formatted}</span>;
   };

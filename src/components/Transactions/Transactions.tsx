@@ -4,7 +4,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit } from '../../types';
+import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, CollapsedTransfer, TransferDisplayOptions } from '../../types';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
@@ -18,8 +18,8 @@ import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import { TransferMatchDialog } from './TransferMatchDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
-import { CategoryRulesManager } from './CategoryRulesManager';
 import { TransactionSplitManager } from '../shared/TransactionSplitManager';
+import { TransferList } from './TransferList';
 import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
@@ -309,28 +309,28 @@ const TransferMatchingPanel = styled(Card)`
 `;
 
 const FilterBar = styled(Card)`
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   
   .filter-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     
     h3 {
       margin: 0;
-      font-size: 1.1rem;
+      font-size: 1rem;
       color: #333;
     }
     
     .clear-filters-btn {
-      padding: 6px 12px;
+      padding: 4px 10px;
       background: #f44336;
       color: white;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: 500;
       transition: background-color 0.2s;
       
@@ -347,7 +347,7 @@ const FilterBar = styled(Card)`
   
   .filter-row {
     display: flex;
-    gap: 16px;
+    gap: 12px;
     align-items: center;
     flex-wrap: wrap;
   }
@@ -355,32 +355,34 @@ const FilterBar = styled(Card)`
   .filter-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
     
     label {
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       font-weight: 500;
       color: #666;
     }
     
     select, input {
-      min-width: 150px;
+      min-width: 140px;
+      padding: 6px 8px;
+      font-size: 0.9rem;
     }
   }
   
   .quick-filters-section {
-    margin-top: 12px;
+    margin-top: 10px;
     
     .quick-filters-label {
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       font-weight: 500;
       color: #666;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     
     .quick-filters-container {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
       align-items: center;
     }
@@ -390,17 +392,17 @@ const FilterBar = styled(Card)`
 const QuickFilterButton = styled.button.withConfig({
   shouldForwardProp: (prop) => !['isActive', 'activeColor', 'activeBackground'].includes(prop),
 })<{ isActive: boolean; activeColor: string; activeBackground: string }>`
-  padding: 6px 10px;
+  padding: 5px 8px;
   border: ${props => props.isActive ? `2px solid ${props.activeColor}` : '1px solid #ddd'};
   border-radius: 4px;
   background: ${props => props.isActive ? props.activeBackground : 'white'};
   color: ${props => props.isActive ? props.activeColor : '#666'};
   font-weight: ${props => props.isActive ? 'bold' : 'normal'};
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
   transition: all 0.2s ease;
-  min-height: 32px;
+  min-height: 28px;
   display: flex;
   align-items: center;
   
@@ -416,23 +418,23 @@ const QuickFilterButton = styled.button.withConfig({
 
 const StatsBar = styled.div`
   display: flex;
-  gap: 24px;
-  margin-bottom: 20px;
+  gap: 20px;
+  margin-bottom: 16px;
   
   .stat {
     background: white;
-    padding: 16px;
+    padding: 12px;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     
     .label {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: #666;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     
     .value {
-      font-size: 1.1rem;
+      font-size: 1rem;
       font-weight: 600;
       
       &.positive {
@@ -491,32 +493,6 @@ const BulkOperationsBar = styled(Card)`
   }
 `;
 
-const UploadArea = styled.div`
-  border: 2px dashed #ddd;
-  border-radius: 8px;
-  padding: 40px;
-  text-align: center;
-  background: #fafafa;
-  margin-bottom: 20px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  
-  &:hover, &.dragover {
-    border-color: #2196f3;
-    background: #f0f8ff;
-  }
-  
-  .upload-text {
-    font-size: 1.1rem;
-    color: #666;
-    margin-bottom: 8px;
-  }
-  
-  .upload-subtext {
-    font-size: 0.9rem;
-    color: #999;
-  }
-`;
 
 // Edit Transaction Modal styles
 const EditModalOverlay = styled.div`
@@ -801,6 +777,15 @@ const Transactions: React.FC = () => {
   const [showTransferMatchingPanel, setShowTransferMatchingPanel] = useState(false);
   const [showMatchedTransfersOnly, setShowMatchedTransfersOnly] = useState(false);
   
+  const [collapsedTransfers, setCollapsedTransfers] = useState<CollapsedTransfer[]>([]);
+  
+  // Transfer display options
+  const [transferDisplayOptions, setTransferDisplayOptions] = useState<TransferDisplayOptions>({
+    showTransfers: false,
+    collapseMatched: true,
+    showFees: false
+  });
+  
   // Account selection dialog state
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -857,8 +842,15 @@ const Transactions: React.FC = () => {
     replaceText: ''
   });
 
-  // Category rules manager state
-  const [showRulesManager, setShowRulesManager] = useState(false);
+  // Category rules manager state removed - now handled by dedicated Rules page
+
+  // Pagination page size (persisted to localStorage)
+  const allowedPageSizes = [50, 100, 200, 500, 1000, 5000];
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('transactionsPageSize');
+    const parsed = saved ? parseInt(saved, 10) : NaN;
+    return allowedPageSizes.includes(parsed) ? parsed : 50;
+  });
 
   // Transfer match dialog state
   const [showTransferMatchDialog, setShowTransferMatchDialog] = useState(false);
@@ -1274,21 +1266,53 @@ const Transactions: React.FC = () => {
             console.log(`⚠️ Found ${anomalies.length} anomalous transactions`);
           }
           setTransactions(updatedTransactions);
-          setFilteredTransactions(updatedTransactions);
+          
+          // Load collapsed transfers
+          const collapsed = await dataService.getCollapsedTransfers();
+          setCollapsedTransfers(collapsed);
+          
+          // Filter transactions based on transfer display options
+          const displayTransactions = transferDisplayOptions.showTransfers 
+            ? updatedTransactions 
+            : await dataService.getTransactionsWithoutTransfers();
+          
+          setFilteredTransactions(displayTransactions);
         } else {
           setTransactions(allTransactions);
           setFilteredTransactions(allTransactions);
+          setCollapsedTransfers([]);
         }
       } catch (error) {
         console.error('❌ Error loading transactions:', error);
         // Fall back to empty array if loading fails
         setTransactions([]);
         setFilteredTransactions([]);
+        setCollapsedTransfers([]);
       }
     };
 
     loadTransactions();
   }, []);
+
+  // Handle transfer display options changes
+  useEffect(() => {
+    const updateTransactionDisplay = async () => {
+      if (transactions.length === 0) return;
+      
+      try {
+        const showTransfers = transferDisplayOptions.showTransfers;
+        const displayTransactions = showTransfers 
+          ? transactions 
+          : await dataService.getTransactionsWithoutTransfers();
+        
+        setFilteredTransactions(displayTransactions);
+      } catch (error) {
+        console.error('❌ Error updating transaction display:', error);
+      }
+    };
+
+    updateTransactionDisplay();
+  }, [transactions, transferDisplayOptions.showTransfers]);
 
   const onGridReady = useCallback((params: GridReadyEvent) => {
     // Store grid API reference
@@ -1298,7 +1322,23 @@ const Transactions: React.FC = () => {
     setTimeout(() => {
       params.api.sizeColumnsToFit();
     }, 0);
-  }, []);
+
+    // Apply persisted/selected page size
+    try {
+      if (pageSize && typeof params.api.paginationSetPageSize === 'function') {
+        params.api.paginationSetPageSize(pageSize);
+      }
+    } catch (e) {
+      console.warn('Unable to set pagination page size on grid ready:', e);
+    }
+  }, [pageSize]);
+
+  // Update grid when page size changes after initial render
+  useEffect(() => {
+    if (gridApi && typeof gridApi.paginationSetPageSize === 'function') {
+      gridApi.paginationSetPageSize(pageSize);
+    }
+  }, [gridApi, pageSize]);
 
   const handleDeleteTransaction = useCallback(async (id: string) => {
     try {
@@ -2015,7 +2055,7 @@ const Transactions: React.FC = () => {
     });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
-  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, findTransferMatches, transactions]);
+  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, navigate]);
 
   const columnDefs: ColDef[] = [
     {
@@ -2534,8 +2574,7 @@ const Transactions: React.FC = () => {
         <FlexBox gap="12px">
           <Button 
             variant="outline" 
-            onClick={() => setShowRulesManager(true)}
-            disabled={showRulesManager}
+            onClick={() => navigate('/rules')}
           >
             📋 Rules
           </Button>
@@ -2593,14 +2632,33 @@ const Transactions: React.FC = () => {
       <FilterBar>
         <div className="filter-header">
           <h3>Column Filters</h3>
-          <button 
-            className="clear-filters-btn"
-            onClick={handleClearAllFilters}
-            disabled={!gridApi}
-            title="Clear all active column filters"
-          >
-            🗑️ Clear All Filters
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="filter-group" style={{ alignItems: 'flex-end' }}>
+              <label style={{ marginBottom: 2 }}>Page Size</label>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  const next = parseInt(e.target.value, 10);
+                  if (Number.isFinite(next)) {
+                    setPageSize(next);
+                    localStorage.setItem('transactionsPageSize', String(next));
+                  }
+                }}
+              >
+                {allowedPageSizes.map(size => (
+                  <option key={size} value={size}>{size.toLocaleString()}</option>
+                ))}
+              </select>
+            </div>
+            <button 
+              className="clear-filters-btn"
+              onClick={handleClearAllFilters}
+              disabled={!gridApi}
+              title="Clear all active column filters"
+            >
+              🗑️ Clear All Filters
+            </button>
+          </div>
         </div>
         <div className="filter-row">
           <div className="filter-group">
@@ -2665,6 +2723,19 @@ const Transactions: React.FC = () => {
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </QuickFilterButton>
             
+            <QuickFilterButton
+              isActive={transferDisplayOptions.showTransfers}
+              activeColor="#FF9800"
+              activeBackground="#fff3e0"
+              onClick={() => setTransferDisplayOptions({
+                ...transferDisplayOptions,
+                showTransfers: !transferDisplayOptions.showTransfers
+              })}
+              title="Toggle showing transfer transactions in main list"
+            >
+              💱 Show Transfers
+            </QuickFilterButton>
+
             {transferMatchingService.countUnmatchedTransfers(transactions) > 0 && (
               <QuickFilterButton
                 isActive={filters.type === 'transfer'}
@@ -2736,7 +2807,7 @@ const Transactions: React.FC = () => {
               rowSelection="multiple"
               suppressRowClickSelection={true}
               pagination={true}
-              paginationPageSize={50}
+              paginationPageSize={pageSize}
               defaultColDef={{
                 resizable: true,
                 sortable: true,
@@ -2754,6 +2825,35 @@ const Transactions: React.FC = () => {
           </div>
         </TransactionsContainer>
       </Card>
+
+      {/* Transfer List Section */}
+      {transferDisplayOptions.showTransfers && (
+        <TransferList
+          collapsedTransfers={collapsedTransfers}
+          allTransfers={transactions.filter(t => t.type === 'transfer')}
+          displayOptions={transferDisplayOptions}
+          onDisplayOptionsChange={setTransferDisplayOptions}
+          onUnmatchTransfer={async (matchId: string) => {
+            try {
+              const updatedTransactions = await unmatchTransfers(transactions, matchId);
+              setTransactions(updatedTransactions);
+              
+              // Reload collapsed transfers
+              const collapsed = await dataService.getCollapsedTransfers();
+              setCollapsedTransfers(collapsed);
+            } catch (error) {
+              console.error('Error unmatching transfer:', error);
+            }
+          }}
+          onViewTransaction={(transactionId: string) => {
+            const transaction = transactions.find(t => t.id === transactionId);
+            if (transaction) {
+              setSelectedTransaction(transaction);
+              setShowConfidencePopup(true);
+            }
+          }}
+        />
+      )}
 
       {/* History Modal */}
       {showHistoryModal && historyFor && (
@@ -3058,12 +3158,6 @@ const Transactions: React.FC = () => {
         description={selectedTransaction?.description || ''}
         amount={selectedTransaction?.amount || 0}
         proxyMetadata={selectedTransaction?.aiProxyMetadata}
-      />
-
-      {/* Category Rules Manager */}
-      <CategoryRulesManager 
-        isVisible={showRulesManager}
-        onClose={() => setShowRulesManager(false)}
       />
 
       {/* Category Edit Confirmation Dialog */}

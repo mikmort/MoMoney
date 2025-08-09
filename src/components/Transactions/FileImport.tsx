@@ -11,20 +11,20 @@ import { AccountDetectionResponse } from '../../services/accountManagementServic
 const ImportContainer = styled.div`
   background: white;
   border-radius: 8px;
-  padding: 20px;
+  padding: 16px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 `;
 
 const ImportButton = styled.button`
   background: #0066cc;
   color: white;
   border: none;
-  padding: 12px 24px;
+  padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 16px;
-  margin-right: 12px;
+  font-size: 14px;
+  margin-top: 8px;
 
   &:hover {
     background: #0052a3;
@@ -65,9 +65,9 @@ const FileDropZone = styled.div.withConfig({
 })<{ isDragOver: boolean }>`
   border: 2px dashed ${props => props.isDragOver ? '#0066cc' : '#cccccc'};
   border-radius: 8px;
-  padding: 40px;
+  padding: 24px;
   text-align: center;
-  margin: 16px 0;
+  margin: 12px 0;
   background: ${props => props.isDragOver ? '#f0f8ff' : '#fafafa'};
   cursor: pointer;
   transition: all 0.3s ease;
@@ -110,8 +110,8 @@ const ErrorList = styled.ul`
 `;
 
 const SupportedFormats = styled.div`
-  margin-top: 12px;
-  font-size: 14px;
+  margin-top: 6px;
+  font-size: 12px;
   color: #666;
 `;
 
@@ -368,7 +368,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
 
   return (
     <ImportContainer>
-      <h3>📁 Import Transactions</h3>
+      <h3 style={{ margin: '0 0 12px 0', fontSize: '1.1rem' }}>📁 Import Transactions</h3>
       
       <FileDropZone
         isDragOver={isDragOver}
@@ -378,33 +378,35 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         onClick={handleButtonClick}
       >
         <div>
-          <strong>Drop your file here or click to browse</strong>
+          <strong style={{ fontSize: '15px' }}>Drop your file here or click to browse</strong>
           <br />
-          <span>Upload bank statements, credit card statements, or transaction files</span>
+          <span style={{ fontSize: '13px' }}>Upload bank statements, credit card statements, or transaction files</span>
+          
+          <div style={{ marginTop: '12px' }}>
+            <ImportButton 
+              onClick={handleButtonClick}
+              disabled={isImporting}
+            >
+              {isImporting ? 'Processing...' : 'Choose File'}
+            </ImportButton>
+            
+            <SupportedFormats>
+              <strong>Supported formats:</strong> CSV, Excel (.xlsx, .xls), OFX, PDF
+            </SupportedFormats>
+          </div>
         </div>
       </FileDropZone>
 
-      <div>
-        <ImportButton 
-          onClick={handleButtonClick}
-          disabled={isImporting}
-        >
-          {isImporting ? 'Processing...' : 'Choose File'}
-        </ImportButton>
-
-        {isImporting && (
+      {isImporting && (
+        <div style={{ marginTop: '12px' }}>
           <StopButton 
             onClick={handleStopImport}
             title="Cancel the current import"
           >
             🛑 Stop Import
           </StopButton>
-        )}
-        
-        <SupportedFormats>
-          <strong>Supported formats:</strong> CSV, Excel (.xlsx, .xls), OFX, PDF
-        </SupportedFormats>
-      </div>
+        </div>
+      )}
 
       <FileInput
         ref={fileInputRef}

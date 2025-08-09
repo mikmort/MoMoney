@@ -61,7 +61,9 @@ export class AccountManagementService {
     };
     
     this.accounts.push(newAccount);
+
     this.saveToStorage();
+
     return newAccount;
   }
 
@@ -74,6 +76,7 @@ export class AccountManagementService {
     this.saveToStorage();
     return this.accounts[index];
   }
+
 
   // Delete account
   async deleteAccount(id: string): Promise<boolean> {
@@ -104,6 +107,7 @@ export class AccountManagementService {
       throw error;
     }
   }
+
 
   // Replace all accounts (used for import)
   replaceAccounts(accounts: Account[]): void {

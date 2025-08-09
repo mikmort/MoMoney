@@ -1,5 +1,4 @@
-import { Transaction } from '../types';
-import { azureOpenAIService } from './azureOpenAIService';
+import { Transaction, CollapsedTransfer } from '../types';
 
 export interface TransferMatch {
   id: string;
@@ -193,8 +192,121 @@ class TransferMatchingService {
   }
 
   /**
-   * Get unmatched transfer transactions
+   * Automatically find and apply transfer matches to transactions
    */
+  async autoMatchTransfers(transactions: Transaction[]): Promise<Transaction[]> {
+    const transferTransactions = transactions.filter(tx => tx.type === 'transfer');
+    
+    if (transferTransactions.length === 0) {
+      return transactions;
+    }
+
+    const matchRequest: TransferMatchRequest = {
+      transactions: transferTransactions,
+      maxDaysDifference: 7,
+      tolerancePercentage: 0.05 // 5% tolerance for fees and currency conversion
+    };
+
+    const matchResult = await this.findTransferMatches(matchRequest);
+    if (matchResult.matches.length === 0) {
+      return transactions;
+    }
+
+    console.log(`🔄 Auto-matching ${matchResult.matches.length} transfer pairs`);
+    return await this.applyTransferMatches(transactions, matchResult.matches);
+  }
+
+  /**
+   * Create collapsed transfer representations from matched transfers
+   */
+  createCollapsedTransfers(transactions: Transaction[]): CollapsedTransfer[] {
+    const collapsedTransfers: CollapsedTransfer[] = [];
+    const processedIds = new Set<string>();
+
+    const matchedTransfers = transactions.filter(tx => 
+      tx.type === 'transfer' && tx.reimbursementId && !processedIds.has(tx.id)
+    );
+
+    for (const tx of matchedTransfers) {
+      if (processedIds.has(tx.id)) continue;
+
+      const matchedTx = transactions.find(t => t.id === tx.reimbursementId);
+      if (!matchedTx || processedIds.has(matchedTx.id)) continue;
+
+      // Determine source and target (source is the negative amount)
+      const [sourceTx, targetTx] = tx.amount < 0 ? [tx, matchedTx] : [matchedTx, tx];
+      
+      const dateDiff = Math.abs((sourceTx.date.getTime() - targetTx.date.getTime()) / (1000 * 60 * 60 * 24));
+      const amountDiff = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount));
+      
+      const collapsed: CollapsedTransfer = {
+        id: `collapsed-${sourceTx.id}-${targetTx.id}`,
+        date: sourceTx.date,
+        description: this.generateTransferDescription(sourceTx, targetTx),
+        sourceAccount: sourceTx.account,
+        targetAccount: targetTx.account,
+        amount: Math.abs(sourceTx.amount),
+        sourceTransaction: sourceTx,
+        targetTransaction: targetTx,
+        confidence: this.calculateMatchConfidence(sourceTx, targetTx, dateDiff, amountDiff),
+        matchType: dateDiff === 0 && amountDiff === 0 ? 'exact' : 'approximate',
+        amountDifference: amountDiff,
+        exchangeRate: sourceTx.exchangeRate || targetTx.exchangeRate,
+        fees: [] // TODO: Implement fee detection
+      };
+
+      collapsedTransfers.push(collapsed);
+      processedIds.add(sourceTx.id);
+      processedIds.add(targetTx.id);
+    }
+
+    return collapsedTransfers;
+  }
+
+  /**
+   * Generate a descriptive name for a collapsed transfer
+   */
+  private generateTransferDescription(sourceTx: Transaction, targetTx: Transaction): string {
+    // Clean up common transfer patterns
+    const sourceDesc = sourceTx.description
+      .replace(/^(Transfer to|Transfer from|ATM Withdrawal|Deposit)\s*-?\s*/i, '')
+      .replace(/\s*-\s*\w+\s*(Online|ATM|Branch).*$/i, '');
+    
+    const targetDesc = targetTx.description
+      .replace(/^(Transfer to|Transfer from|ATM Withdrawal|Deposit)\s*-?\s*/i, '')
+      .replace(/\s*-\s*\w+\s*(Online|ATM|Branch).*$/i, '');
+
+    // Use the more descriptive one, or create a generic description
+    if (sourceDesc.toLowerCase().includes('atm')) {
+      return 'ATM Withdrawal';
+    } else if (sourceDesc && sourceDesc !== targetDesc) {
+      return `Transfer: ${sourceDesc}`;
+    } else if (targetDesc) {
+      return `Transfer: ${targetDesc}`;
+    } else {
+      return `Transfer: ${sourceTx.account} → ${targetTx.account}`;
+    }
+  }
+
+  /**
+   * Filter transactions to exclude matched transfers (for hiding transfers by default)
+   */
+  filterNonTransfers(transactions: Transaction[]): Transaction[] {
+    return transactions.filter(tx => {
+      // Include non-transfer transactions
+      if (tx.type !== 'transfer') return true;
+      
+      // Include unmatched transfers (they might be potential transfers needing review)
+      return !tx.reimbursementId;
+    });
+  }
+
+  /**
+   * Get all transfer-related transactions (matched and unmatched)
+   */
+  getAllTransfers(transactions: Transaction[]): Transaction[] {
+    return transactions.filter(tx => tx.type === 'transfer');
+  }
   getUnmatchedTransfers(transactions: Transaction[]): Transaction[] {
     return transactions.filter(tx => 
       tx.type === 'transfer' && !tx.reimbursementId

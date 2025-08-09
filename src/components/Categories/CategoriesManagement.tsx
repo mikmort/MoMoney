@@ -231,7 +231,6 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     icon: '📁',
     subcategories: [] as Array<{ name: string; description: string }>
   });
-  const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
 
@@ -560,7 +559,6 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
 
   const handleImportCategories = () => {
     setShowImportModal(true);
-    setImportFile(null);
     setImportPreview([]);
     setImportErrors([]);
   };
@@ -568,7 +566,6 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      setImportFile(file);
       parseImportFile(file);
     }
   };
