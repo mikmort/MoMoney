@@ -282,6 +282,78 @@ const StatsBar = styled.div`
   }
 `;
 
+const BulkOperationsBar = styled(Card)`
+  margin-bottom: 20px;
+  background: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  
+  .bulk-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    .selection-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      
+      .count {
+        font-weight: 600;
+        color: #1976d2;
+      }
+    }
+    
+    .clear-selection-btn {
+      padding: 4px 8px;
+      background: transparent;
+      border: 1px solid #2196f3;
+      color: #2196f3;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      
+      &:hover {
+        background: #2196f3;
+        color: white;
+      }
+    }
+  }
+  
+  .bulk-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+`;
+
+const UploadArea = styled.div`
+  border: 2px dashed #ddd;
+  border-radius: 8px;
+  padding: 40px;
+  text-align: center;
+  background: #fafafa;
+  margin-bottom: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover, &.dragover {
+    border-color: #2196f3;
+    background: #f0f8ff;
+  }
+  
+  .upload-text {
+    font-size: 1.1rem;
+    color: #666;
+    margin-bottom: 8px;
+  }
+  
+  .upload-subtext {
+    font-size: 0.9rem;
+    color: #999;
+  }
+`;
+
 // Edit Transaction Modal styles
 const EditModalOverlay = styled.div`
   position: fixed;
@@ -463,6 +535,18 @@ const Transactions: React.FC = () => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyFor, setHistoryFor] = useState<Transaction | null>(null);
   const [historyItems, setHistoryItems] = useState<Array<{ id: string; timestamp: string; data: Transaction; note?: string }>>([]);
+  
+  // Bulk edit state
+  const [selectedTransactions, setSelectedTransactions] = useState<Transaction[]>([]);
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const [bulkEditForm, setBulkEditForm] = useState({
+    operation: 'set-category', // 'set-category', 'set-account', 'find-replace'
+    category: '',
+    subcategory: '',
+    account: '',
+    findText: '',
+    replaceText: ''
+  });
 
   // Compute a simple diff summary between two transactions
   const summarizeDiff = (a: Transaction, b: Transaction) => {
@@ -676,6 +760,14 @@ const Transactions: React.FC = () => {
 
   // Grid API reference
   const [gridApi, setGridApi] = useState<any>(null);
+
+  // Handle row selection changes
+  const onSelectionChanged = useCallback(() => {
+    if (gridApi) {
+      const selectedRows = gridApi.getSelectedRows();
+      setSelectedTransactions(selectedRows);
+    }
+  }, [gridApi]);
 
   // Function to update transaction
   const handleUpdateTransaction = async (updatedTransaction: Transaction) => {
@@ -1003,6 +1095,95 @@ const Transactions: React.FC = () => {
     });
   };
 
+  // Bulk edit operations
+  const handleBulkEdit = () => {
+    if (selectedTransactions.length === 0) return;
+    setBulkEditForm({
+      operation: 'set-category',
+      category: '',
+      subcategory: '',
+      account: '',
+      findText: '',
+      replaceText: ''
+    });
+    setShowBulkEditModal(true);
+  };
+
+  const handleBulkEditCancel = () => {
+    setShowBulkEditModal(false);
+    setBulkEditForm({
+      operation: 'set-category',
+      category: '',
+      subcategory: '',
+      account: '',
+      findText: '',
+      replaceText: ''
+    });
+  };
+
+  const handleBulkEditSubmit = async () => {
+    if (selectedTransactions.length === 0) return;
+
+    try {
+      let updateCount = 0;
+
+      for (const transaction of selectedTransactions) {
+        let updatedTransaction: Partial<Transaction> = {};
+        let note = '';
+
+        switch (bulkEditForm.operation) {
+          case 'set-category':
+            if (bulkEditForm.category) {
+              updatedTransaction.category = bulkEditForm.category;
+              updatedTransaction.subcategory = bulkEditForm.subcategory || '';
+              note = `Bulk edit: Set category to ${bulkEditForm.category}${bulkEditForm.subcategory ? ' → ' + bulkEditForm.subcategory : ''}`;
+            }
+            break;
+          
+          case 'set-account':
+            if (bulkEditForm.account) {
+              updatedTransaction.account = bulkEditForm.account;
+              note = `Bulk edit: Set account to ${bulkEditForm.account}`;
+            }
+            break;
+          
+          case 'find-replace':
+            if (bulkEditForm.findText && transaction.description.includes(bulkEditForm.findText)) {
+              updatedTransaction.description = transaction.description.replace(
+                new RegExp(bulkEditForm.findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+                bulkEditForm.replaceText
+              );
+              note = `Bulk edit: Find/Replace "${bulkEditForm.findText}" → "${bulkEditForm.replaceText}"`;
+            }
+            break;
+        }
+
+        if (Object.keys(updatedTransaction).length > 0) {
+          updatedTransaction.lastModifiedDate = new Date();
+          await dataService.updateTransaction(transaction.id, updatedTransaction, note);
+          updateCount++;
+        }
+      }
+
+      // Refresh transactions
+      const allTransactions = await dataService.getAllTransactions();
+      setTransactions(allTransactions);
+      setFilteredTransactions(allTransactions);
+
+      // Clear selection and close modal
+      if (gridApi) {
+        gridApi.deselectAll();
+      }
+      setSelectedTransactions([]);
+      setShowBulkEditModal(false);
+
+      console.log(`✅ Bulk edit completed for ${updateCount} transactions`);
+    } catch (error) {
+      console.error('❌ Error during bulk edit:', error);
+      alert('Failed to update transactions. Please try again.');
+    }
+  };
+
   const handleImportComplete = async (importedCount: number) => {
     console.log(`🎉 Import completed! ${importedCount} transactions imported`);
     
@@ -1321,6 +1502,17 @@ const Transactions: React.FC = () => {
   }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
 
   const columnDefs: ColDef[] = [
+    {
+      headerName: '',
+      width: 50,
+      checkboxSelection: true,
+      headerCheckboxSelection: true,
+      pinned: 'left',
+      suppressSizeToFit: true,
+      suppressMovable: true,
+      sortable: false,
+      filter: false
+    },
     {
       headerName: 'Date',
       field: 'date',
@@ -1642,6 +1834,34 @@ const Transactions: React.FC = () => {
 
       {renderReimbursementPanel()}
 
+      {/* Bulk Operations Bar */}
+      {selectedTransactions.length > 0 && (
+        <BulkOperationsBar>
+          <div className="bulk-header">
+            <div className="selection-info">
+              <span className="count">{selectedTransactions.length}</span>
+              <span>transactions selected</span>
+            </div>
+            <button 
+              className="clear-selection-btn"
+              onClick={() => {
+                if (gridApi) {
+                  gridApi.deselectAll();
+                }
+                setSelectedTransactions([]);
+              }}
+            >
+              Clear Selection
+            </button>
+          </div>
+          <div className="bulk-actions">
+            <Button variant="outline" onClick={handleBulkEdit}>
+              📝 Bulk Edit
+            </Button>
+          </div>
+        </BulkOperationsBar>
+      )}
+
       <FileImport onImportComplete={handleImportComplete} />
 
       <FilterBar>
@@ -1787,6 +2007,9 @@ const Transactions: React.FC = () => {
               columnDefs={columnDefs}
               rowData={filteredTransactions}
               onGridReady={onGridReady}
+              onSelectionChanged={onSelectionChanged}
+              rowSelection="multiple"
+              suppressRowClickSelection={true}
               pagination={true}
               paginationPageSize={50}
               defaultColDef={{
@@ -1839,6 +2062,122 @@ const Transactions: React.FC = () => {
             )}
             <div className="form-actions" style={{ marginTop: 16 }}>
               <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* Bulk Edit Modal */}
+      {showBulkEditModal && (
+        <EditModalOverlay onClick={handleBulkEditCancel}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Bulk Edit {selectedTransactions.length} Transactions</h2>
+            
+            <div className="form-group">
+              <label>Operation</label>
+              <select
+                value={bulkEditForm.operation}
+                onChange={(e) => setBulkEditForm({...bulkEditForm, operation: e.target.value as any})}
+              >
+                <option value="set-category">Set Category</option>
+                <option value="set-account">Set Account</option>
+                <option value="find-replace">Find & Replace Text</option>
+              </select>
+            </div>
+
+            {bulkEditForm.operation === 'set-category' && (
+              <>
+                <div className="form-group">
+                  <label>Category</label>
+                  <select
+                    value={bulkEditForm.category}
+                    onChange={(e) => setBulkEditForm({...bulkEditForm, category: e.target.value, subcategory: ''})}
+                  >
+                    <option value="">Select Category</option>
+                    {defaultCategories.map(cat => (
+                      <option key={cat.id} value={cat.name}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {bulkEditForm.category && (
+                  <div className="form-group">
+                    <label>Subcategory (Optional)</label>
+                    <select
+                      value={bulkEditForm.subcategory}
+                      onChange={(e) => setBulkEditForm({...bulkEditForm, subcategory: e.target.value})}
+                    >
+                      <option value="">No Subcategory</option>
+                      {getAvailableSubcategories(bulkEditForm.category).map(sub => (
+                        <option key={sub.id} value={sub.name}>{sub.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
+
+            {bulkEditForm.operation === 'set-account' && (
+              <div className="form-group">
+                <label>Account</label>
+                <select
+                  value={bulkEditForm.account}
+                  onChange={(e) => setBulkEditForm({...bulkEditForm, account: e.target.value})}
+                >
+                  <option value="">Select Account</option>
+                  {uniqueAccounts.map(account => (
+                    <option key={account} value={account}>{account}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {bulkEditForm.operation === 'find-replace' && (
+              <>
+                <div className="form-group">
+                  <label>Find Text</label>
+                  <input
+                    type="text"
+                    value={bulkEditForm.findText}
+                    onChange={(e) => setBulkEditForm({...bulkEditForm, findText: e.target.value})}
+                    placeholder="Text to find in descriptions"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Replace With</label>
+                  <input
+                    type="text"
+                    value={bulkEditForm.replaceText}
+                    onChange={(e) => setBulkEditForm({...bulkEditForm, replaceText: e.target.value})}
+                    placeholder="Replacement text"
+                  />
+                </div>
+
+                {bulkEditForm.findText && (
+                  <div style={{ background: '#f5f5f5', padding: '12px', borderRadius: '4px', marginTop: '8px' }}>
+                    <strong>Preview:</strong> {selectedTransactions.filter(t => 
+                      t.description.toLowerCase().includes(bulkEditForm.findText.toLowerCase())
+                    ).length} transactions will be affected
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={handleBulkEditCancel}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleBulkEditSubmit}
+                disabled={
+                  (bulkEditForm.operation === 'set-category' && !bulkEditForm.category) ||
+                  (bulkEditForm.operation === 'set-account' && !bulkEditForm.account) ||
+                  (bulkEditForm.operation === 'find-replace' && (!bulkEditForm.findText || !bulkEditForm.replaceText))
+                }
+              >
+                Apply to {selectedTransactions.length} Transaction{selectedTransactions.length !== 1 ? 's' : ''}
+              </Button>
             </div>
           </EditModalContent>
         </EditModalOverlay>
