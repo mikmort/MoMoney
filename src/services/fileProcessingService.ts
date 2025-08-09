@@ -843,36 +843,48 @@ Return ONLY a clean JSON response:
         return null;
       }
 
+      // Get account details to determine original currency
+      const account = accountManagementService.getAccount(accountId);
+      const accountCurrency = account?.currency || 'USD';
+      const defaultCurrency = await userPreferencesService.getDefaultCurrency();
+
       const baseTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'> = {
         date,
         description,
         notes,
         amount,
         category: 'Uncategorized', // Temporary, will be set by rules or AI
-        account: accountManagementService.getAccount(accountId)?.name || 'Unknown Account',
+        account: account?.name || 'Unknown Account',
         type: amount >= 0 ? 'income' as const : 'expense' as const,
         isVerified: false,
-        originalText: description
+        originalText: description,
+        // Set original currency based on account currency
+        originalCurrency: accountCurrency !== defaultCurrency ? accountCurrency : undefined
       };
 
-      // Detect currency from transaction data
-      const detectedCurrency = currencyDisplayService.detectCurrencyFromTransaction(baseTransaction);
-      if (detectedCurrency && detectedCurrency !== 'USD') {
-        // Set the original currency for foreign transactions
-        (baseTransaction as any).originalCurrency = detectedCurrency;
-        
-        // Try to get exchange rate for conversion
+      // If transaction is in foreign currency, convert amount to default currency
+      if (accountCurrency !== defaultCurrency) {
         try {
-          const defaultCurrency = await userPreferencesService.getDefaultCurrency();
-          if (detectedCurrency !== defaultCurrency) {
-            const exchangeRate = await currencyExchangeService.getExchangeRate(detectedCurrency, defaultCurrency);
-            if (exchangeRate) {
-              (baseTransaction as any).exchangeRate = exchangeRate.rate;
-              // Note: Keep original amount, conversion will be handled during display
-            }
+          const conversionResult = await currencyExchangeService.convertAmount(
+            Math.abs(amount),
+            accountCurrency,
+            defaultCurrency
+          );
+          
+          if (conversionResult) {
+            // Store original amount and rate for display purposes
+            const convertedAmount = amount < 0 
+              ? -conversionResult.convertedAmount 
+              : conversionResult.convertedAmount;
+            
+            baseTransaction.amount = convertedAmount;
+            baseTransaction.exchangeRate = conversionResult.rate;
+            
+            console.log(`💱 Converted ${amount} ${accountCurrency} to ${convertedAmount} ${defaultCurrency} (rate: ${conversionResult.rate})`);
           }
         } catch (error) {
-          console.log(`Could not fetch exchange rate for ${detectedCurrency}:`, error);
+          console.warn(`Failed to convert currency from ${accountCurrency} to ${defaultCurrency}:`, error);
+          // Keep original amount if conversion fails
         }
       }
 
