@@ -92,9 +92,12 @@ const EditModalContent = styled.div`
 interface AccountsManagementProps {}
 
 export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
-  const { accounts, addAccount, updateAccount } = useAccountManagement();
+  const { accounts, addAccount, updateAccount, deleteAccount, error } = useAccountManagement();
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [accountForm, setAccountForm] = useState({
     name: '',
     type: 'checking' as Account['type'],
@@ -103,6 +106,28 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     balance: 0,
     isActive: true
   });
+
+  const handleDeleteAccount = (accountId: string) => {
+    const account = accounts.find(a => a.id === accountId);
+    if (account) {
+      setDeletingAccount(account);
+      setShowDeleteModal(true);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (deletingAccount) {
+      setDeleteError(null);
+      const success = await deleteAccount(deletingAccount.id);
+      if (success) {
+        setShowDeleteModal(false);
+        setDeletingAccount(null);
+      } else {
+        // Show the error message from the hook
+        setDeleteError(error || 'Failed to delete account. It may have associated transactions.');
+      }
+    }
+  };
 
   const handleEditAccount = (accountId: string) => {
     const account = accounts.find(a => a.id === accountId);
@@ -194,13 +219,37 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   );
 
   const ActionsRenderer: React.FC<any> = (params) => (
-    <button
-      className="edit-account-btn"
-      data-id={params.data.id}
-      style={{ padding: '4px 8px', border: '1px solid #ddd', borderRadius: '4px', background: 'white', cursor: 'pointer' }}
-    >
-      Edit
-    </button>
+    <div style={{ display: 'flex', gap: '4px' }}>
+      <button
+        className="edit-account-btn"
+        data-id={params.data.id}
+        style={{ 
+          padding: '4px 8px', 
+          border: '1px solid #ddd', 
+          borderRadius: '4px', 
+          background: 'white', 
+          cursor: 'pointer',
+          fontSize: '12px'
+        }}
+      >
+        Edit
+      </button>
+      <button
+        className="delete-account-btn"
+        data-id={params.data.id}
+        style={{ 
+          padding: '4px 8px', 
+          border: '1px solid #dc3545', 
+          borderRadius: '4px', 
+          background: '#dc3545',
+          color: 'white',
+          cursor: 'pointer',
+          fontSize: '12px'
+        }}
+      >
+        Delete
+      </button>
+    </div>
   );
 
   const columnDefs: ColDef[] = [
@@ -240,7 +289,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     },
     {
       headerName: 'Actions',
-      width: 100,
+      width: 140,
       cellRenderer: ActionsRenderer
     }
   ];
@@ -250,6 +299,9 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       if (event.event.target.classList.contains('edit-account-btn')) {
         const accountId = event.event.target.dataset.id;
         handleEditAccount(accountId);
+      } else if (event.event.target.classList.contains('delete-account-btn')) {
+        const accountId = event.event.target.dataset.id;
+        handleDeleteAccount(accountId);
       }
     });
   };
@@ -364,6 +416,56 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
               </Button>
               <Button onClick={handleSaveAccount}>
                 {editingAccount ? 'Update' : 'Create'} Account
+              </Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && deletingAccount && (
+        <EditModalOverlay onClick={() => setShowDeleteModal(false)}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Delete Account</h2>
+            
+            <p style={{ marginBottom: '20px', color: '#666' }}>
+              Are you sure you want to delete <strong>{deletingAccount.name}</strong>?
+              This action cannot be undone.
+            </p>
+
+            <div style={{ 
+              background: '#fff3cd',
+              border: '1px solid #ffeaa7',
+              borderRadius: '4px',
+              padding: '12px',
+              marginBottom: '20px'
+            }}>
+              <strong>⚠️ Warning:</strong> This will permanently remove the account from your records.
+              Make sure this account has no associated transactions before proceeding.
+            </div>
+
+            {deleteError && (
+              <div style={{ 
+                background: '#f8d7da',
+                border: '1px solid #f5c6cb',
+                borderRadius: '4px',
+                padding: '12px',
+                marginBottom: '20px',
+                color: '#721c24'
+              }}>
+                <strong>Error:</strong> {deleteError}
+              </div>
+            )}
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={() => setShowDeleteModal(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleConfirmDelete}
+                style={{ backgroundColor: '#dc3545', borderColor: '#dc3545' }}
+              >
+                Delete Account
               </Button>
             </div>
           </EditModalContent>

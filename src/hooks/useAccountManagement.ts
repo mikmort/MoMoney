@@ -8,6 +8,7 @@ export interface UseAccountManagementResult {
   error: string | null;
   addAccount: (account: Omit<Account, 'id'>) => Promise<Account>;
   updateAccount: (id: string, updates: Partial<Account>) => Promise<Account | null>;
+  deleteAccount: (id: string) => Promise<boolean>;
   detectAccount: (request: AccountDetectionRequest) => Promise<AccountDetectionResponse>;
   getAccount: (id: string) => Account | undefined;
   refreshAccounts: () => void;
@@ -74,6 +75,25 @@ export const useAccountManagement = (): UseAccountManagementResult => {
     }
   }, []);
 
+  const deleteAccount = useCallback(async (id: string): Promise<boolean> => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const success = await accountManagementService.deleteAccount(id);
+      if (success) {
+        setAccounts(prev => prev.filter(acc => acc.id !== id));
+      }
+      return success;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete account';
+      setError(errorMessage);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const detectAccount = useCallback(async (request: AccountDetectionRequest): Promise<AccountDetectionResponse> => {
     setIsLoading(true);
     setError(null);
@@ -100,6 +120,7 @@ export const useAccountManagement = (): UseAccountManagementResult => {
     error,
     addAccount,
     updateAccount,
+    deleteAccount,
     detectAccount,
     getAccount,
     refreshAccounts

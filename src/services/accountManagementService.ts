@@ -2,6 +2,16 @@ import { Account } from '../types';
 import { defaultAccounts, accountDetectionPatterns } from '../data/defaultAccounts';
 import { AzureOpenAIService } from './azureOpenAIService';
 
+// Import dataService for validation
+let dataService: any = null;
+const getDataService = async () => {
+  if (!dataService) {
+    const { dataService: ds } = await import('./dataService');
+    dataService = ds;
+  }
+  return dataService;
+};
+
 export interface AccountDetectionRequest {
   fileName: string;
   fileContent?: string;
@@ -59,6 +69,35 @@ export class AccountManagementService {
 
     this.accounts[index] = { ...this.accounts[index], ...updates };
     return this.accounts[index];
+  }
+
+  // Delete account
+  async deleteAccount(id: string): Promise<boolean> {
+    const account = this.getAccount(id);
+    if (!account) return false;
+
+    // Check if account has associated transactions
+    try {
+      const ds = await getDataService();
+      const transactions = await ds.getAllTransactions();
+      const accountTransactions = transactions.filter((t: any) => 
+        t.account === account.name || t.account === account.id
+      );
+
+      if (accountTransactions.length > 0) {
+        throw new Error(`Cannot delete account "${account.name}". It has ${accountTransactions.length} associated transaction(s).`);
+      }
+
+      // If no transactions, proceed with deletion
+      const index = this.accounts.findIndex(account => account.id === id);
+      if (index === -1) return false;
+
+      this.accounts.splice(index, 1);
+      return true;
+    } catch (error) {
+      console.error('Error checking account transactions:', error);
+      throw error;
+    }
   }
 
   // Detect account from file information
