@@ -1,5 +1,4 @@
 import { Transaction } from '../types';
-import { azureOpenAIService } from './azureOpenAIService';
 
 export interface TransferMatch {
   id: string;
