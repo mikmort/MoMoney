@@ -862,31 +862,8 @@ Return ONLY a clean JSON response:
         originalCurrency: accountCurrency !== defaultCurrency ? accountCurrency : undefined
       };
 
-      // If transaction is in foreign currency, convert amount to default currency
-      if (accountCurrency !== defaultCurrency) {
-        try {
-          const conversionResult = await currencyExchangeService.convertAmount(
-            Math.abs(amount),
-            accountCurrency,
-            defaultCurrency
-          );
-          
-          if (conversionResult) {
-            // Store original amount and rate for display purposes
-            const convertedAmount = amount < 0 
-              ? -conversionResult.convertedAmount 
-              : conversionResult.convertedAmount;
-            
-            baseTransaction.amount = convertedAmount;
-            baseTransaction.exchangeRate = conversionResult.rate;
-            
-            console.log(`💱 Converted ${amount} ${accountCurrency} to ${convertedAmount} ${defaultCurrency} (rate: ${conversionResult.rate})`);
-          }
-        } catch (error) {
-          console.warn(`Failed to convert currency from ${accountCurrency} to ${defaultCurrency}:`, error);
-          // Keep original amount if conversion fails
-        }
-      }
+  // Always store the original amount and currency; defer conversion to display time
+  // If needed, exchange rate will be computed on demand in currencyDisplayService
 
       // Try to apply category rules first
       const ruleResult = await rulesService.applyRules(baseTransaction);

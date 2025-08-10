@@ -1,78 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { 
-  Chart as ChartJS, 
-  CategoryScale, 
-  LinearScale, 
-  BarElement, 
-  Title, 
-  Tooltip, 
-  Legend,
-  ArcElement,
-  PointElement,
-  LineElement,
-  TimeScale
-} from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
 import { Card, PageHeader, Grid, Badge } from '../../styles/globalStyles';
 import { DashboardStats, Transaction } from '../../types';
 import { dashboardService } from '../../services/dashboardService';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
-
-// Register Chart.js components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
-  PointElement,
-  LineElement,
-  TimeScale
-);
-
-const StatsCard = styled(Card)`
-  text-align: center;
-  
-  .amount {
-    font-size: 2rem;
-    font-weight: 600;
-    margin: 8px 0;
-    
-    &.positive {
-      color: #4caf50;
-    }
-    
-    &.negative {
-      color: #f44336;
-    }
-    
-    &.neutral {
-      color: #2196f3;
-    }
-    
-    &.clickable {
-      cursor: pointer;
-      transition: color 0.2s;
-      
-      &:hover {
-        color: #1976d2;
-        text-decoration: underline;
-      }
-    }
-  }
-  
-  .label {
-    color: #666;
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-`;
+import { commonBarChartOptions, commonDoughnutOptions } from '../../utils/chartConfig';
+import { StatsCard } from '../shared/StatsCard';
 
 const ChartCard = styled(Card)`
   height: 400px;
@@ -227,9 +163,9 @@ const Dashboard: React.FC = () => {
         // Format the main stats
         if (stats) {
           const [totalIncomeFormatted, totalExpensesFormatted, netIncomeFormatted] = await Promise.all([
-            currencyDisplayService.formatAmount(stats.totalIncome),
-            currencyDisplayService.formatAmount(stats.totalExpenses),
-            currencyDisplayService.formatAmount(stats.netIncome)
+            currencyDisplayService.formatAmount(stats.totalIncome, currency),
+            currencyDisplayService.formatAmount(stats.totalExpenses, currency),
+            currencyDisplayService.formatAmount(stats.netIncome, currency)
           ]);
           
           setFormattedStats({
@@ -323,10 +259,10 @@ const Dashboard: React.FC = () => {
           <div className="amount neutral">{formattedStats.netIncome}</div>
         </StatsCard>
         
-        <StatsCard>
+        <StatsCard clickable>
           <div className="label">Transactions</div>
           <div 
-            className="amount neutral clickable" 
+            className="amount neutral" 
             onClick={() => navigate('/transactions')}
             title="Click to view all transactions"
           >
@@ -342,15 +278,7 @@ const Dashboard: React.FC = () => {
             {stats && stats.topCategories.length > 0 ? (
               <Doughnut 
                 data={categoryChartData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: 'bottom',
-                    },
-                  },
-                }}
+                options={commonDoughnutOptions}
               />
             ) : (
               <div style={{ 
@@ -374,8 +302,7 @@ const Dashboard: React.FC = () => {
               <Bar 
                 data={trendChartData}
                 options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
+                  ...commonBarChartOptions,
                   plugins: {
                     legend: {
                       position: 'top',
@@ -386,7 +313,6 @@ const Dashboard: React.FC = () => {
                       beginAtZero: true,
                       ticks: {
                         callback: function(value) {
-                          // Use the user's default currency symbol
                           const symbol = defaultCurrency === 'EUR' ? '€' : 
                                         defaultCurrency === 'GBP' ? '£' : 
                                         defaultCurrency === 'JPY' ? '¥' : '$';

@@ -5,7 +5,6 @@ import { defaultConfig } from '../../config/appConfig';
 import { dataService } from '../../services/dataService';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { simplifiedImportExportService } from '../../services/simplifiedImportExportService';
-import { AccountsManagement } from './AccountsManagement';
 import { UserPreferences } from '../../types';
 
 const DangerZone = styled.div`
@@ -173,7 +172,25 @@ const Settings: React.FC = () => {
   const handleResetData = async () => {
     setIsResetting(true);
     try {
+      // Clear transactions, history, and preferences (IndexedDB)
       await dataService.clearAllData();
+  // Also clear accounts and rules stored in localStorage
+      try {
+        localStorage.removeItem('mo-money-accounts');
+      } catch {}
+      try {
+        // RulesService persists to localStorage under its own key; call its API too for consistency
+        const { rulesService } = await import('../../services/rulesService');
+        await rulesService.clearAllRules();
+      } catch {}
+
+  // Clear localStorage-backed app preferences and UI state for a clean start
+  try { localStorage.removeItem('transactionsPageSize'); } catch {}
+  try { localStorage.removeItem('mo-money-categories'); } catch {}
+  try { localStorage.removeItem('mo-money-templates'); } catch {}
+  // Legacy/local migration keys (safe to remove)
+  try { localStorage.removeItem('mo-money-transactions'); } catch {}
+  try { localStorage.removeItem('mo-money-transaction-history'); } catch {}
       alert('✅ All data has been successfully reset. The page will reload to reflect the changes.');
       window.location.reload(); // Reload to reset the app state
     } catch (error) {
@@ -313,10 +330,6 @@ const Settings: React.FC = () => {
             </SaveButton>
           </PreferencesForm>
         )}
-      </Card>
-
-      <Card>
-        <AccountsManagement />
       </Card>
 
       <Card>

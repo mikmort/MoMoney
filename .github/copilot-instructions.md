@@ -7,25 +7,25 @@ Mo Money is a React TypeScript web application for financial tracking and budget
 ## Working Effectively
 
 ### Bootstrap and Setup
-- **NEVER CANCEL**: `npm install` -- takes 4 minutes to complete. Set timeout to 10+ minutes.
+- **FAST**: `npm install` -- takes 5 seconds to complete. Set timeout to 2+ minutes to be safe.
 - Copy `.env.example` to `.env` for development mode: `cp .env.example .env`
 - Development mode bypasses authentication automatically (REACT_APP_SKIP_AUTH defaults to true)
 
-### Build and Test (OPTIMIZED!)
-- **Build for production**: `npm run build` -- takes 23 seconds (down from 45s!). NEVER CANCEL. Set timeout to 3+ minutes.
-  - **FIXED**: No longer requires `CI=false` - ESLint warnings resolved!
-  - **NEW**: Code splitting implemented - main bundle reduced from 716KB to 133KB (81% improvement!)
-- **Test suite**: `npm test -- --watchAll=false --passWithNoTests` -- completes in 10 seconds
-  - **NOTE**: No unit tests exist in the project, but test infrastructure works
-  - Test command will fail without `--passWithNoTests` flag
-- **Linting**: `npx eslint src --ext .ts,.tsx` -- runs in 30 seconds, minimal warnings
-- **Performance analysis**: `npm run perf:check` -- analyze bundle size and performance
+### Build and Test (VALIDATED!)
+- **Build for production**: `npm run build` -- takes 22-23 seconds. NEVER CANCEL. Set timeout to 3+ minutes.
+  - **IMPORTANT**: May require fixing ESLint issues first - build treats warnings as errors in CI mode
+  - **VERIFIED**: Code splitting implemented - main bundle 133.4 KB gzipped (466 KB ungzipped)
+- **Test suite**: `npm test -- --watchAll=false --passWithNoTests` -- completes in 4 seconds
+  - **CORRECTED**: Unit tests DO exist in the project (5 test suites, 35+ tests)
+  - **NOTE**: Some tests may show console warnings but will pass
+- **Linting**: `npx eslint src --ext .ts,.tsx` -- runs in 4 seconds, may show some warnings
+- **Performance analysis**: `npm run perf:check` -- analyze bundle size, runs in under 1 second
 
 ### Run the Application
-- **Development server**: `npm start` -- takes 30 seconds to start, runs on http://localhost:3000
-  - Application loads with sample data automatically
+- **Development server**: `npm start` -- takes 35 seconds to start, runs on http://localhost:3000
+  - Application loads with sample data automatically (22 transactions)
   - Uses "Development User" account with mock transactions
-  - **NEVER CANCEL**: Wait for "webpack compiled" message before testing
+  - **NEVER CANCEL**: Wait for "webpack compiled successfully" message before testing
 - **Production preview**: `npx serve -s build` (after building) -- serves on port 3000
 
 ## Validation Scenarios
@@ -42,7 +42,7 @@ After making changes, **ALWAYS** run through these validation scenarios:
 
 2. **Transaction Management**:
    - Click "💳 Transactions" in sidebar
-   - Verify transaction grid loads with sample data (5 mock transactions)
+   - Verify transaction grid loads with sample data (22 transactions showing 20 per page)
    - Test file upload area (drag & drop functionality)
    - Confirm filters work (Category, Type, Account dropdowns)
    - Validate AI confidence scores display (percentages with ℹ️ icons)
@@ -59,12 +59,12 @@ After making changes, **ALWAYS** run through these validation scenarios:
 
 ## Common Commands and Timing
 
-### **CRITICAL**: Timeout Values and Build Times (UPDATED - Much Faster!)
-- **`npm install`**: 16 seconds actual time. **NEVER CANCEL**. Set timeout to 2+ minutes.
-- **`npm run build`**: 23 seconds actual time (down from 45s!). **NEVER CANCEL**. Set timeout to 3+ minutes.
-- **`npm start`**: 30 seconds to start serving. **NEVER CANCEL**. Set timeout to 3+ minutes.
-- **`npm test`**: 10 seconds with `--passWithNoTests` flag.
-- **`npx eslint`**: 30 seconds for full codebase lint check.
+### **CRITICAL**: Timeout Values and Build Times (VALIDATED!)
+- **`npm install`**: 5 seconds actual time. **FAST**. Set timeout to 2+ minutes to be safe.
+- **`npm run build`**: 22-23 seconds actual time. **NEVER CANCEL**. Set timeout to 3+ minutes.
+- **`npm start`**: 35 seconds to start serving. **NEVER CANCEL**. Set timeout to 3+ minutes.
+- **`npm test`**: 4 seconds with existing tests (5 suites, 35+ tests).
+- **`npx eslint`**: 4 seconds for full codebase lint check.
 
 ### Environment Requirements
 - **Node.js**: Version 20.19.4+ (confirmed working)
@@ -105,15 +105,15 @@ src/
 
 ### GitHub Actions
 - Workflow: `.github/workflows/azure-static-web-apps.yml`
-- **Build command in CI**: `npm run build` (ESLint warnings now resolved!)
-- **FIXED**: CI build no longer requires CI=false workaround
+- **Build command in CI**: `npm run build` 
+- **IMPORTANT**: CI build may fail if ESLint warnings are present (treats warnings as errors)
 - Deploys to Azure Static Web Apps automatically on main branch
 
-### Build Issues (RESOLVED!)
-- **✅ FIXED**: ESLint warnings that caused CI failures - no longer need CI=false
-- **✅ IMPROVED**: Bundle size reduced from 716KB to 133KB main bundle (81% improvement)
+### Build Issues (CURRENT STATUS!)
+- **⚠️ IMPORTANT**: Build treats ESLint warnings as errors in CI mode - fix warnings first
+- **✅ VERIFIED**: Bundle size - main bundle 133.4 KB gzipped, 466 KB ungzipped  
 - **✅ OPTIMIZED**: Code splitting implemented for all routes
-- **Known warnings**: Deprecation warnings from webpack-dev-server are expected
+- **Expected warnings**: Deprecation warnings from webpack-dev-server during `npm start`
 
 ## Azure Services Integration
 
@@ -147,40 +147,40 @@ src/
 
 ## Troubleshooting
 
-### Common Issues (UPDATED!)
-1. **✅ RESOLVED**: Build no longer fails with ESLint errors
-2. **No tests found error**: Add `--passWithNoTests` flag to test command
-3. **Development server slow to start**: Wait for "webpack compiled" message (30 seconds normal)
+### Common Issues (VALIDATED!)
+1. **⚠️ BUILD FAILURES**: Fix ESLint warnings first - build treats warnings as errors in CI mode
+2. **Tests**: Tests exist and run successfully (5 suites, 35+ tests)
+3. **Development server slow to start**: Wait for "webpack compiled successfully" message (35 seconds normal)
 4. **Missing environment variables**: Copy `.env.example` to `.env` for development
 
-### Expected Warnings (UPDATED!)
-- Minimal ESLint warnings (major issues resolved)
-- Webpack deprecation warnings during `npm start`
-- Bundle analysis shows optimal code splitting (main: 133KB, chunks: auto-loaded)
+### Expected Warnings (VALIDATED!)
+- Some ESLint warnings may exist in test files (build will fail if any exist)
+- Webpack deprecation warnings during `npm start` are normal
+- Console warnings in tests are expected but tests still pass
 
 ## Quick Reference
 
-### Most Common Commands (UPDATED - Much Faster!)
+### Most Common Commands (VALIDATED!)
 ```bash
 # Initial setup
-npm install                                    # 16 sec - MUCH FASTER!
+npm install                                    # 5 sec - FAST!
 cp .env.example .env                          # Instant
 
-# Development workflow (OPTIMIZED!)
-npm run build                                 # 23 sec - 50% FASTER!
-npm start                                     # 30 sec - NEVER CANCEL
-npm test -- --watchAll=false --passWithNoTests # 10 sec
+# Development workflow (VALIDATED!)
+npm run build                                 # 22-23 sec - NEVER CANCEL
+npm start                                     # 35 sec - NEVER CANCEL
+npm test -- --watchAll=false --passWithNoTests # 4 sec - tests exist!
 
 # Code quality & analysis
-npx eslint src --ext .ts,.tsx                # 30 sec
-npm run perf:check                           # 5 sec - NEW: bundle analysis
-npm run build:analyze                        # 25 sec - detailed analysis
+npx eslint src --ext .ts,.tsx                # 4 sec - may show warnings
+npm run perf:check                           # <1 sec - bundle analysis
+npm run build:analyze                        # 23 sec - detailed analysis (has source map warnings)
 ```
 
-### Repository Quick Facts (UPDATED!)
+### Repository Quick Facts (VALIDATED!)
 - **Lines of Code**: ~50+ TypeScript/React files
 - **Build Output**: `build/` directory (gitignored)
-- **Bundle Size**: 133KB main + optimized chunks (was 658KB single bundle - 81% improvement!)
+- **Bundle Size**: 133.4 KB main gzipped + optimized chunks (466 KB main ungzipped)
 - **Code Splitting**: ✅ Implemented for all routes
-- **Test Coverage**: 0% (no tests exist)
+- **Test Coverage**: 35+ tests across 5 test suites (all passing)
 - **Dependencies**: 27 production, 8 development packages

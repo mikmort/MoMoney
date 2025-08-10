@@ -7,6 +7,7 @@ import { Budget, Category } from '../../types';
 import { budgetService } from '../../services/budgetService';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
+
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
