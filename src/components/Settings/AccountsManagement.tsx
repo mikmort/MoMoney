@@ -168,6 +168,9 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     isActive: true
   });
 
+  // Account creation choice modal
+  const [showAccountCreationChoice, setShowAccountCreationChoice] = useState(false);
+
   // Statement upload functionality
   const [showStatementUpload, setShowStatementUpload] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -223,6 +226,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     }
   };
 
+  // Handle single "Add Account" button click - show choice modal
+  const handleAddAccountClick = () => {
+    setShowAccountCreationChoice(true);
+  };
+
   const handleAddAccount = () => {
     setEditingAccount(null);
     setAccountForm({
@@ -255,11 +263,18 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     }));
   };
 
-  // Statement upload handlers
-  const handleCreateFromStatement = () => {
+  // Handle choice: Create from Statement
+  const handleChoiceCreateFromStatement = () => {
+    setShowAccountCreationChoice(false);
     setShowStatementUpload(true);
     setUploadedFile(null);
     setAnalysisResult(null);
+  };
+
+  // Handle choice: Add Manually  
+  const handleChoiceAddManually = () => {
+    setShowAccountCreationChoice(false);
+    handleAddAccount();
   };
 
   const handleFileUpload = async (file: File) => {
@@ -558,8 +573,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h3>Account Management</h3>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <Button onClick={handleCreateFromStatement} variant="outline">Create from Statement</Button>
-          <Button onClick={handleAddAccount}>Add Account</Button>
+          <Button onClick={handleAddAccountClick}>Add Account</Button>
         </div>
       </div>
 
@@ -716,6 +730,69 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                 style={{ backgroundColor: '#dc3545', borderColor: '#dc3545' }}
               >
                 Delete Account
+              </Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* Account Creation Choice Modal */}
+      {showAccountCreationChoice && (
+        <EditModalOverlay onClick={() => setShowAccountCreationChoice(false)}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Add Account</h2>
+            
+            <p style={{ marginBottom: '24px', color: '#666', lineHeight: '1.5' }}>
+              How would you like to create your new account?
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <Button 
+                onClick={handleChoiceCreateFromStatement}
+                style={{ 
+                  padding: '16px 20px',
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  color: '#333'
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                    📄 Create account by uploading statement
+                  </div>
+                  <div style={{ fontSize: '0.9em', color: '#666' }}>
+                    Upload a bank statement (PDF, CSV, Excel) and let AI extract account details automatically
+                  </div>
+                </div>
+              </Button>
+
+              <Button 
+                onClick={handleChoiceAddManually}
+                style={{ 
+                  padding: '16px 20px',
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  color: '#333'
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                    ✏️ Add Account Manually
+                  </div>
+                  <div style={{ fontSize: '0.9em', color: '#666' }}>
+                    Enter account information manually with a simple form
+                  </div>
+                </div>
+              </Button>
+            </div>
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={() => setShowAccountCreationChoice(false)}>
+                Cancel
               </Button>
             </div>
           </EditModalContent>
