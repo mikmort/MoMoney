@@ -7,6 +7,7 @@ import { Card, PageHeader, Grid, Badge } from '../../styles/globalStyles';
 import { DashboardStats, Transaction } from '../../types';
 import { dashboardService } from '../../services/dashboardService';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
+import { accountManagementService } from '../../services/accountManagementService';
 import { commonBarChartOptions, commonDoughnutOptions } from '../../utils/chartConfig';
 import { StatsCard } from '../shared/StatsCard';
 
@@ -99,6 +100,44 @@ const RecentTransactions = styled(Card)`
   }
 `;
 
+const EmptyStateCard = styled(Card)`
+  text-align: center;
+  padding: 40px 20px;
+  
+  .emoji {
+    font-size: 3rem;
+    margin-bottom: 20px;
+    display: block;
+  }
+  
+  h3 {
+    margin-bottom: 16px;
+    color: #333;
+  }
+  
+  p {
+    color: #666;
+    margin-bottom: 24px;
+    line-height: 1.5;
+  }
+  
+  .action-button {
+    background: #2196f3;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    
+    &:hover {
+      background: #1976d2;
+    }
+  }
+`;
+
 // Component for displaying transaction amounts with currency conversion
 const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
   const [displayData, setDisplayData] = useState<{
@@ -135,6 +174,8 @@ const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasAccounts, setHasAccounts] = useState(false);
+  const [hasTransactions, setHasTransactions] = useState(false);
   const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
   const [formattedStats, setFormattedStats] = useState<{
     totalIncome: string;
@@ -150,6 +191,11 @@ const Dashboard: React.FC = () => {
     const loadDashboardData = async () => {
       setLoading(true);
       try {
+        // Check if accounts exist
+        const accounts = accountManagementService.getAccounts();
+        const accountsExist = accounts.length > 0;
+        setHasAccounts(accountsExist);
+        
         // Initialize currency display service and get default currency
         await currencyDisplayService.initialize();
         const currency = await currencyDisplayService.getDefaultCurrency();
@@ -159,6 +205,10 @@ const Dashboard: React.FC = () => {
           dashboardService.getDashboardStats(),
           dashboardService.getRecentTransactions(5)
         ]);
+        
+        // Check if transactions exist
+        const transactionsExist = stats.transactionCount > 0;
+        setHasTransactions(transactionsExist);
         
         // Format the main stats
         if (stats) {
@@ -232,6 +282,58 @@ const Dashboard: React.FC = () => {
           <h1>Dashboard</h1>
         </PageHeader>
         <div>Loading...</div>
+      </div>
+    );
+  }
+
+  // No accounts exist - show onboarding to create accounts
+  if (!hasAccounts) {
+    return (
+      <div>
+        <PageHeader>
+          <h1>Dashboard</h1>
+        </PageHeader>
+        <EmptyStateCard>
+          <span className="emoji">🏦</span>
+          <h3>Welcome to Mo Money!</h3>
+          <p>
+            To get started tracking your finances, you'll need to add at least one bank account.
+            <br />
+            This will help you organize and categorize your financial data.
+          </p>
+          <button 
+            className="action-button" 
+            onClick={() => navigate('/accounts')}
+          >
+            Add Your First Account
+          </button>
+        </EmptyStateCard>
+      </div>
+    );
+  }
+
+  // Accounts exist but no transactions - show onboarding to import transactions
+  if (hasAccounts && !hasTransactions) {
+    return (
+      <div>
+        <PageHeader>
+          <h1>Dashboard</h1>
+        </PageHeader>
+        <EmptyStateCard>
+          <span className="emoji">📊</span>
+          <h3>Ready to Import Your Financial Data</h3>
+          <p>
+            Great! You have accounts set up. Now import your bank statements or manually add transactions
+            <br />
+            to start seeing your financial insights and trends.
+          </p>
+          <button 
+            className="action-button" 
+            onClick={() => navigate('/transactions')}
+          >
+            Import Transactions
+          </button>
+        </EmptyStateCard>
       </div>
     );
   }
