@@ -67,8 +67,6 @@ const ModalContent = styled.div`
   padding: 24px;
   width: 90%;
   max-width: 500px;
-  max-height: 80vh;
-  overflow-y: auto;
 
   h2 {
     margin: 0 0 20px 0;
@@ -542,7 +540,7 @@ const Budgets: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', whiteSpace: 'nowrap', flexWrap: 'nowrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', whiteSpace: 'nowrap', flexWrap: 'nowrap', justifyContent: 'flex-start' }}>
                 <input
                   type="checkbox"
                   checked={budgetForm.isActive}
