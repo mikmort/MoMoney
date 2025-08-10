@@ -2522,7 +2522,7 @@ const Transactions: React.FC = () => {
         alert(`Removed ${result.removed} duplicates, but encountered ${result.errors.length} errors. See console for details.`);
       } else {
         console.log(`✅ Successfully removed ${result.removed} duplicate transactions`);
-        alert(`Successfully removed ${result.removed} duplicate transaction${result.removed !== 1 ? 's' : ''}!`);
+        // Success - no alert needed, user can see the visual update
       }
       
       // Refresh the transactions list
