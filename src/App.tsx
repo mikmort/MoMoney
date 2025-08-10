@@ -16,6 +16,7 @@ import { GlobalStyles, lightTheme } from './styles/globalStyles';
 const Dashboard = lazy(() => import('./components/Dashboard/Dashboard'));
 const Transactions = lazy(() => import('./components/Transactions/Transactions'));
 const Rules = lazy(() => import('./components/Rules/Rules'));
+const Accounts = lazy(() => import('./components/Accounts/Accounts'));
 const Budgets = lazy(() => import('./components/Budgets/Budgets'));
 const Reports = lazy(() => import('./components/Reports/Reports'));
 const Settings = lazy(() => import('./components/Settings/Settings'));
@@ -50,6 +51,7 @@ const AppContent: React.FC = () => (
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/rules" element={<Rules />} />
           <Route path="/transfer-matches" element={<TransferMatchesPage />} />
+          <Route path="/accounts" element={<Accounts />} />
           <Route path="/categories" element={<CategoriesManagement />} />
           <Route path="/budgets" element={<Budgets />} />
           <Route path="/reports" element={<Reports />} />
