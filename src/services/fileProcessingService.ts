@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { StatementFile, Transaction, FileSchemaMapping, FileImportProgress, Category, Subcategory, AISchemaMappingRequest, AISchemaMappingResponse, AIClassificationRequest, AIClassificationResponse, DuplicateDetectionResult } from '../types';
+import { StatementFile, Transaction, FileSchemaMapping, FileImportProgress, Category, Subcategory, AISchemaMappingRequest, AISchemaMappingResponse, AIClassificationRequest, AIClassificationResponse, DuplicateDetectionResult, CategoryRule } from '../types';
 import { accountManagementService, AccountDetectionRequest } from './accountManagementService';
 import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
@@ -810,7 +810,7 @@ Return ONLY a clean JSON response:
     }
 
     // Step 2: Build batch requests for AI (only for unmatched transactions)
-    const batchRequests: AIClassificationRequest[] = ruleResults.unmatchedTransactions.map(transaction => ({
+    let batchRequests: AIClassificationRequest[] = ruleResults.unmatchedTransactions.map(transaction => ({
       transactionText: transaction.description,
       amount: transaction.amount,
       date: transaction.date.toISOString(),
@@ -830,30 +830,97 @@ Return ONLY a clean JSON response:
       console.log(`✨ STEP 2: NO AI CLASSIFICATION NEEDED - All transactions handled by rules!`);
     }
 
-    // Step 3: Call AI in batch chunks only for unmatched transactions
+    // Step 3: Process AI in batches with dynamic rule updates
     const batchResults: AIClassificationResponse[] = [];
+    let remainingUnmatchedTransactions = [...ruleResults.unmatchedTransactions];
+    let dynamicallyMatchedTransactions: Array<{ transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>; rule: CategoryRule }> = [];
+    
     if (batchRequests.length > 0) {
       const CHUNK = AI_CHUNK_SIZE; // increased batch size to 20 to speed up processing
-      for (let start = 0; start < batchRequests.length; start += CHUNK) {
+      let batchStartIndex = 0;
+      
+      while (remainingUnmatchedTransactions.length > 0 && batchStartIndex < batchRequests.length) {
         if (this.isCancelled(fileId)) {
           console.log('🛑 Transaction processing cancelled during batch classification');
           throw new Error('Import cancelled by user');
         }
-        const slice = batchRequests.slice(start, start + CHUNK);
-        const endExclusive = Math.min(start + CHUNK, batchRequests.length);
-        const batchIndex = Math.floor(start / CHUNK) + 1;
-        const batchCount = Math.ceil(batchRequests.length / CHUNK);
-        console.log(`➡️ AI Batch ${batchIndex}/${batchCount}: processing items ${start}-${endExclusive - 1} (${slice.length} transactions)`);
+        
+        // Get next batch of transactions to classify
+        const batchSize = Math.min(CHUNK, remainingUnmatchedTransactions.length);
+        const transactionSlice = remainingUnmatchedTransactions.slice(0, batchSize);
+        const requestSlice = batchRequests.slice(batchStartIndex, batchStartIndex + batchSize);
+        
+        const batchIndex = Math.floor(batchStartIndex / CHUNK) + 1;
+        const totalBatches = Math.ceil(batchRequests.length / CHUNK);
+        
+        console.log(`➡️ AI Batch ${batchIndex}/${totalBatches}: processing ${batchSize} transactions (${remainingUnmatchedTransactions.length} remaining)`);
+        
         try {
-          const res = await azureOpenAIService.classifyTransactionsBatch(slice);
+          const res = await azureOpenAIService.classifyTransactionsBatch(requestSlice);
+          
+          // Create auto-rules from high-confidence AI classifications
+          const newRulesCreated: CategoryRule[] = [];
+          for (let i = 0; i < transactionSlice.length; i++) {
+            const transaction = transactionSlice[i];
+            const aiResult = res[i];
+            
+            if (aiResult && aiResult.confidence >= 0.8 && 
+                aiResult.categoryId && 
+                aiResult.categoryId !== 'Uncategorized' && 
+                aiResult.categoryId !== 'uncategorized') {
+              
+              try {
+                const rule = await rulesService.createAutoRuleFromAI(
+                  transaction.account,
+                  transaction.description,
+                  aiResult.categoryId,
+                  aiResult.subcategoryId,
+                  aiResult.confidence
+                );
+                newRulesCreated.push(rule);
+                console.log(`   📋 Auto-created rule: ${transaction.description} (${transaction.account}) → ${aiResult.categoryId}`);
+              } catch (error) {
+                console.warn(`   ⚠️ Failed to create auto-rule for ${transaction.description}:`, error);
+              }
+            }
+          }
+          
           batchResults.push(...res);
           const uncategorizedCount = res.filter(r => (r.categoryId || '').toLowerCase() === 'uncategorized').length;
           const categorizedCount = res.length - uncategorizedCount;
-          console.log(`   ✅ Batch ${batchIndex} completed: ${categorizedCount} categorized, ${uncategorizedCount} uncategorized`);
+          console.log(`   ✅ Batch ${batchIndex} completed: ${categorizedCount} categorized, ${uncategorizedCount} uncategorized, ${newRulesCreated.length} new rules created`);
+          
+          // Remove processed transactions from remaining list
+          remainingUnmatchedTransactions = remainingUnmatchedTransactions.slice(batchSize);
+          batchStartIndex += batchSize;
+          
+          // If we created new rules, re-evaluate remaining unmatched transactions
+          if (newRulesCreated.length > 0 && remainingUnmatchedTransactions.length > 0) {
+            console.log(`   🔄 Re-evaluating ${remainingUnmatchedTransactions.length} remaining transactions against ${newRulesCreated.length} new rules`);
+            
+            const reevaluationResults = await rulesService.applyRulesToBatch(remainingUnmatchedTransactions);
+            
+            if (reevaluationResults.matchedTransactions.length > 0) {
+              dynamicallyMatchedTransactions.push(...reevaluationResults.matchedTransactions);
+              remainingUnmatchedTransactions = reevaluationResults.unmatchedTransactions;
+              
+              // Update batch requests to only include still-unmatched transactions
+              batchRequests = remainingUnmatchedTransactions.map(transaction => ({
+                transactionText: transaction.description,
+                amount: transaction.amount,
+                date: transaction.date.toISOString(),
+                availableCategories: categories
+              }));
+              batchStartIndex = 0; // Reset since we're working with a new filtered array
+              
+              console.log(`   ✨ Dynamic rules matched ${reevaluationResults.matchedTransactions.length} additional transactions, ${remainingUnmatchedTransactions.length} still need AI processing`);
+            }
+          }
+          
         } catch (error) {
           console.warn(`   ⚠️ Batch ${batchIndex} failed - using fallback categorization:`, error);
           // Create default responses for failed AI classification
-          const defaultResponses = slice.map(() => ({
+          const defaultResponses = requestSlice.map(() => ({
             categoryId: 'uncategorized',
             subcategoryId: undefined,
             confidence: 0.1,
@@ -861,24 +928,44 @@ Return ONLY a clean JSON response:
           } as AIClassificationResponse));
           batchResults.push(...defaultResponses);
           console.log(`   📋 Created ${defaultResponses.length} fallback responses for batch ${batchIndex}`);
+          
+          // Remove processed transactions even on failure
+          remainingUnmatchedTransactions = remainingUnmatchedTransactions.slice(batchSize);
+          batchStartIndex += batchSize;
         }
+        
         if (onProgress) {
-          const processed = ruleResults.matchedTransactions.length + Math.min(ruleResults.unmatchedTransactions.length, start + slice.length);
-          onProgress(processed);
+          const totalProcessed = ruleResults.matchedTransactions.length + dynamicallyMatchedTransactions.length + (ruleResults.unmatchedTransactions.length - remainingUnmatchedTransactions.length);
+          onProgress(totalProcessed);
         }
       }
+      
+      // Merge dynamically matched transactions back into main results
+      ruleResults.matchedTransactions.push(...dynamicallyMatchedTransactions);
+      ruleResults.unmatchedTransactions = remainingUnmatchedTransactions;
     }
 
-    // Final summary with clear breakdown
+    // Final summary with clear breakdown including dynamic matching
     const totalProcessed = ruleResults.matchedTransactions.length + batchResults.length;
+    const initialRulesMatched = ruleResults.matchedTransactions.length - dynamicallyMatchedTransactions.length;
+    const dynamicRulesMatched = dynamicallyMatchedTransactions.length;
     const finalRulesPercentage = totalProcessed > 0 ? Math.round((ruleResults.matchedTransactions.length / totalProcessed) * 100) : 0;
     const finalAIPercentage = totalProcessed > 0 ? Math.round((batchResults.length / totalProcessed) * 100) : 0;
     
     console.log(`🎉 TRANSACTION PROCESSING COMPLETE:`);
     console.log(`   📊 Total transactions processed: ${totalProcessed}`);
     console.log(`   📋 Rules handled: ${ruleResults.matchedTransactions.length} (${finalRulesPercentage}%)`);
+    if (dynamicRulesMatched > 0) {
+      console.log(`     ├─ Initial rules: ${initialRulesMatched} transactions`);
+      console.log(`     └─ Dynamic rules: ${dynamicRulesMatched} transactions (rules created during import)`);
+    }
     console.log(`   🤖 AI handled: ${batchResults.length} (${finalAIPercentage}%)`);
     console.log(`   💡 Rules efficiency: ${finalRulesPercentage}% of transactions categorized without AI API calls`);
+    
+    if (dynamicRulesMatched > 0) {
+      const apiCallsSaved = dynamicRulesMatched;
+      console.log(`   ✨ Dynamic rule optimization: Saved ${apiCallsSaved} AI API calls through rule learning`);
+    }
     
     if (batchResults.length > 0) {
       const aiCategorizedCount = batchResults.filter(r => (r.categoryId || '').toLowerCase() !== 'uncategorized').length;
@@ -900,51 +987,55 @@ Return ONLY a clean JSON response:
       });
     });
 
-    // Process AI results for unmatched transactions
+    // Process AI results for remaining unmatched transactions
+    // Map each AI result to its corresponding transaction
     const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
     const idToNameSub = new Map<string, { name: string; parentId: string }>();
     categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
 
+    // Process AI results in order with remaining unmatched transactions
     ruleResults.unmatchedTransactions.forEach((transaction, index) => {
-      const ai = batchResults[index] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
+      if (index < batchResults.length) {
+        const ai = batchResults[index] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
 
-      // Constrain AI result to valid categories
-      const categoryIds = new Set(categories.map(c => c.id));
-      const lowerToIdCategory = new Map<string, string>(categories.map(c => [c.name.toLowerCase(), c.id]));
-      let validCategoryId = ai.categoryId;
-      let validSubcategoryId = ai.subcategoryId;
-      
-      if (!categoryIds.has(validCategoryId) && lowerToIdCategory.has(String(validCategoryId).toLowerCase())) {
-        validCategoryId = lowerToIdCategory.get(String(validCategoryId).toLowerCase())!;
-      }
-      if (!categoryIds.has(validCategoryId)) {
-        validCategoryId = 'uncategorized';
-        validSubcategoryId = undefined;
-      }
-      if (validSubcategoryId) {
-        const sub = idToNameSub.get(validSubcategoryId);
-        if (!sub || sub.parentId !== validCategoryId) {
-          const cat = categories.find(c => c.id === validCategoryId);
-          const lowerToIdSub = new Map<string, string>((cat?.subcategories || []).map(s => [s.name.toLowerCase(), s.id]));
-          const byName = lowerToIdSub.get(String(validSubcategoryId).toLowerCase());
-          validSubcategoryId = byName || undefined;
+        // Constrain AI result to valid categories
+        const categoryIds = new Set(categories.map(c => c.id));
+        const lowerToIdCategory = new Map<string, string>(categories.map(c => [c.name.toLowerCase(), c.id]));
+        let validCategoryId = ai.categoryId;
+        let validSubcategoryId = ai.subcategoryId;
+        
+        if (!categoryIds.has(validCategoryId) && lowerToIdCategory.has(String(validCategoryId).toLowerCase())) {
+          validCategoryId = lowerToIdCategory.get(String(validCategoryId).toLowerCase())!;
         }
+        if (!categoryIds.has(validCategoryId)) {
+          validCategoryId = 'uncategorized';
+          validSubcategoryId = undefined;
+        }
+        if (validSubcategoryId) {
+          const sub = idToNameSub.get(validSubcategoryId);
+          if (!sub || sub.parentId !== validCategoryId) {
+            const cat = categories.find(c => c.id === validCategoryId);
+            const lowerToIdSub = new Map<string, string>((cat?.subcategories || []).map(s => [s.name.toLowerCase(), s.id]));
+            const byName = lowerToIdSub.get(String(validSubcategoryId).toLowerCase());
+            validSubcategoryId = byName || undefined;
+          }
+        }
+
+        // Convert ids to display names for storage
+        const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
+        const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
+
+        transactions.push({
+          ...transaction,
+          category: categoryName,
+          subcategory: subName,
+          confidence: ai.confidence,
+          reasoning: ai.reasoning,
+          id: uuidv4(),
+          addedDate: new Date(),
+          lastModifiedDate: new Date(),
+        });
       }
-
-      // Convert ids to display names for storage
-      const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
-      const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
-
-      transactions.push({
-        ...transaction,
-        category: categoryName,
-        subcategory: subName,
-        confidence: ai.confidence,
-        reasoning: ai.reasoning,
-        id: uuidv4(),
-        addedDate: new Date(),
-        lastModifiedDate: new Date(),
-      });
     });
 
     console.log(`📊 processTransactions completed. Returning ${transactions.length} transactions`);
