@@ -84,6 +84,10 @@ export class MoMoneyDB extends Dexie {
 
   // Migration method to import data from localStorage
   async migrateFromLocalStorage(): Promise<{ transactions: number; history: number }> {
+    if (process.env.NODE_ENV === 'test') {
+      // In tests, skip migration to avoid noise and reliance on browser storage
+      return { transactions: 0, history: 0 };
+    }
     console.log('Checking for localStorage data to migrate...');
     
     let transactionCount = 0;

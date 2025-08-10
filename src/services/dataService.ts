@@ -605,7 +605,9 @@ class DataService {
         this.deferTransferAutoMatching();
       }
       
-      console.log(`Loaded ${this.transactions.length} transactions and ${historyEntries.length} history entries from IndexedDB`);
+      if (process.env.NODE_ENV !== 'test') {
+        console.log(`Loaded ${this.transactions.length} transactions and ${historyEntries.length} history entries from IndexedDB`);
+      }
     } catch (error) {
       console.error('Failed to load transactions from IndexedDB:', error);
       this.transactions = [];
