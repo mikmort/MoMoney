@@ -642,7 +642,26 @@ ${JSON.stringify(transactionData, null, 2)}`;
     const startTime = Date.now();
     
     try {
-      const systemPrompt = `You are a financial document analyzer that extracts account information from bank statements. 
+  // Assess readability/quality of provided content to tailor prompt behavior
+      const raw = (request.fileContent || '').slice(0, 4000);
+      const filterPrintable = (s: string) => {
+        let out = '';
+        for (let i = 0; i < s.length; i++) {
+          const code = s.charCodeAt(i);
+          if ((code >= 0x20 && code <= 0x7e) || code === 0x09 || code === 0x0a || code === 0x0d) {
+            out += s[i];
+          }
+        }
+        return out;
+      };
+      const printable = filterPrintable(raw);
+  const lettersDigits = (printable.match(/[A-Za-z0-9]/g) || []).length;
+  const qualityRatio = printable.length > 0 ? lettersDigits / printable.length : 0;
+  const lowReadable = printable.length < 200 || qualityRatio < 0.35;
+
+  const contentPreview = (lowReadable ? printable : raw).slice(0, 3000);
+
+  const systemPrompt = `You are a financial document analyzer that extracts account information from bank statements.
 Analyze the provided document content and extract key account details. Return ONLY a JSON object with this exact schema:
 
 {
@@ -671,14 +690,16 @@ Guidelines:
 - Balance is typically shown as current balance, ending balance, or statement balance
 - Date should be the statement date or balance as-of date
 - Set confidence based on clarity and completeness of extracted information
-- Only include fields in extractedFields array that have non-null values`;
+- Only include fields in extractedFields array that have non-null values
+- If the provided content appears truncated or unreadable (common for PDFs/images), do NOT claim it is encrypted or corrupted. Instead, base your output primarily on the filename and any readable snippets, and set confidence accordingly (likely low).`;
 
-      const userPrompt = `Document to analyze:
+  const userPrompt = `Document to analyze:
 File name: ${request.fileName}
 File type: ${request.fileType}
 
-Content (first 3000 characters):
-${request.fileContent.substring(0, 3000)}
+${lowReadable ? 'Note: Minimal readable text was available from this file in the browser. Use the filename and any readable snippets below. Avoid saying the file is encrypted/corrupted; instead mention insufficient readable text if applicable.\n\n' : ''}
+Content (filtered preview up to 3000 chars):
+${contentPreview}
 
 Extract the account information following the security guidelines.`;
 
@@ -720,6 +741,9 @@ Extract the account information following the security guidelines.`;
         extractedFields: Array.isArray(parsed.extractedFields) ? parsed.extractedFields : []
       };
 
+      // Normalize reasoning to avoid undesirable phrasing
+      result.reasoning = this.sanitizeReasoning(result.reasoning || '', lowReadable);
+
       console.log(`🏦 Account extraction completed in ${Date.now() - startTime}ms with confidence ${result.confidence}`);
       return result;
 
@@ -732,6 +756,17 @@ Extract the account information following the security guidelines.`;
         extractedFields: []
       };
     }
+  }
+
+  private sanitizeReasoning(reasoning: string, lowReadable: boolean): string {
+    const lower = reasoning.toLowerCase();
+    const flagged = ['encrypted', 'unreadable', 'corrupted', 'gibberish', 'nonsensical'];
+    const containsFlagged = flagged.some(w => lower.includes(w));
+    if (containsFlagged || lowReadable) {
+      // Replace with neutral, user-friendly guidance
+      return 'Insufficient readable text was available from this file in the browser context. The analysis relied on the filename and any readable snippets; confidence is adjusted accordingly.';
+    }
+    return reasoning;
   }
 
   private sanitizeString(value: any): string | undefined {
