@@ -33,6 +33,10 @@ export interface Transaction {
   reimbursementId?: string; // ID of the matching reimbursement transaction
   originalCurrency?: string; // Original currency for foreign transactions
   exchangeRate?: number; // Exchange rate if converted from foreign currency
+  // Receipt/file attachment support
+  attachedFileId?: string; // ID of attached receipt/invoice file
+  attachedFileName?: string; // Original filename for display
+  attachedFileType?: 'pdf' | 'image' | 'other'; // File type for preview capability
   // Enhanced AI proxy metadata for detailed reasoning transparency
   aiProxyMetadata?: {
     model?: string;
@@ -387,4 +391,40 @@ export interface AccountStatementAnalysisResponse {
   confidence: number; // 0-1 confidence in the extraction
   reasoning: string; // AI explanation of extraction
   extractedFields: string[]; // List of fields that were successfully extracted
+}
+
+// Receipt/Invoice file processing interfaces
+export interface AttachedFile {
+  id: string;
+  originalName: string;
+  size: number;
+  type: 'pdf' | 'image' | 'other';
+  mimeType: string;
+  data: string; // Base64 encoded file data
+  uploadDate: Date;
+  transactionId?: string; // Optional link to associated transaction
+}
+
+export interface ReceiptProcessingRequest {
+  file: File;
+  accountId?: string; // Optional if user wants to specify account
+}
+
+export interface ReceiptProcessingResponse {
+  extractedData: {
+    date?: Date;
+    amount?: number;
+    vendor?: string;
+    description?: string;
+    category?: string;
+    location?: string;
+  };
+  confidence: number; // 0-1 confidence in extraction
+  reasoning: string; // AI explanation
+  attachedFile: AttachedFile; // Stored file reference
+  suggestedTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>;
+  duplicateCheck: {
+    potentialDuplicates: DuplicateTransaction[];
+    hasDuplicates: boolean;
+  };
 }
