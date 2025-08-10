@@ -26,17 +26,20 @@ const BudgetsContainer = styled.div`
 
   .progress-bar {
     width: 100%;
-    height: 8px;
+    height: 10px;
     background-color: #e0e0e0;
-    border-radius: 4px;
+    border-radius: 5px;
     overflow: hidden;
-    margin: 4px 0;
+    margin: 8px 0;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
   }
 
   .progress-fill {
     height: 100%;
     transition: width 0.3s ease;
-    border-radius: 4px;
+    border-radius: 5px;
+    background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.15) 75%, transparent 75%, transparent);
+    background-size: 20px 20px;
   }
 
   .progress-safe { background-color: #4CAF50; }
@@ -150,6 +153,12 @@ const BudgetProgressCard = styled.div`
     font-size: 0.8rem;
     margin-top: 8px;
     color: #666;
+    
+    .percentage-text {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: #333;
+    }
   }
 `;
 
@@ -210,7 +219,18 @@ const Budgets: React.FC = () => {
       cellRenderer: (params: any) => (
         <span 
           onClick={() => handleEditBudget(params.data)}
-          style={{ cursor: 'pointer', color: '#1976d2', textDecoration: 'underline' }}
+          style={{ 
+            cursor: 'pointer', 
+            color: '#1976d2', 
+            textDecoration: 'none',
+            fontWeight: 600
+          }}
+          onMouseEnter={(e) => {
+            (e.target as HTMLElement).style.textDecoration = 'underline';
+          }}
+          onMouseLeave={(e) => {
+            (e.target as HTMLElement).style.textDecoration = 'none';
+          }}
         >
           {params.value}
         </span>
@@ -254,7 +274,7 @@ const Budgets: React.FC = () => {
       minWidth: 100,
       cellRenderer: (params: any) => {
         return (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
             {params.value ? (
               <span title="Active Budget">✅</span>
             ) : (
@@ -276,7 +296,7 @@ const Budgets: React.FC = () => {
       flex: 1,
       minWidth: 150,
       cellRenderer: (params: any) => (
-        <FlexBox gap="8px" style={{ justifyContent: 'center', alignItems: 'center' }}>
+        <FlexBox gap="8px" style={{ justifyContent: 'center', alignItems: 'center', height: '100%' }}>
           <Button 
             variant="outline" 
             onClick={() => handleEditBudget(params.data)}
@@ -293,6 +313,7 @@ const Budgets: React.FC = () => {
           </Button>
         </FlexBox>
       ),
+      cellStyle: { display: 'flex', alignItems: 'center' }
     },
   ];
 
@@ -401,7 +422,7 @@ const Budgets: React.FC = () => {
                 </div>
                 {renderProgressBar(progress)}
                 <div className="progress-info">
-                  <span>{progress.percentage.toFixed(1)}% used</span>
+                  <span className="percentage-text">{progress.percentage.toFixed(1)}% used</span>
                   <Badge variant={
                     progress.status === 'safe' ? 'success' :
                     progress.status === 'warning' ? 'warning' :
@@ -431,21 +452,23 @@ const Budgets: React.FC = () => {
             Create Budget
           </Button>
         </div>
-        <BudgetsContainer>
-          <div className="ag-theme-alpine">
-            <AgGridReact
-              columnDefs={columnDefs}
-              rowData={budgets}
-              animateRows={true}
-              defaultColDef={{
-                sortable: true,
-                filter: true,
-                resizable: true,
-              }}
-              domLayout="autoHeight"
-            />
-          </div>
-        </BudgetsContainer>
+        <div style={{ marginTop: '20px' }}>
+          <BudgetsContainer>
+            <div className="ag-theme-alpine">
+              <AgGridReact
+                columnDefs={columnDefs}
+                rowData={budgets}
+                animateRows={true}
+                defaultColDef={{
+                  sortable: true,
+                  filter: true,
+                  resizable: true,
+                }}
+                domLayout="autoHeight"
+              />
+            </div>
+          </BudgetsContainer>
+        </div>
       </Card>
 
       {/* Create/Edit Budget Modal */}
@@ -519,11 +542,12 @@ const Budgets: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={budgetForm.isActive}
                   onChange={(e) => setBudgetForm({...budgetForm, isActive: e.target.checked})}
+                  style={{ marginBottom: '0' }}
                 />
                 Active Budget
               </label>
