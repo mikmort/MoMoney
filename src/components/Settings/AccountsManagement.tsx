@@ -748,15 +748,16 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
               />
             </div>
 
-            <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '20px' }}>
-                <input
-                  type="checkbox"
-                  checked={accountForm.isActive}
-                  onChange={(e) => handleFormChange('isActive', e.target.checked)}
-                />
+            <div className="form-group" style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+              <input
+                type="checkbox"
+                checked={accountForm.isActive}
+                onChange={(e) => handleFormChange('isActive', e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              <span style={{ marginLeft: '20px', cursor: 'pointer' }} onClick={() => handleFormChange('isActive', !accountForm.isActive)}>
                 Account is active
-              </label>
+              </span>
             </div>
 
             <div className="form-actions">
