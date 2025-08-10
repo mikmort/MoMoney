@@ -7,7 +7,6 @@ import { dataService } from './dataService';
 import { rulesService } from './rulesService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
-import { currencyExchangeService } from './currencyExchangeService';
 import { userPreferencesService } from './userPreferencesService';
 import { v4 as uuidv4 } from 'uuid';
 

@@ -301,7 +301,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
         if (mounted) setText(formatted);
       })();
       return () => { mounted = false; };
-    }, [a, b, defaultCurrency]);
+    }, [a, b]);  // defaultCurrency is set once on mount, not a changing dependency
     return <>{text ? ` • ≈ ${text} difference` : ''}</>;
   };
 
