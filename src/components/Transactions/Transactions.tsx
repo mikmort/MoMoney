@@ -454,6 +454,49 @@ const StatsBar = styled.div`
   }
 `;
 
+const EmptyStateBanner = styled.div`
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  border: 1px solid #2196f3;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  text-align: center;
+  color: #1565c0;
+  
+  .banner-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+  
+  .banner-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  
+  .banner-message {
+    font-size: 14px;
+    line-height: 1.4;
+    margin-bottom: 12px;
+  }
+  
+  .banner-action {
+    background: #2196f3;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    
+    &:hover {
+      background: #1976d2;
+    }
+  }
+`;
+
 const BulkOperationsBar = styled(Card)`
   margin-bottom: 20px;
   background: #e3f2fd;
@@ -3090,6 +3133,29 @@ const Transactions: React.FC = () => {
 
       <Card>
         <TransactionsContainer>
+          {/* Empty state banner for transfers-only scenario */}
+          {filteredTransactions.length === 0 && 
+           transactions.length > 0 && 
+           !transferDisplayOptions.showTransfers && (
+            <EmptyStateBanner>
+              <div className="banner-icon">💱</div>
+              <div className="banner-title">All visible items are transfers</div>
+              <div className="banner-message">
+                Your transactions are currently filtered to hide transfers. 
+                Click the button below to show transfer transactions.
+              </div>
+              <button 
+                className="banner-action"
+                onClick={() => setTransferDisplayOptions({
+                  ...transferDisplayOptions,
+                  showTransfers: true
+                })}
+              >
+                Show Transfers
+              </button>
+            </EmptyStateBanner>
+          )}
+          
           <div className="ag-theme-alpine">
             <AgGridReact
               columnDefs={columnDefs}
