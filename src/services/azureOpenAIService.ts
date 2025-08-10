@@ -363,7 +363,16 @@ export class AzureOpenAIService {
         date: String(r.date || '').slice(0, 40)
       }));
 
-  const systemPrompt = `Classify transactions. Return a JSON array the same length and order as input. Fields per item: categoryId, subcategoryId (or null), confidence (0-1), reasoning. Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
+  const systemPrompt = `Classify transactions. Return a JSON array the same length and order as input. Fields per item: categoryId, subcategoryId (or null), confidence (0-1), reasoning.
+
+CRITICAL: Distinguish transfers from bank fees carefully:
+- TRANSFERS: ACH transfer, wire transfer, transfer to/from accounts, automatic payment, mobile transfer, Zelle, account-to-account moves
+- BANK FEES: overdraft fee, maintenance fee, ATM fee, NSF fee, wire fee, service charge
+- If description contains "transfer", "ACH", "automatic payment", "move", or "between accounts" WITHOUT fee keywords → use "internal-transfer"
+- If description contains "fee", "charge", "overdraft", "NSF", "maintenance" → use appropriate fee category
+- For round dollar amounts with transfer keywords → likely transfers, not fees
+
+Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
 
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
