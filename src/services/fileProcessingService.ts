@@ -690,6 +690,8 @@ Return ONLY a clean JSON response:
         return this.parseCSV(content, mapping);
       case 'excel':
         return this.parseExcel(content, mapping);
+      case 'ofx':
+        return this.parseOFX(content, mapping);
       default:
         throw new Error(`Unsupported file type: ${fileType}`);
     }
@@ -832,9 +834,9 @@ Return ONLY a clean JSON response:
               const affectedRequests = batchRequests.slice(startingBatchIndex, currentBatchEnd);
               
               // Filter out requests for transactions that are now rule-matched
-              const remainingUnmatchedForSearch = remainingUnmatchedTransactions;
+              const currentRemainingUnmatchedTransactions = remainingUnmatchedTransactions;
               const stillUnmatchedIndices = newRuleResults.unmatchedTransactions.map(t => {
-                return remainingUnmatchedForSearch.findIndex(remaining => 
+                return currentRemainingUnmatchedTransactions.findIndex(remaining =>
                   remaining.description === t.description && remaining.amount === t.amount && remaining.date.getTime() === t.date.getTime()
                 );
               }).filter(idx => idx !== -1);
@@ -1141,7 +1143,22 @@ Return ONLY a clean JSON response:
       const index = parseInt(column);
       return !isNaN(index) ? row[index] : null;
     } else {
-      return row[column];
+      // Handle object case - row is an object with column names as keys
+      // Try the column as a direct key first (e.g., "Date")
+      if (row[column] !== undefined) {
+        return row[column];
+      }
+      
+      // If column is a numeric string, try to match it to object keys by position
+      const index = parseInt(column);
+      if (!isNaN(index)) {
+        const keys = Object.keys(row);
+        if (index < keys.length) {
+          return row[keys[index]];
+        }
+      }
+      
+      return null;
     }
   }
 
