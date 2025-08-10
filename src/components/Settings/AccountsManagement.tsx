@@ -151,7 +151,7 @@ const AnalysisResult = styled.div`
 interface AccountsManagementProps {}
 
 export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
-  const { accounts, addAccount, updateAccount, deleteAccount, error } = useAccountManagement();
+  const { accounts, addAccount, updateAccount, deleteAccount, error, refreshAccounts } = useAccountManagement();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -271,7 +271,8 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       if (result.success && result.account) {
         // Account created successfully
         setShowStatementUpload(false);
-        // The useAccountManagement hook should automatically refresh the accounts list
+        // Ensure the accounts list reflects the newly created account immediately
+        refreshAccounts();
       } else if (result.analysis) {
         // Analysis completed but needs user review
         setAnalysisResult(result.analysis);
@@ -335,7 +336,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         historicalBalanceDate: analysisResult.balanceDate
       };
       
-      addAccount(newAccountData);
+      addAccount(newAccountData).then(() => {
+        // Refresh to ensure the grid updates immediately
+        refreshAccounts();
+      });
       setShowStatementUpload(false);
       setAnalysisResult(null);
       setUploadedFile(null);
