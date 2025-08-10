@@ -8,6 +8,8 @@ class DataService {
   private transactions: Transaction[] = [];
   private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
   private isInitialized = false;
+  // Guard against concurrent initialization
+  private initializingPromise: Promise<void> | null = null;
   
   // In-memory undo/redo stacks for fast operations during active editing
   private undoStacks: { [transactionId: string]: Transaction[] } = {};
@@ -20,27 +22,36 @@ class DataService {
 
   private async initialize(): Promise<void> {
     if (this.isInitialized) return;
-    
-    try {
-      // Initialize IndexedDB and handle migration
-      await initializeDB();
-      
-      // Load data from IndexedDB
-      await this.loadFromDB();
-      
-      // Initialize with sample data if empty (skip in test environment)
-      if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
-        this.initializeSampleData();
-      }
-      
-      this.isInitialized = true;
-    } catch (error) {
-      console.error('Failed to initialize DataService:', error);
-      // Fallback to empty state
-      this.transactions = [];
-      this.history = {};
-      this.isInitialized = true;
+    // Coalesce concurrent calls into a single in-flight promise
+    if (this.initializingPromise) {
+      await this.initializingPromise;
+      return;
     }
+
+    this.initializingPromise = (async () => {
+      try {
+        // Initialize IndexedDB and handle migration
+        await initializeDB();
+
+        // Load data from IndexedDB
+        await this.loadFromDB();
+
+        // Initialize with sample data if empty (skip in test environment)
+        if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
+          await this.initializeSampleData();
+        }
+      } catch (error) {
+        console.error('Failed to initialize DataService:', error);
+        // Fallback to empty state
+        this.transactions = [];
+        this.history = {};
+      } finally {
+        this.isInitialized = true;
+        this.initializingPromise = null;
+      }
+    })();
+
+    await this.initializingPromise;
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -49,7 +60,7 @@ class DataService {
     }
   }
 
-  private initializeSampleData(): void {
+  private async initializeSampleData(): Promise<void> {
     const sampleTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [
       {
         date: new Date('2025-08-01'),
@@ -199,8 +210,8 @@ class DataService {
       }
     ];
 
-    // Add sample transactions
-    this.addTransactions(sampleTransactions);
+  // Add sample transactions (await to avoid race conditions)
+  await this.addTransactions(sampleTransactions);
   }
 
   // Core CRUD operations
@@ -254,6 +265,22 @@ class DataService {
   async addTransactions(transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<Transaction[]> {
     await this.ensureInitialized();
     console.log(`DataService: Adding ${transactions.length} transactions`);
+    // Lightweight deduplication: skip any incoming transaction that exactly matches
+    // an existing one by date, amount, description, account, and type.
+    if (this.transactions.length > 0 && transactions.length > 0) {
+      const existingKeys = new Set(
+        this.transactions.map(t => `${t.date.getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`)
+      );
+      const before = transactions.length;
+      transactions = transactions.filter(t => {
+        const key = `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`;
+        return !existingKeys.has(key);
+      });
+      const skipped = before - transactions.length;
+      if (skipped > 0) {
+        console.log(`DataService: Skipped ${skipped} duplicate transaction(s) during bulk add`);
+      }
+    }
     const now = new Date();
     const newTransactions = transactions.map(transaction => ({
       ...transaction,
