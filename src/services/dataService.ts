@@ -720,6 +720,80 @@ class DataService {
     };
   }
 
+  async findExistingDuplicates(config?: DuplicateDetectionConfig): Promise<DuplicateTransaction[]> {
+    await this.ensureInitialized();
+    
+    // Default configuration for duplicate detection
+    const defaultConfig: DuplicateDetectionConfig = {
+      amountTolerance: 0.02, // 2% tolerance
+      fixedAmountTolerance: 1.00, // $1.00 fixed tolerance
+      dateTolerance: 3, // 3 days tolerance
+      requireExactDescription: false, // Allow similar descriptions
+      requireSameAccount: true, // Account must match
+    };
+
+    const finalConfig = { ...defaultConfig, ...config };
+    const duplicates: DuplicateTransaction[] = [];
+    const processedIds = new Set<string>(); // Track processed transactions to avoid duplicate pairs
+
+    for (let i = 0; i < this.transactions.length; i++) {
+      const transaction = this.transactions[i];
+      
+      if (processedIds.has(transaction.id)) {
+        continue;
+      }
+
+      for (let j = i + 1; j < this.transactions.length; j++) {
+        const otherTransaction = this.transactions[j];
+        
+        if (processedIds.has(otherTransaction.id)) {
+          continue;
+        }
+
+        const matchInfo = this.calculateTransactionSimilarity(transaction, otherTransaction, finalConfig);
+        
+        if (matchInfo.similarity >= 0.8) { // 80% similarity threshold for duplicates
+          duplicates.push({
+            existingTransaction: transaction,
+            newTransaction: otherTransaction,
+            matchFields: matchInfo.matchFields,
+            similarity: matchInfo.similarity,
+            amountDifference: matchInfo.amountDifference,
+            daysDifference: matchInfo.daysDifference,
+            matchType: matchInfo.matchType
+          });
+          
+          // Mark the "newer" transaction (otherTransaction) as processed so it's not compared again
+          processedIds.add(otherTransaction.id);
+        }
+      }
+    }
+
+    return duplicates;
+  }
+
+  async removeDuplicateTransactions(duplicateIds: string[]): Promise<{ removed: number; errors: string[] }> {
+    await this.ensureInitialized();
+    const errors: string[] = [];
+    let removed = 0;
+
+    for (const id of duplicateIds) {
+      try {
+        const deleted = await this.deleteTransaction(id);
+        if (deleted) {
+          removed++;
+        } else {
+          errors.push(`Transaction with ID ${id} not found`);
+        }
+      } catch (error) {
+        console.error(`Error deleting transaction ${id}:`, error);
+        errors.push(`Failed to delete transaction ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    return { removed, errors };
+  }
+
   // Category rules management - delegated to rulesService
   async getAllCategoryRules(): Promise<CategoryRule[]> {
     return await rulesService.getAllRules();
@@ -756,7 +830,7 @@ class DataService {
     return null;
   }
 
-  private calculateTransactionSimilarity(existing: Transaction, newTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>, config: DuplicateDetectionConfig): {
+  private calculateTransactionSimilarity(existing: Transaction, newTransaction: Transaction | Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>, config: DuplicateDetectionConfig): {
     similarity: number;
     matchFields: string[];
     amountDifference?: number;
