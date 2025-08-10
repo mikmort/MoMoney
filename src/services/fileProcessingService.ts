@@ -206,7 +206,7 @@ export class FileProcessingService {
     }
   }
 
-  private getFileType(filename: string): 'pdf' | 'csv' | 'excel' | 'image' {
+  private getFileType(filename: string): 'pdf' | 'csv' | 'excel' | 'image' | 'ofx' {
     const extension = filename.toLowerCase().split('.').pop();
     
     switch (extension) {
@@ -221,6 +221,8 @@ export class FileProcessingService {
       case 'jpg':
       case 'jpeg':
         return 'image';
+      case 'ofx':
+        return 'ofx';
       default:
         return 'csv'; // Default fallback
     }
@@ -589,25 +591,37 @@ Return ONLY a clean JSON response:
       const lines = content.split('\n').slice(0, 10);
       return lines.join('\n');
     }
+    if (fileType === 'ofx') {
+      // For OFX files, provide a meaningful sample that includes transaction structure
+      return content.substring(0, 3000); // OFX files need more context due to XML structure
+    }
     return content.substring(0, 2000);
   }
 
   private getDefaultSchemaMapping(fileType: StatementFile['fileType']): AISchemaMappingResponse {
     const mapping: FileSchemaMapping = {
-      hasHeaders: true,
+      hasHeaders: fileType !== 'ofx', // OFX files don't have headers
       skipRows: 0,
-      dateFormat: 'MM/DD/YYYY',
+      dateFormat: fileType === 'ofx' ? 'YYYYMMDD' : 'MM/DD/YYYY', // OFX uses YYYYMMDD format
       amountFormat: 'negative for debits',
-      dateColumn: '0',
-      descriptionColumn: '1',
-      amountColumn: '2'
+      dateColumn: fileType === 'ofx' ? 'date' : '0', // OFX has structured fields
+      descriptionColumn: fileType === 'ofx' ? 'description' : '1',
+      amountColumn: fileType === 'ofx' ? 'amount' : '2'
     };
+
+    const reasoning = fileType === 'ofx' 
+      ? 'Using default OFX structure mapping' 
+      : 'Using default mapping due to AI analysis failure';
+      
+    const suggestions = fileType === 'ofx'
+      ? ['OFX files are automatically parsed from structured format']
+      : ['Please verify the column mappings are correct'];
 
     return {
       mapping,
-      confidence: 0.5,
-      reasoning: 'Using default mapping due to AI analysis failure',
-      suggestions: ['Please verify the column mappings are correct'],
+      confidence: fileType === 'ofx' ? 0.9 : 0.5, // Higher confidence for OFX since structure is standardized
+      reasoning,
+      suggestions,
     };
   }
 
@@ -617,6 +631,8 @@ Return ONLY a clean JSON response:
         return this.parseCSV(content, mapping);
       case 'excel':
         return this.parseExcel(content, mapping);
+      case 'ofx':
+        return this.parseOFX(content, mapping);
       default:
         throw new Error(`Unsupported file type: ${fileType}`);
     }
@@ -660,6 +676,72 @@ Return ONLY a clean JSON response:
     } catch (error) {
       throw new Error(`Failed to parse Excel file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  private async parseOFX(content: string, mapping: FileSchemaMapping): Promise<any[]> {
+    try {
+      console.log('📄 Parsing OFX file...');
+      
+      // Simple OFX parser using regex - browser-compatible
+      const parsedOFX = this.simpleOFXParser(content);
+      console.log('✅ OFX parsed successfully, found', parsedOFX.length, 'transactions');
+      
+      // Apply any row skipping if specified
+      let data = parsedOFX;
+      if (mapping.skipRows && mapping.skipRows > 0) {
+        data = data.slice(mapping.skipRows);
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('❌ Failed to parse OFX file:', error);
+      throw new Error(`Failed to parse OFX file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private simpleOFXParser(content: string): any[] {
+    try {
+      console.log('🔍 Parsing OFX content with simple regex parser...');
+      
+      const transactions: any[] = [];
+      
+      // Find all STMTTRN blocks (bank statement transactions)
+      // Use flexible regex to handle various whitespace and line endings
+      const stmtTrnRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi;
+      let match;
+      
+      while ((match = stmtTrnRegex.exec(content)) !== null) {
+        const transactionBlock = match[1];
+        
+        const transaction = {
+          date: this.extractOFXValue(transactionBlock, 'DTPOSTED') || this.extractOFXValue(transactionBlock, 'DTEFFECTIVE') || '',
+          description: this.extractOFXValue(transactionBlock, 'NAME') || this.extractOFXValue(transactionBlock, 'MEMO') || '',
+          amount: parseFloat(this.extractOFXValue(transactionBlock, 'TRNAMT') || '0'),
+          notes: this.extractOFXValue(transactionBlock, 'MEMO') || '',
+          transactionId: this.extractOFXValue(transactionBlock, 'FITID') || '',
+          transactionType: this.extractOFXValue(transactionBlock, 'TRNTYPE') || ''
+        };
+        
+        // Only add transactions with valid data
+        if (transaction.date && transaction.description && transaction.amount !== 0) {
+          transactions.push(transaction);
+        }
+      }
+      
+      console.log(`📊 Extracted ${transactions.length} transactions from OFX content`);
+      
+      return transactions;
+    } catch (error) {
+      console.error('❌ Error in simple OFX parser:', error);
+      return [];
+    }
+  }
+
+  private extractOFXValue(content: string, tagName: string): string | null {
+    // Flexible regex to handle OFX format with or without closing tags and various whitespace
+    const regex = new RegExp(`<${tagName}>([^<\\n]*?)(?:</${tagName}>|\\n|$)`, 'i');
+    const match = content.match(regex);
+    return match ? match[1].trim() : null;
   }
 
   private async processTransactions(
@@ -938,6 +1020,16 @@ Return ONLY a clean JSON response:
 
     try {
       const dateStr = String(value).trim();
+      
+      // Handle OFX date format YYYYMMDDHHMMSS
+      const ofxDateMatch = dateStr.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+      if (ofxDateMatch) {
+        const [, year, month, day, hour, minute, second] = ofxDateMatch;
+        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(minute), parseInt(second));
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
       
       // Handle European format DD.MM.YYYY
       const europeanMatch = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
