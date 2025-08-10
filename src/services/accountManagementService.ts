@@ -397,28 +397,23 @@ ${userPrompt}`;
     const account = this.getAccount(accountId);
     if (!account) return null;
 
-    // If we have a current balance that's more recent, use it
-    if (account.balance !== undefined && (!account.historicalBalanceDate || 
-        (account.lastSyncDate && account.lastSyncDate > account.historicalBalanceDate))) {
-      return account.balance;
-    }
+    try {
+      const ds = await getDataService();
+      const allTransactions = await ds.getAllTransactions();
+      
+      // Filter transactions for this account
+      const accountTransactions = allTransactions.filter((t: any) => 
+        t.account === account.name || t.account === account.id
+      );
 
-    // If we have a historical balance, calculate current balance from it
-    if (account.historicalBalance !== undefined && account.historicalBalanceDate) {
-      try {
-        const ds = await getDataService();
-        const allTransactions = await ds.getAllTransactions();
-        
-        // Filter transactions for this account that are after the historical balance date
-        const accountTransactions = allTransactions.filter((t: any) => 
-          (t.account === account.name || t.account === account.id) &&
+      // If we have a historical balance, calculate from that baseline
+      if (account.historicalBalance !== undefined && account.historicalBalanceDate) {
+        // Filter transactions that are after the historical balance date
+        const transactionsAfterDate = accountTransactions.filter((t: any) => 
           t.date > account.historicalBalanceDate!
         );
 
-        // Calculate balance change since historical date
-        const balanceChange = accountTransactions.reduce((sum: number, t: any) => {
-          // For credit accounts, positive amounts increase the balance (more debt)
-          // For other accounts, positive amounts increase the balance (more money)
+        const balanceChange = transactionsAfterDate.reduce((sum: number, t: any) => {
           return sum + t.amount;
         }, 0);
 
@@ -433,13 +428,61 @@ ${userPrompt}`;
         });
         
         return currentBalance;
-      } catch (error) {
-        console.error('Error calculating current balance:', error);
-        return account.historicalBalance;
       }
-    }
 
-    return account.balance || 0;
+      // If no historical balance, calculate from all transactions (assuming 0 starting balance)
+      const currentBalance = accountTransactions.reduce((sum: number, t: any) => {
+        return sum + t.amount;
+      }, 0);
+
+      console.log(`💰 Calculated current balance for ${account.name} from all transactions: ${currentBalance}`);
+      
+      // Update the account with the calculated balance
+      this.updateAccount(accountId, { 
+        balance: currentBalance, 
+        lastSyncDate: new Date() 
+      });
+      
+      return currentBalance;
+
+    } catch (error) {
+      console.error('Error calculating current balance:', error);
+      return account.balance || 0;
+    }
+  }
+
+  /**
+   * Calculate the last updated date for an account (most recent transaction date)
+   */
+  async calculateLastUpdatedDate(accountId: string): Promise<Date | null> {
+    const account = this.getAccount(accountId);
+    if (!account) return null;
+
+    try {
+      const ds = await getDataService();
+      const allTransactions = await ds.getAllTransactions();
+      
+      // Filter transactions for this account
+      const accountTransactions = allTransactions.filter((t: any) => 
+        t.account === account.name || t.account === account.id
+      );
+
+      if (accountTransactions.length === 0) {
+        return null; // No transactions, so no last updated date
+      }
+
+      // Find the most recent transaction date
+      const mostRecentDate = accountTransactions.reduce((latest: Date | null, t: any) => {
+        const transactionDate = new Date(t.date);
+        return !latest || transactionDate > latest ? transactionDate : latest;
+      }, null);
+
+      return mostRecentDate;
+
+    } catch (error) {
+      console.error('Error calculating last updated date:', error);
+      return null;
+    }
   }
 
   private async readFileContent(file: File): Promise<string> {
