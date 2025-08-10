@@ -24,7 +24,11 @@ class DataService {
     if (this.isInitialized) return;
     
     try {
-      console.log('[TX] DataService initializing...');
+      const __IS_TEST__ = process.env.NODE_ENV === 'test';
+  const txLog = (...args: any[]) => { if (!__IS_TEST__) console.log(...args); };
+  const txError = (...args: any[]) => { if (!__IS_TEST__) console.error(...args); };
+
+      txLog('[TX] DataService initializing...');
       
       // Initialize IndexedDB and handle migration
       await initializeDB();
@@ -38,7 +42,7 @@ class DataService {
       
       if (needsReset) {
         this.healthCheckFailures++;
-        console.error(`[TX] Database health check failed (attempt ${this.healthCheckFailures}/2)`, healthCheck);
+        txError(`[TX] Database health check failed (attempt ${this.healthCheckFailures}/2)`, healthCheck);
         
         if (this.healthCheckFailures >= 2) {
           // Show user prompt for reset
@@ -53,7 +57,7 @@ class DataService {
         const firstId = this.transactions.length > 0 ? this.transactions[0].id : 'none';
         const lastId = this.transactions.length > 0 ? this.transactions[this.transactions.length - 1].id : 'none';
         
-        console.log(`[TX] DB Health: ${stats.totalTransactions} transactions in DB, ${this.transactions.length} in memory, first: ${firstId}, last: ${lastId}`);
+        txLog(`[TX] DB Health: ${stats.totalTransactions} transactions in DB, ${this.transactions.length} in memory, first: ${firstId}, last: ${lastId}`);
       }
       
       // Initialize with sample data if empty (skip in test environment)
@@ -62,9 +66,10 @@ class DataService {
       }
       
       this.isInitialized = true;
-      console.log(`[TX] DataService initialized with ${this.transactions.length} transactions`);
+      txLog(`[TX] DataService initialized with ${this.transactions.length} transactions`);
     } catch (error) {
-      console.error('[TX] Failed to initialize DataService:', error);
+      const txError = (...args: any[]) => { if (process.env.NODE_ENV !== 'test') console.error(...args); };
+      txError('[TX] Failed to initialize DataService:', error);
       this.healthCheckFailures++;
       
       // Fallback to empty state
@@ -605,7 +610,9 @@ class DataService {
         this.deferTransferAutoMatching();
       }
       
-      console.log(`Loaded ${this.transactions.length} transactions and ${historyEntries.length} history entries from IndexedDB`);
+      if (process.env.NODE_ENV !== 'test') {
+        console.log(`Loaded ${this.transactions.length} transactions and ${historyEntries.length} history entries from IndexedDB`);
+      }
     } catch (error) {
       console.error('Failed to load transactions from IndexedDB:', error);
       this.transactions = [];
@@ -724,6 +731,9 @@ class DataService {
     this.history = {};
     this.undoStacks = {};
     this.redoStacks = {};
+    if (!db.isOpen()) {
+      try { await db.open(); } catch {}
+    }
     await db.clearAll();
   }
 

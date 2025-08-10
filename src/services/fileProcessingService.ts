@@ -788,7 +788,7 @@ Return ONLY a clean JSON response:
       notes: p.notes,
       category: 'Uncategorized', // Will be overridden by rules or AI
       account: accountManagementService.getAccount(accountId)?.name || 'Unknown Account',
-      type: (p.amount! >= 0) ? 'income' : 'expense',
+      type: (p.amount! >= 0) ? 'income' : 'expense' as const,
       isVerified: false,
       originalText: p.description
     })));
@@ -807,10 +807,10 @@ Return ONLY a clean JSON response:
 
     // Step 3: Call AI in batch chunks only for unmatched transactions
     const batchResults: AIClassificationResponse[] = [];
-    let remainingUnmatchedTransactions = [...ruleResults.unmatchedTransactions];
-    let allMatchedTransactions = [...ruleResults.matchedTransactions];
+  let remainingUnmatchedTransactions = [...ruleResults.unmatchedTransactions];
+  let allMatchedTransactions = [...ruleResults.matchedTransactions];
     
-    if (remainingUnmatchedTransactions.length > 0) {
+  if (remainingUnmatchedTransactions.length > 0) {
       const CHUNK = 20; // increased batch size to 20 to speed up processing
       let batchNumber = 0;
       

@@ -358,10 +358,11 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
         )}
 
         <div className="actions">
-          <Button variant="outline" onClick={onCancel}>
+          <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
           <Button 
+            type="button"
             onClick={handleConfirm}
             disabled={!selectedAccountId || (selectedAccountId === 'new' && (!newAccount.name || !newAccount.institution))}
           >

@@ -13,11 +13,29 @@ import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 const AccountsContainer = styled.div`
+  margin-top: 8px;
+  position: relative;
+  z-index: 0; /* create stacking context below header */
+
   .ag-theme-alpine {
-  height: 85vh; /* expand to use more vertical space */
-  min-height: 600px; /* ensure it's comfortably tall on small screens */
+    padding-top: 4px; /* avoid edge contact with header */
+    height: 85vh; /* expand to use more vertical space */
+    min-height: 600px; /* ensure it's comfortably tall on small screens */
     width: 100%;
+    position: relative;
+    z-index: 1; /* keep grid below header's z-index 100 */
   }
+`;
+
+// Header area above the grid; no sticky background to avoid visual rectangle
+const HeaderBar = styled.div`
+  position: relative;
+  z-index: 19990; /* above grid, below modal overlay (20000) */
+  pointer-events: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 `;
 
 const EditModalOverlay = styled.div`
@@ -30,7 +48,7 @@ const EditModalOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 20000;
 `;
 
 const EditModalContent = styled.div`
@@ -41,6 +59,8 @@ const EditModalContent = styled.div`
   max-width: 500px;
   max-height: 80vh;
   overflow-y: auto;
+  position: relative;
+  z-index: 20001;
 
   h2 {
     margin: 0 0 20px 0;
@@ -232,8 +252,12 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   };
 
   // Handle single "Add Account" button click - show choice modal
-  const handleAddAccountClick = () => {
-    setShowAccountCreationChoice(true);
+  // Stop propagation and defer state change to avoid immediate overlay onClick closing it
+  const handleAddAccountClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Defer to next tick so the originating click doesn't bubble into the new overlay
+    setTimeout(() => setShowAccountCreationChoice(true), 0);
   };
 
   const handleAddAccount = () => {
@@ -653,12 +677,22 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h3>Account Management</h3>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <Button onClick={handleAddAccountClick}>Add Account</Button>
+      <HeaderBar>
+        <h3 style={{ margin: 0 }}>Account Management</h3>
+    <div style={{ display: 'flex', gap: '12px' }}>
+          <Button
+            type="button"
+            onClick={(e) => handleAddAccountClick(e)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.filter = 'brightness(0.97)')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.filter = 'none')}
+            style={{ position: 'relative', zIndex: 19991, pointerEvents: 'auto' }}
+          >
+            Add Account
+          </Button>
         </div>
-      </div>
+      </HeaderBar>
 
       <AccountsContainer>
         <div className="ag-theme-alpine">
@@ -758,10 +792,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             </div>
 
             <div className="form-actions">
-              <Button variant="outline" onClick={() => setShowEditModal(false)}>
+              <Button type="button" variant="outline" onClick={() => setShowEditModal(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSaveAccount}>
+              <Button type="button" onClick={handleSaveAccount}>
                 {editingAccount ? 'Update' : 'Create'} Account
               </Button>
             </div>
@@ -874,7 +908,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             </div>
 
             <div className="form-actions">
-              <Button variant="outline" onClick={() => setShowAccountCreationChoice(false)}>
+              <Button type="button" variant="outline" onClick={() => setShowAccountCreationChoice(false)}>
                 Cancel
               </Button>
             </div>
@@ -1026,7 +1060,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                     </div>
 
                     <div className="form-actions">
-                      <Button variant="outline" onClick={() => setShowStatementUpload(false)}>
+                      <Button type="button" variant="outline" onClick={() => setShowStatementUpload(false)}>
                         Cancel
                       </Button>
                       <Button onClick={handleCreateAccountFromAnalysis}>
