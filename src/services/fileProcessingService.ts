@@ -779,7 +779,7 @@ Return ONLY a clean JSON response:
     console.log(`📊 Found ${validIndices.length} valid rows out of ${prepared.length} prepared rows`);
 
     // Step 1: Apply category rules first
-    console.log(`📋 Applying category rules to ${validIndices.length} valid transactions`);
+    console.log(`📋 STEP 1: Applying category rules to ${validIndices.length} valid transactions`);
     const validTransactions = validIndices.map(i => prepared[i]).filter(p => p.date && p.description && p.amount !== null);
     const ruleResults = await rulesService.applyRulesToBatch(validTransactions.map(p => ({
       date: p.date!,
@@ -793,7 +793,21 @@ Return ONLY a clean JSON response:
       originalText: p.description
     })));
 
-    console.log(`📋 Rules applied: ${ruleResults.matchedTransactions.length} matched, ${ruleResults.unmatchedTransactions.length} need AI`);
+    // Enhanced logging for rules vs AI breakdown
+    const rulesMatchedCount = ruleResults.matchedTransactions.length;
+    const needsAICount = ruleResults.unmatchedTransactions.length;
+    const rulesPercentage = validIndices.length > 0 ? Math.round((rulesMatchedCount / validIndices.length) * 100) : 0;
+    const aiPercentage = validIndices.length > 0 ? Math.round((needsAICount / validIndices.length) * 100) : 0;
+
+    console.log(`✅ RULES PROCESSING COMPLETE:`);
+    console.log(`   📋 ${rulesMatchedCount} transactions handled by rules (${rulesPercentage}%)`);
+    console.log(`   🤖 ${needsAICount} transactions need AI classification (${aiPercentage}%)`);
+    console.log(`   📊 Rules efficiency: ${rulesMatchedCount}/${validIndices.length} transactions categorized without AI`);
+    
+    if (rulesMatchedCount > 0) {
+      const ruleNames = [...new Set(ruleResults.matchedTransactions.map(rt => rt.rule.name))];
+      console.log(`   🎯 Active rules applied: ${ruleNames.length} rules (${ruleNames.slice(0, 3).join(', ')}${ruleNames.length > 3 ? '...' : ''})`);
+    }
 
     // Step 2: Build batch requests for AI (only for unmatched transactions)
     const batchRequests: AIClassificationRequest[] = ruleResults.unmatchedTransactions.map(transaction => ({
@@ -803,10 +817,18 @@ Return ONLY a clean JSON response:
       availableCategories: categories
     }));
 
-  // Logging clarity: show items to classify vs number of requests based on chunk size
-  const AI_CHUNK_SIZE = 20;
-  const totalBatches = Math.ceil(batchRequests.length / AI_CHUNK_SIZE);
-  console.log(`� Batching ${batchRequests.length} items into ${totalBatches} requests (chunkSize=${AI_CHUNK_SIZE}) — reduced from ${validIndices.length} total prepared rows`);
+    // Enhanced AI processing logging
+    const AI_CHUNK_SIZE = 20;
+    const totalBatches = Math.ceil(batchRequests.length / AI_CHUNK_SIZE);
+    
+    if (batchRequests.length > 0) {
+      console.log(`🤖 STEP 2: AI CLASSIFICATION STARTING`);
+      console.log(`   📤 Sending ${batchRequests.length} transactions to OpenAI API`);
+      console.log(`   📦 Batching into ${totalBatches} requests (chunkSize=${AI_CHUNK_SIZE})`);
+      console.log(`   💰 Estimated API cost: ~${Math.ceil(batchRequests.length / 10)} API calls`);
+    } else {
+      console.log(`✨ STEP 2: NO AI CLASSIFICATION NEEDED - All transactions handled by rules!`);
+    }
 
     // Step 3: Call AI in batch chunks only for unmatched transactions
     const batchResults: AIClassificationResponse[] = [];
@@ -821,14 +843,15 @@ Return ONLY a clean JSON response:
         const endExclusive = Math.min(start + CHUNK, batchRequests.length);
         const batchIndex = Math.floor(start / CHUNK) + 1;
         const batchCount = Math.ceil(batchRequests.length / CHUNK);
-        console.log(`➡️ Batch ${batchIndex}/${batchCount}: items ${start}-${endExclusive - 1} (size=${slice.length})`);
+        console.log(`➡️ AI Batch ${batchIndex}/${batchCount}: processing items ${start}-${endExclusive - 1} (${slice.length} transactions)`);
         try {
           const res = await azureOpenAIService.classifyTransactionsBatch(slice);
           batchResults.push(...res);
           const uncategorizedCount = res.filter(r => (r.categoryId || '').toLowerCase() === 'uncategorized').length;
-          console.log(`📊 AI classification succeeded for batch ${start}-${start + slice.length}, got ${res.length} results (uncategorized: ${uncategorizedCount})`);
+          const categorizedCount = res.length - uncategorizedCount;
+          console.log(`   ✅ Batch ${batchIndex} completed: ${categorizedCount} categorized, ${uncategorizedCount} uncategorized`);
         } catch (error) {
-          console.warn('⚠️ AI classification failed, using default categorization:', error);
+          console.warn(`   ⚠️ Batch ${batchIndex} failed - using fallback categorization:`, error);
           // Create default responses for failed AI classification
           const defaultResponses = slice.map(() => ({
             categoryId: 'uncategorized',
@@ -837,7 +860,7 @@ Return ONLY a clean JSON response:
             reasoning: 'AI classification unavailable, manually review recommended'
           } as AIClassificationResponse));
           batchResults.push(...defaultResponses);
-          console.log(`📊 Created ${defaultResponses.length} default responses for failed AI classification`);
+          console.log(`   📋 Created ${defaultResponses.length} fallback responses for batch ${batchIndex}`);
         }
         if (onProgress) {
           const processed = ruleResults.matchedTransactions.length + Math.min(ruleResults.unmatchedTransactions.length, start + slice.length);
@@ -846,7 +869,21 @@ Return ONLY a clean JSON response:
       }
     }
 
-    console.log(`📊 Final results: ${ruleResults.matchedTransactions.length} rule-matched + ${batchResults.length} AI-processed = ${ruleResults.matchedTransactions.length + batchResults.length} total`);
+    // Final summary with clear breakdown
+    const totalProcessed = ruleResults.matchedTransactions.length + batchResults.length;
+    const finalRulesPercentage = totalProcessed > 0 ? Math.round((ruleResults.matchedTransactions.length / totalProcessed) * 100) : 0;
+    const finalAIPercentage = totalProcessed > 0 ? Math.round((batchResults.length / totalProcessed) * 100) : 0;
+    
+    console.log(`🎉 TRANSACTION PROCESSING COMPLETE:`);
+    console.log(`   📊 Total transactions processed: ${totalProcessed}`);
+    console.log(`   📋 Rules handled: ${ruleResults.matchedTransactions.length} (${finalRulesPercentage}%)`);
+    console.log(`   🤖 AI handled: ${batchResults.length} (${finalAIPercentage}%)`);
+    console.log(`   💡 Rules efficiency: ${finalRulesPercentage}% of transactions categorized without AI API calls`);
+    
+    if (batchResults.length > 0) {
+      const aiCategorizedCount = batchResults.filter(r => (r.categoryId || '').toLowerCase() !== 'uncategorized').length;
+      console.log(`   🎯 AI success rate: ${aiCategorizedCount}/${batchResults.length} successfully categorized`);
+    }
 
     // Step 4: Combine rule-matched and AI-processed transactions
     const transactions: Transaction[] = [];
