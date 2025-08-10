@@ -1414,7 +1414,7 @@ const Transactions: React.FC = () => {
     };
 
     loadTransactions();
-  }, []);
+  }, [transferDisplayOptions.showTransfers]);
 
   // Handle transfer display options changes
   useEffect(() => {
