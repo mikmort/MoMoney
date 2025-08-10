@@ -131,6 +131,7 @@ const Settings: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isDeduping, setIsDeduping] = useState(false);
 
   useEffect(() => {
     loadPreferences();
@@ -247,6 +248,23 @@ const Settings: React.FC = () => {
       setIsImporting(false);
       // Clear the file input
       event.target.value = '';
+    }
+  };
+
+  const handleScanAndRemoveDuplicates = async () => {
+    setIsDeduping(true);
+    try {
+      const result = await dataService.cleanupExactDuplicates();
+      if (result.removed > 0) {
+        alert(`✅ Removed ${result.removed} exact duplicate transaction(s).\nBefore: ${result.totalBefore}\nAfter: ${result.totalAfter}`);
+      } else {
+        alert('✅ No exact duplicates found.');
+      }
+    } catch (error) {
+      console.error('Failed to cleanup duplicates:', error);
+      alert('❌ Failed to scan/remove duplicates.');
+    } finally {
+      setIsDeduping(false);
     }
   };
   return (
@@ -378,6 +396,14 @@ const Settings: React.FC = () => {
           <div style={{ marginTop: '12px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', fontSize: '14px', color: '#1976d2' }}>
             <strong>💡 Tip:</strong> Regular backups help protect your financial data. Export files are in JSON format and contain all transactions, categories, transaction history, and settings. The format is structured similarly to SQLite database schemas for compatibility.
           </div>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <h4>🧹 Data Cleanup</h4>
+          <p>Scan and remove exact duplicate transactions saved in your local database.</p>
+          <Button onClick={handleScanAndRemoveDuplicates} disabled={isDeduping}>
+            {isDeduping ? 'Scanning…' : '🧹 Scan & Remove Exact Duplicates'}
+          </Button>
         </div>
         
         <DangerZone>

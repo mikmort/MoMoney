@@ -36,6 +36,27 @@ class DataService {
         // Load data from IndexedDB
         await this.loadFromDB();
 
+        // One-time dedup migration: clean up any exact duplicates persisted previously
+        // Runs only once per browser profile, guarded by a localStorage flag
+        try {
+          const MIGRATION_FLAG = 'mo-money-dedup-migration-2025-08-10';
+          const alreadyRan = typeof window !== 'undefined' && window.localStorage?.getItem(MIGRATION_FLAG) === 'true';
+          if (!alreadyRan && this.transactions.length > 0) {
+            const removed = await this.dedupeExistingTransactions();
+            if (typeof window !== 'undefined' && window.localStorage) {
+              window.localStorage.setItem(MIGRATION_FLAG, 'true');
+            }
+            if (removed > 0) {
+              console.warn(`One-time dedup migration removed ${removed} duplicate transaction(s) from IndexedDB`);
+            } else {
+              console.log('One-time dedup migration found no duplicates');
+            }
+          }
+        } catch (e) {
+          console.error('One-time dedup migration failed:', e);
+          // Continue app startup even if migration fails
+        }
+
         // Initialize with sample data if empty (skip in test environment)
         if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
           await this.initializeSampleData();
@@ -296,6 +317,36 @@ class DataService {
     console.log(`DataService: Saved to IndexedDB`);
     
     return newTransactions;
+  }
+
+  // Public utility: scan and remove exact duplicates from existing data
+  async cleanupExactDuplicates(): Promise<{ removed: number; totalBefore: number; totalAfter: number }> {
+    await this.ensureInitialized();
+    const totalBefore = this.transactions.length;
+    const removed = await this.dedupeExistingTransactions();
+    const totalAfter = this.transactions.length;
+    return { removed, totalBefore, totalAfter };
+  }
+
+  // One-time cleanup: remove exact duplicates already persisted in IndexedDB
+  // Uses the same strict key as bulk-add dedup to avoid false positives
+  private async dedupeExistingTransactions(): Promise<number> {
+    // Build a set of seen composite keys and collect duplicate IDs to remove
+    const seen = new Set<string>();
+    const dupIds: string[] = [];
+    for (const t of this.transactions) {
+      const key = `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`;
+      if (seen.has(key)) {
+        dupIds.push(t.id);
+      } else {
+        seen.add(key);
+      }
+    }
+    if (dupIds.length === 0) return 0;
+
+    // Remove duplicates via existing helper to keep memory and DB in sync
+    const removedCount = await this.deleteTransactions(dupIds);
+    return removedCount;
   }
 
   async updateTransaction(id: string, updates: Partial<Transaction>, note?: string): Promise<Transaction | null> {
