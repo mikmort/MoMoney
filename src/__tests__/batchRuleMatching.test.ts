@@ -17,19 +17,13 @@ describe('Batch Rule Matching', () => {
   });
 
   it('should apply rules created from first batch to subsequent batches', async () => {
-    // Create test data with multiple batches (25+ transactions to ensure multiple batches)
-    // First batch: 20 transactions that will create rules 
-    // Second batch: 20 transactions that should match the created rules
+    // Create test data with exactly 25 transactions to ensure multiple batches (20 + 5)
+    // All transactions are identical to maximize rule creation opportunity
     const rawData = [];
     
-    // First batch: Create 20 transactions of the same merchant (will create a rule)
-    for (let i = 1; i <= 20; i++) {
+    // Create 25 identical transactions that should all match once a rule is created
+    for (let i = 1; i <= 25; i++) {
       rawData.push([`2024-01-${i.toString().padStart(2, '0')}`, 'STARBUCKS COFFEE #123', '-5.50']);
-    }
-    
-    // Second batch: Create 20 more transactions of the same merchant (should match rule)
-    for (let i = 21; i <= 40; i++) {
-      rawData.push([`2024-01-${i.toString().padStart(2, '0')}`, 'STARBUCKS COFFEE #123', '-4.25']);
     }
 
     console.log(`🧪 Testing rule matching across batches with ${rawData.length} transactions`);
@@ -44,11 +38,12 @@ describe('Batch Rule Matching', () => {
       amountFormat: 'negative for debits'
     };
     
-    // Mock AI service to return high-confidence classifications for batch 1
-    // and simulate that AI should not be called for batch 2 (rules should match)
+    // Track AI calls to verify optimization
     let aiCallCount = 0;
+    let totalAIRequests = 0;
     mockAzureOpenAI.classifyTransactionsBatch.mockImplementation(async (requests) => {
       aiCallCount++;
+      totalAIRequests += requests.length;
       console.log(`🤖 AI batch call #${aiCallCount} with ${requests.length} requests`);
       
       return requests.map(() => ({
@@ -69,7 +64,7 @@ describe('Batch Rule Matching', () => {
     );
 
     // Verify all transactions were processed
-    expect(result).toHaveLength(40);
+    expect(result).toHaveLength(25);
     
     // Check that rules were created
     const rules = await rulesService.getAllRules();
@@ -81,25 +76,13 @@ describe('Batch Rule Matching', () => {
     const aiMatchedTransactions = result.filter(t => t.confidence === 0.95);
     
     console.log(`📊 Results: ${ruleMatchedTransactions.length} rule-matched, ${aiMatchedTransactions.length} AI-matched`);
+    console.log(`🤖 AI was called ${aiCallCount} times with total ${totalAIRequests} requests`);
     
-    // The key test: Second batch should have been matched by rules created from first batch
-    // So we should have MORE rule-matched transactions than just the first batch
+    // The key test: Rules should have been applied across batches
+    // We expect fewer than 25 AI requests because rules should catch some transactions
     expect(ruleMatchedTransactions.length).toBeGreaterThan(0);
+    expect(totalAIRequests).toBeLessThan(25);
     
-    // AI should have been called fewer times than the total number of transactions
-    // because rules should have caught some in the second batch
-    console.log(`🤖 AI was called ${aiCallCount} times total`);
-    
-    // The main assertion: if rules are working properly across batches,
-    // we should have a mix of rule-matched and AI-matched transactions
-    if (ruleMatchedTransactions.length === 0) {
-      console.error('❌ NO transactions were matched by rules - this indicates the bug');
-      console.error('All transactions went to AI instead of using rules created from earlier batches');
-    } else {
-      console.log('✅ Some transactions were matched by rules across batches');
-    }
-    
-    // This should pass if rules are working correctly across batches
-    expect(ruleMatchedTransactions.length).toBeGreaterThan(0);
+    console.log('✅ Rules successfully applied across batches - AI requests optimized');
   });
 });
