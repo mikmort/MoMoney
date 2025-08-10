@@ -3,9 +3,10 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
-import { Account } from '../../types';
+import { Account, AccountStatementAnalysisResponse } from '../../types';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { userPreferencesService } from '../../services/userPreferencesService';
+import { accountManagementService } from '../../services/accountManagementService';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -89,6 +90,63 @@ const EditModalContent = styled.div`
   }
 `;
 
+const UploadSection = styled.div`
+  border: 2px dashed #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+  text-align: center;
+  background: #fafafa;
+
+  &.dragover {
+    border-color: #2196f3;
+    background: #e3f2fd;
+  }
+
+  p {
+    margin: 8px 0;
+    color: #666;
+  }
+
+  .upload-note {
+    font-size: 0.9em;
+    color: #888;
+    margin-top: 16px;
+  }
+`;
+
+const AnalysisResult = styled.div`
+  margin: 20px 0;
+  padding: 16px;
+  border-radius: 8px;
+  background: #f5f5f5;
+
+  .confidence {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-weight: 500;
+    margin-left: 8px;
+  }
+
+  .confidence.high { background: #c8e6c9; color: #2e7d32; }
+  .confidence.medium { background: #fff3e0; color: #f57c00; }
+  .confidence.low { background: #ffebee; color: #d32f2f; }
+
+  .extracted-fields {
+    margin-top: 12px;
+    font-size: 0.9em;
+    color: #666;
+  }
+
+  .reasoning {
+    margin-top: 12px;
+    font-style: italic;
+    color: #555;
+  }
+`;
+
 interface AccountsManagementProps {}
 
 export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
@@ -106,6 +164,13 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     balance: 0,
     isActive: true
   });
+
+  // Statement upload functionality
+  const [showStatementUpload, setShowStatementUpload] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AccountStatementAnalysisResponse | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const handleDeleteAccount = (accountId: string) => {
     const account = accounts.find(a => a.id === accountId);
@@ -175,6 +240,101 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       ...prev,
       [field]: value
     }));
+  };
+
+  // Statement upload handlers
+  const handleCreateFromStatement = () => {
+    setShowStatementUpload(true);
+    setUploadedFile(null);
+    setAnalysisResult(null);
+  };
+
+  const handleFileUpload = async (file: File) => {
+    setUploadedFile(file);
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+
+    try {
+      const result = await accountManagementService.createAccountFromStatement(file);
+      
+      if (result.success && result.account) {
+        // Account created successfully
+        setShowStatementUpload(false);
+        // The useAccountManagement hook should automatically refresh the accounts list
+      } else if (result.analysis) {
+        // Analysis completed but needs user review
+        setAnalysisResult(result.analysis);
+        
+        // Pre-populate form with extracted data
+        setAccountForm({
+          name: result.analysis.accountName || `Account from ${file.name}`,
+          type: result.analysis.accountType || 'checking',
+          institution: result.analysis.institution || '',
+          currency: result.analysis.currency || 'USD',
+          balance: result.analysis.balance || 0,
+          isActive: true
+        });
+      }
+    } catch (error) {
+      console.error('Error processing statement:', error);
+      setAnalysisResult({
+        confidence: 0,
+        reasoning: 'Failed to process statement: ' + (error instanceof Error ? error.message : 'Unknown error'),
+        extractedFields: []
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFileUpload(files[0]);
+    }
+  };
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleFileUpload(files[0]);
+    }
+  };
+
+  const handleCreateAccountFromAnalysis = () => {
+    if (analysisResult) {
+      // Create account with the form data (potentially modified by user)
+      const newAccountData = {
+        ...accountForm,
+        maskedAccountNumber: analysisResult.maskedAccountNumber,
+        historicalBalance: accountForm.balance,
+        historicalBalanceDate: analysisResult.balanceDate
+      };
+      
+      addAccount(newAccountData);
+      setShowStatementUpload(false);
+      setAnalysisResult(null);
+      setUploadedFile(null);
+    }
+  };
+
+  const getConfidenceClass = (confidence: number) => {
+    if (confidence >= 0.7) return 'high';
+    if (confidence >= 0.4) return 'medium';
+    return 'low';
   };
 
   // React cell renderers
@@ -325,7 +485,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h3>Account Management</h3>
-        <Button onClick={handleAddAccount}>Add Account</Button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <Button onClick={handleCreateFromStatement} variant="outline">Create from Statement</Button>
+          <Button onClick={handleAddAccount}>Add Account</Button>
+        </div>
       </div>
 
       <AccountsContainer>
@@ -483,6 +646,184 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                 Delete Account
               </Button>
             </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* Statement Upload Modal */}
+      {showStatementUpload && (
+        <EditModalOverlay onClick={() => setShowStatementUpload(false)}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Create Account from Statement</h2>
+            
+            {!uploadedFile && (
+              <UploadSection 
+                className={dragOver ? 'dragover' : ''}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <p><strong>Upload a bank statement to automatically create an account</strong></p>
+                <p>Drag & drop a statement file here, or</p>
+                <Button as="label" variant="outline" style={{ cursor: 'pointer' }}>
+                  Choose File
+                  <input
+                    type="file"
+                    accept=".pdf,.csv,.xlsx,.xls,.png,.jpg,.jpeg"
+                    onChange={handleFileInput}
+                    style={{ display: 'none' }}
+                  />
+                </Button>
+                <div className="upload-note">
+                  <p>📋 Supported formats: PDF, CSV, Excel, Images</p>
+                  <p>🔒 Account numbers are masked for security (only last 3 digits shown)</p>
+                  <p>💡 AI will extract account name, institution, balance, and other details</p>
+                </div>
+              </UploadSection>
+            )}
+
+            {isAnalyzing && (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                <p>🤖 Analyzing statement with AI...</p>
+                <p>This may take a few moments...</p>
+              </div>
+            )}
+
+            {analysisResult && (
+              <>
+                <AnalysisResult>
+                  <h4>AI Analysis Result
+                    <span className={`confidence ${getConfidenceClass(analysisResult.confidence)}`}>
+                      {Math.round(analysisResult.confidence * 100)}% confidence
+                    </span>
+                  </h4>
+                  
+                  {analysisResult.extractedFields.length > 0 && (
+                    <div className="extracted-fields">
+                      <strong>Extracted:</strong> {analysisResult.extractedFields.join(', ')}
+                    </div>
+                  )}
+                  
+                  <div className="reasoning">{analysisResult.reasoning}</div>
+                </AnalysisResult>
+
+                {analysisResult.confidence >= 0.3 && (
+                  <>
+                    <p><strong>Review and adjust the account details:</strong></p>
+                    
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Account Name *</label>
+                        <input
+                          type="text"
+                          value={accountForm.name}
+                          onChange={(e) => handleFormChange('name', e.target.value)}
+                          placeholder="e.g., Chase Checking"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Account Type *</label>
+                        <select
+                          value={accountForm.type}
+                          onChange={(e) => handleFormChange('type', e.target.value as Account['type'])}
+                        >
+                          <option value="checking">Checking</option>
+                          <option value="savings">Savings</option>
+                          <option value="credit">Credit Card</option>
+                          <option value="investment">Investment</option>
+                          <option value="cash">Cash</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Institution *</label>
+                        <input
+                          type="text"
+                          value={accountForm.institution}
+                          onChange={(e) => handleFormChange('institution', e.target.value)}
+                          placeholder="e.g., JPMorgan Chase Bank"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Currency</label>
+                        <select
+                          value={accountForm.currency}
+                          onChange={(e) => handleFormChange('currency', e.target.value)}
+                        >
+                          {userPreferencesService.getCurrencyOptions().map(option => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Balance (as of statement date)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={accountForm.balance}
+                          onChange={(e) => handleFormChange('balance', parseFloat(e.target.value) || 0)}
+                          placeholder="0.00"
+                        />
+                        {analysisResult.balanceDate && (
+                          <small style={{ color: '#666', marginTop: '4px', display: 'block' }}>
+                            Balance date: {analysisResult.balanceDate.toLocaleDateString()}
+                          </small>
+                        )}
+                      </div>
+                      {analysisResult.maskedAccountNumber && (
+                        <div className="form-group">
+                          <label>Account Number</label>
+                          <input
+                            type="text"
+                            value={analysisResult.maskedAccountNumber}
+                            readOnly
+                            style={{ background: '#f5f5f5' }}
+                          />
+                          <small style={{ color: '#666', marginTop: '4px', display: 'block' }}>
+                            For security, only last 3 digits are shown
+                          </small>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="form-actions">
+                      <Button variant="outline" onClick={() => setShowStatementUpload(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleCreateAccountFromAnalysis}>
+                        Create Account
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {analysisResult.confidence < 0.3 && (
+                  <div className="form-actions">
+                    <Button variant="outline" onClick={() => setShowStatementUpload(false)}>
+                      Close
+                    </Button>
+                    <Button onClick={handleAddAccount}>
+                      Create Account Manually
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {!isAnalyzing && !analysisResult && (
+              <div className="form-actions">
+                <Button variant="outline" onClick={() => setShowStatementUpload(false)}>
+                  Cancel
+                </Button>
+              </div>
+            )}
           </EditModalContent>
         </EditModalOverlay>
       )}

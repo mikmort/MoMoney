@@ -1,4 +1,4 @@
-import { Account } from '../types';
+import { Account, AccountStatementAnalysisResponse } from '../types';
 import { defaultAccounts, accountDetectionPatterns } from '../data/defaultAccounts';
 import { AzureOpenAIService } from './azureOpenAIService';
 
@@ -307,6 +307,165 @@ ${userPrompt}`;
       localStorage.setItem(this.storageKey, JSON.stringify(this.accounts));
     } catch (err) {
       console.error('Failed to save accounts to storage:', err);
+    }
+  }
+
+  /**
+   * Create a new account by analyzing an uploaded bank statement
+   */
+  async createAccountFromStatement(file: File): Promise<{
+    success: boolean;
+    account?: Account;
+    analysis?: AccountStatementAnalysisResponse;
+    error?: string;
+  }> {
+    try {
+      console.log(`🏦 Creating account from statement: ${file.name}`);
+      
+      // Read file content for AI analysis
+      const fileContent = await this.readFileContent(file);
+      
+      // Analyze the statement to extract account information
+      const analysis = await this.azureOpenAIService.extractAccountInfoFromStatement({
+        fileContent,
+        fileName: file.name,
+        fileType: this.getFileType(file.name) as 'pdf' | 'csv' | 'excel' | 'image'
+      });
+
+      console.log(`📊 Statement analysis completed with confidence: ${analysis.confidence}`);
+      console.log(`📋 Extracted fields: ${analysis.extractedFields.join(', ')}`);
+
+      // If confidence is too low, return for user review
+      if (analysis.confidence < 0.3) {
+        return {
+          success: false,
+          analysis,
+          error: 'AI confidence too low to automatically create account. Please review and create manually.'
+        };
+      }
+
+      // Create account from extracted information
+      const accountData: Omit<Account, 'id'> = {
+        name: analysis.accountName || `Account from ${file.name}`,
+        type: analysis.accountType || 'checking',
+        institution: analysis.institution || 'Unknown Institution',
+        currency: analysis.currency || 'USD',
+        balance: analysis.balance,
+        historicalBalance: analysis.balance,
+        historicalBalanceDate: analysis.balanceDate,
+        maskedAccountNumber: analysis.maskedAccountNumber,
+        lastSyncDate: new Date(),
+        isActive: true
+      };
+
+      const newAccount = this.addAccount(accountData);
+      
+      console.log(`✅ Successfully created account: ${newAccount.id} (${newAccount.name})`);
+      
+      return {
+        success: true,
+        account: newAccount,
+        analysis
+      };
+
+    } catch (error) {
+      console.error('Error creating account from statement:', error);
+      return {
+        success: false,
+        error: 'Failed to process statement: ' + (error instanceof Error ? error.message : 'Unknown error')
+      };
+    }
+  }
+
+  /**
+   * Calculate current account balance based on historical balance and transactions
+   */
+  async calculateCurrentBalance(accountId: string): Promise<number | null> {
+    const account = this.getAccount(accountId);
+    if (!account) return null;
+
+    // If we have a current balance that's more recent, use it
+    if (account.balance !== undefined && (!account.historicalBalanceDate || 
+        (account.lastSyncDate && account.lastSyncDate > account.historicalBalanceDate))) {
+      return account.balance;
+    }
+
+    // If we have a historical balance, calculate current balance from it
+    if (account.historicalBalance !== undefined && account.historicalBalanceDate) {
+      try {
+        const ds = await getDataService();
+        const allTransactions = await ds.getAllTransactions();
+        
+        // Filter transactions for this account that are after the historical balance date
+        const accountTransactions = allTransactions.filter((t: any) => 
+          (t.account === account.name || t.account === account.id) &&
+          t.date > account.historicalBalanceDate!
+        );
+
+        // Calculate balance change since historical date
+        const balanceChange = accountTransactions.reduce((sum: number, t: any) => {
+          // For credit accounts, positive amounts increase the balance (more debt)
+          // For other accounts, positive amounts increase the balance (more money)
+          return sum + t.amount;
+        }, 0);
+
+        const currentBalance = account.historicalBalance + balanceChange;
+        
+        console.log(`💰 Calculated current balance for ${account.name}: ${account.historicalBalance} + ${balanceChange} = ${currentBalance}`);
+        
+        // Update the account with the calculated balance
+        this.updateAccount(accountId, { 
+          balance: currentBalance, 
+          lastSyncDate: new Date() 
+        });
+        
+        return currentBalance;
+      } catch (error) {
+        console.error('Error calculating current balance:', error);
+        return account.historicalBalance;
+      }
+    }
+
+    return account.balance || 0;
+  }
+
+  private async readFileContent(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result;
+        if (typeof result === 'string') {
+          resolve(result);
+        } else if (result instanceof ArrayBuffer) {
+          // Convert ArrayBuffer to string (simplified approach)
+          const decoder = new TextDecoder('utf-8');
+          resolve(decoder.decode(result));
+        } else {
+          reject(new Error('Failed to read file content'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(file);
+    });
+  }
+
+  private getFileType(filename: string): 'pdf' | 'csv' | 'excel' | 'image' {
+    const extension = filename.toLowerCase().split('.').pop();
+    
+    switch (extension) {
+      case 'pdf':
+        return 'pdf';
+      case 'csv':
+        return 'csv';
+      case 'xlsx':
+      case 'xls':
+        return 'excel';
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+        return 'image';
+      default:
+        return 'csv'; // Default fallback
     }
   }
 }
