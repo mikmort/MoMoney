@@ -7,7 +7,6 @@ import { dataService } from './dataService';
 import { rulesService } from './rulesService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
-import { currencyExchangeService } from './currencyExchangeService';
 import { userPreferencesService } from './userPreferencesService';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -722,18 +721,25 @@ Return ONLY a clean JSON response:
       availableCategories: categories
     }));
 
-    console.log(`📊 Created ${batchRequests.length} batch requests for AI (reduced from ${validIndices.length} total)`);
+  // Logging clarity: show items to classify vs number of requests based on chunk size
+  const AI_CHUNK_SIZE = 20;
+  const totalBatches = Math.ceil(batchRequests.length / AI_CHUNK_SIZE);
+  console.log(`� Batching ${batchRequests.length} items into ${totalBatches} requests (chunkSize=${AI_CHUNK_SIZE}) — reduced from ${validIndices.length} total prepared rows`);
 
     // Step 3: Call AI in batch chunks only for unmatched transactions
     const batchResults: AIClassificationResponse[] = [];
     if (batchRequests.length > 0) {
-      const CHUNK = 20; // increased batch size to 20 to speed up processing
+      const CHUNK = AI_CHUNK_SIZE; // increased batch size to 20 to speed up processing
       for (let start = 0; start < batchRequests.length; start += CHUNK) {
         if (this.isCancelled(fileId)) {
           console.log('🛑 Transaction processing cancelled during batch classification');
           throw new Error('Import cancelled by user');
         }
         const slice = batchRequests.slice(start, start + CHUNK);
+        const endExclusive = Math.min(start + CHUNK, batchRequests.length);
+        const batchIndex = Math.floor(start / CHUNK) + 1;
+        const batchCount = Math.ceil(batchRequests.length / CHUNK);
+        console.log(`➡️ Batch ${batchIndex}/${batchCount}: items ${start}-${endExclusive - 1} (size=${slice.length})`);
         try {
           const res = await azureOpenAIService.classifyTransactionsBatch(slice);
           batchResults.push(...res);

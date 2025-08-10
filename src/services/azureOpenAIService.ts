@@ -327,6 +327,9 @@ Date: ${request.date}`;
       chunks.push(requests.slice(i, i + MAX_BATCH));
     }
 
+  // Visibility: how many items and requests will be made
+  console.log(`📦 Batching ${requests.length} items into ${chunks.length} requests (chunkSize=${MAX_BATCH})`);
+
     const results: AIClassificationResponse[] = [];
     for (const chunk of chunks) {
       const chunkResults = await this.classifyTransactionsBatchChunk(chunk);
@@ -410,6 +413,16 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
 
       let parsed: any[] | null = tryParseArray(cleaned);
       if (!parsed) {
+        // If parsing fails, first try to reduce load by splitting the batch before falling back to singles
+        if (requests.length > 1 && attempt <= 3) {
+          console.warn(`Batch parse failed (no JSON array found). Splitting batch of ${requests.length} (attempt ${attempt}) and retrying.`);
+          const mid = Math.ceil(requests.length / 2);
+          const left = requests.slice(0, mid);
+          const right = requests.slice(mid);
+          const leftResults = await this.classifyTransactionsBatchChunk(left, attempt + 1);
+          const rightResults = await this.classifyTransactionsBatchChunk(right, attempt + 1);
+          return [...leftResults, ...rightResults];
+        }
         console.warn('Batch parse failed (no JSON array found). Falling back to per-item classification.');
         const singles: AIClassificationResponse[] = [];
         for (const r of requests) {
