@@ -836,7 +836,7 @@ Return ONLY a clean JSON response:
               // Filter out requests for transactions that are now rule-matched
               const currentRemainingUnmatchedTransactions = remainingUnmatchedTransactions;
               const stillUnmatchedIndices = newRuleResults.unmatchedTransactions.map(t => {
-                return currentRemainingUnmatchedTransactions.findIndex(remaining => 
+                return currentRemainingUnmatchedTransactions.findIndex(remaining =>
                   remaining.description === t.description && remaining.amount === t.amount && remaining.date.getTime() === t.date.getTime()
                 );
               }).filter(idx => idx !== -1);
