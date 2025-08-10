@@ -1,4 +1,5 @@
 import { Account, AccountStatementAnalysisResponse } from '../types';
+import * as XLSX from 'xlsx';
 import { defaultAccounts, accountDetectionPatterns } from '../data/defaultAccounts';
 import { AzureOpenAIService } from './azureOpenAIService';
 
@@ -55,8 +56,15 @@ export class AccountManagementService {
 
   // Add a new account
   addAccount(account: Omit<Account, 'id'>): Account {
+    // Defensive: ensure any provided maskedAccountNumber is canonical (Ending in XXX)
+    const sanitizeMask = (val: any): string | undefined => {
+      const digits = String(val ?? '').match(/\d/g)?.join('') || '';
+      return digits.length >= 3 ? `Ending in ${digits.slice(-3)}` : undefined;
+    };
+
     const newAccount: Account = {
       ...account,
+      maskedAccountNumber: sanitizeMask((account as any).maskedAccountNumber),
       id: this.generateAccountId(account.name, account.institution)
     };
     
@@ -72,7 +80,12 @@ export class AccountManagementService {
     const index = this.accounts.findIndex(account => account.id === id);
     if (index === -1) return null;
 
-    this.accounts[index] = { ...this.accounts[index], ...updates };
+    const sanitizeMask = (val: any): string | undefined => {
+      const digits = String(val ?? '').match(/\d/g)?.join('') || '';
+      return digits.length >= 3 ? `Ending in ${digits.slice(-3)}` : undefined;
+    };
+
+    this.accounts[index] = { ...this.accounts[index], ...updates, maskedAccountNumber: sanitizeMask(updates.maskedAccountNumber ?? this.accounts[index].maskedAccountNumber) };
     this.saveToStorage();
     return this.accounts[index];
   }
@@ -322,8 +335,8 @@ ${userPrompt}`;
     try {
       console.log(`🏦 Creating account from statement: ${file.name}`);
       
-      // Read file content for AI analysis
-      const fileContent = await this.readFileContent(file);
+  // Read file content for AI analysis (type-aware to avoid binary gibberish)
+  const fileContent = await this.readStatementText(file);
       
       // Analyze the statement to extract account information
       const analysis = await this.azureOpenAIService.extractAccountInfoFromStatement({
@@ -430,23 +443,177 @@ ${userPrompt}`;
   }
 
   private async readFileContent(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result;
-        if (typeof result === 'string') {
-          resolve(result);
-        } else if (result instanceof ArrayBuffer) {
-          // Convert ArrayBuffer to string (simplified approach)
-          const decoder = new TextDecoder('utf-8');
-          resolve(decoder.decode(result));
-        } else {
-          reject(new Error('Failed to read file content'));
+    // Deprecated: kept for compatibility. Prefer readStatementText for type-aware extraction.
+    return this.readStatementText(file);
+  }
+
+  // Type-aware text extraction for statements to feed the AI meaningful content
+  private async readStatementText(file: File): Promise<string> {
+    const fileType = this.getFileType(file.name);
+
+    const readAsArrayBuffer = (): Promise<ArrayBuffer> =>
+      new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const result = e.target?.result;
+          if (result instanceof ArrayBuffer) resolve(result);
+          else if (typeof result === 'string') resolve(new TextEncoder().encode(result).buffer);
+          else reject(new Error('Failed to read file content'));
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsArrayBuffer(file);
+      });
+
+    const stripBOM = (s: string) => (s && s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
+    const countReplacement = (s: string) => (s.match(/\uFFFD/g) || []).length;
+    const countC1Controls = (s: string) => {
+      let count = 0;
+      for (let i = 0; i < s.length; i++) {
+        const code = s.charCodeAt(i);
+        if (code >= 0x80 && code <= 0x9f) count++;
+      }
+      return count;
+    };
+    const tryDecode = (buf: ArrayBuffer, enc: string) => {
+      try {
+        const dec = new TextDecoder(enc as any, { fatal: false });
+        return stripBOM(dec.decode(new DataView(buf)));
+      } catch {
+        return '';
+      }
+    };
+
+    const extractAsciiFromBinary = (view: Uint8Array, maxChars = 8000): string => {
+      // Heuristic: keep printable ASCII and whitespace, collapse long non-text regions
+      let out = '';
+      let run = '';
+      const pushRun = () => {
+        if (run.length) {
+          out += run + '\n';
+          run = '';
         }
       };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsText(file);
-    });
+      for (let i = 0; i < view.length && out.length < maxChars; i++) {
+        const b = view[i];
+        if ((b >= 32 && b <= 126) || b === 9 || b === 10 || b === 13) {
+          run += String.fromCharCode(b);
+          if (run.length > 256) {
+            out += run;
+            run = '';
+          }
+        } else if (run.length) {
+          pushRun();
+        }
+      }
+      pushRun();
+      // Basic cleanup: collapse excessive whitespace
+      return out.replace(/[\t ]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    };
+
+    try {
+      const buffer = await readAsArrayBuffer();
+      const view = new Uint8Array(buffer);
+
+      if (fileType === 'csv') {
+        // Try robust text decoding for CSV-like content
+        // Quick BOM-based detection
+        const hasUTF16LE = view.length >= 2 && view[0] === 0xff && view[1] === 0xfe;
+        const hasUTF16BE = view.length >= 2 && view[0] === 0xfe && view[1] === 0xff;
+        if (hasUTF16LE) return new TextDecoder('utf-16le').decode(new DataView(buffer));
+        if (hasUTF16BE) return new TextDecoder('utf-16be' as any).decode(new DataView(buffer));
+
+        const utf8 = tryDecode(buffer, 'utf-8');
+        const utf8Repl = countReplacement(utf8);
+        if (utf8Repl === 0) return utf8;
+
+        const cp1252 = tryDecode(buffer, 'windows-1252');
+        const cp1252Repl = countReplacement(cp1252);
+        const cp1252C1 = countC1Controls(cp1252);
+        const iso88591 = tryDecode(buffer, 'iso-8859-1');
+        const isoRepl = countReplacement(iso88591);
+        const isoC1 = countC1Controls(iso88591);
+        const iso885915 = tryDecode(buffer, 'iso-8859-15');
+        const iso15Repl = countReplacement(iso885915);
+        const iso15C1 = countC1Controls(iso885915);
+        type Candidate = { text: string; repl: number; c1: number; label: string };
+        const candidates: Candidate[] = [
+          { text: utf8, repl: utf8Repl, c1: countC1Controls(utf8), label: 'utf8' },
+          { text: cp1252, repl: cp1252Repl, c1: cp1252C1, label: 'cp1252' },
+          { text: iso88591, repl: isoRepl, c1: isoC1, label: 'iso' },
+          { text: iso885915, repl: iso15Repl, c1: iso15C1, label: 'iso15' }
+        ];
+        const best = candidates.reduce((best, cur) => {
+          if (cur.repl !== best.repl) return cur.repl < best.repl ? cur : best;
+          if (cur.c1 !== best.c1) return cur.c1 < best.c1 ? cur : best;
+          // Prefer utf8 over others on ties
+          const pref = ['utf8', 'cp1252', 'iso15', 'iso'];
+          return pref.indexOf(cur.label) < pref.indexOf(best.label) ? cur : best;
+        });
+        return best.text;
+      }
+
+      if (fileType === 'excel') {
+        try {
+          // Use XLSX to extract a CSV-like preview text from the first sheet
+          const wb = XLSX.read(buffer, { type: 'array' });
+          const sheetName = wb.SheetNames[0];
+          const sheet = sheetName ? wb.Sheets[sheetName] : undefined;
+          const csv = sheet ? XLSX.utils.sheet_to_csv(sheet, { blankrows: false }) : '';
+          const header = `Workbook sheets: ${wb.SheetNames.join(', ')}\nUsing sheet: ${sheetName || 'N/A'}\n`;
+          return (header + (csv || '')).slice(0, 8000);
+        } catch (e) {
+          // Fall back to ASCII extraction from binary (likely poor for XLSX)
+          return extractAsciiFromBinary(view);
+        }
+      }
+
+      if (fileType === 'pdf') {
+        // Prefer pdfjs-dist extraction; fallback to ASCII heuristic if unavailable
+        const extractWithPdfJs = async (): Promise<string> => {
+          try {
+            const pdfjs: any = await import('pdfjs-dist/build/pdf');
+            try {
+              const worker: any = await import('pdfjs-dist/build/pdf.worker.min.js');
+              if (worker && (worker as any).default && pdfjs.GlobalWorkerOptions) {
+                pdfjs.GlobalWorkerOptions.workerSrc = (worker as any).default;
+              }
+            } catch {}
+
+            const loadingTask = pdfjs.getDocument({ data: buffer });
+            const pdf = await loadingTask.promise;
+            const maxPages = Math.min(pdf.numPages || 1, 8);
+            let combined = '';
+            for (let i = 1; i <= maxPages; i++) {
+              const page = await pdf.getPage(i);
+              const tc = await page.getTextContent();
+              const pageText = (tc.items || [])
+                .map((it: any) => (typeof it?.str === 'string' ? it.str : ''))
+                .filter(Boolean)
+                .join(' ');
+              combined += pageText + '\n\n';
+              if (combined.length > 9000) break;
+            }
+            // Basic whitespace cleanup and truncate for prompt safety
+            return combined.replace(/[\t ]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').slice(0, 8000).trim();
+          } catch (e) {
+            return '';
+          }
+        };
+
+        const pdfText = await extractWithPdfJs();
+        if (pdfText && pdfText.length > 50) return pdfText;
+
+        // Fallback heuristic ASCII extraction if pdfjs failed
+        const text = extractAsciiFromBinary(view);
+        return text || '';
+      }
+
+      // Images or unknown types: no reliable text in-browser
+      return '';
+    } catch (e) {
+      console.warn('Failed to read statement text:', e);
+      return '';
+    }
   }
 
   private getFileType(filename: string): 'pdf' | 'csv' | 'excel' | 'image' {

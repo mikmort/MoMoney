@@ -287,7 +287,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     return <>{text}</>;
   };
 
-  const AmountDifference: React.FC<{ a: Transaction; b: Transaction }> = ({ a, b }) => {
+  const AmountDifference: React.FC<{ a: Transaction; b: Transaction; defaultCurrency: string }> = ({ a, b, defaultCurrency }) => {
     const [text, setText] = useState<string>('');
     useEffect(() => {
       let mounted = true;
@@ -468,7 +468,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
                     </div>
                     <div className="match-details">
                       {match.reasoning} • {match.dateDifference} days apart
-                      <AmountDifference a={transaction} b={matchedTx} />
+                      <AmountDifference a={transaction} b={matchedTx} defaultCurrency={defaultCurrency} />
                     </div>
                     <div className="match-actions">
                       <Button
@@ -521,7 +521,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
                     </div>
                     <div className="match-details">
                       {match.reasoning} • {match.dateDifference} days apart
-                      <AmountDifference a={transaction} b={matchedTx} />
+                      <AmountDifference a={transaction} b={matchedTx} defaultCurrency={defaultCurrency} />
                     </div>
                     <div className="match-actions">
                       <Button

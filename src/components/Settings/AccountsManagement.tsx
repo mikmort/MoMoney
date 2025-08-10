@@ -13,7 +13,8 @@ import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 const AccountsContainer = styled.div`
   .ag-theme-alpine {
-    height: 400px;
+  height: 85vh; /* expand to use more vertical space */
+  min-height: 600px; /* ensure it's comfortably tall on small screens */
     width: 100%;
   }
 `;
@@ -152,7 +153,7 @@ interface AccountsManagementProps {}
 
 export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const navigate = useNavigate();
-  const { accounts, addAccount, updateAccount, deleteAccount, error } = useAccountManagement();
+  const { accounts, addAccount, updateAccount, deleteAccount, error, refreshAccounts } = useAccountManagement();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -173,6 +174,16 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const [analysisResult, setAnalysisResult] = useState<AccountStatementAnalysisResponse | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  const sanitizeReasoning = (reason?: string): string => {
+    if (!reason) return '';
+    const lower = reason.toLowerCase();
+    const flagged = ['encrypted', 'unreadable', 'corrupted', 'gibberish', 'nonsensical'];
+    if (flagged.some(w => lower.includes(w))) {
+      return 'Insufficient readable text was available from this file in the browser context. The analysis relied on the filename and any readable snippets; confidence is adjusted accordingly.';
+    }
+    return reason;
+  };
 
   const handleDeleteAccount = (accountId: string) => {
     const account = accounts.find(a => a.id === accountId);
@@ -262,7 +273,8 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       if (result.success && result.account) {
         // Account created successfully
         setShowStatementUpload(false);
-        // The useAccountManagement hook should automatically refresh the accounts list
+        // Ensure the accounts list reflects the newly created account immediately
+        refreshAccounts();
       } else if (result.analysis) {
         // Analysis completed but needs user review
         setAnalysisResult(result.analysis);
@@ -326,7 +338,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         historicalBalanceDate: analysisResult.balanceDate
       };
       
-      addAccount(newAccountData);
+      addAccount(newAccountData).then(() => {
+        // Refresh to ensure the grid updates immediately
+        refreshAccounts();
+      });
       setShowStatementUpload(false);
       setAnalysisResult(null);
       setUploadedFile(null);
@@ -753,7 +768,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                     </div>
                   )}
                   
-                  <div className="reasoning">{analysisResult.reasoning}</div>
+                  <div className="reasoning">{sanitizeReasoning(analysisResult.reasoning)}</div>
                 </AnalysisResult>
 
                 {analysisResult.confidence >= 0.3 && (
@@ -854,14 +869,19 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                 )}
 
                 {analysisResult.confidence < 0.3 && (
-                  <div className="form-actions">
+                  <>
+                    <div style={{ color: '#666', marginBottom: 12 }}>
+                      Tip: If this was a PDF or image, the browser may not expose full text. Try uploading a CSV/Excel export from your bank for better results, or create the account manually below.
+                    </div>
+                    <div className="form-actions">
                     <Button variant="outline" onClick={() => setShowStatementUpload(false)}>
                       Close
                     </Button>
                     <Button onClick={handleAddAccount}>
                       Create Account Manually
                     </Button>
-                  </div>
+                    </div>
+                  </>
                 )}
               </>
             )}

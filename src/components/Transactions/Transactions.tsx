@@ -2975,8 +2975,7 @@ const Transactions: React.FC = () => {
                 resizable: true,
                 sortable: true,
                 filter: true,
-                floatingFilter: false, // Disable floating filters to reduce clutter
-                menuTabs: ['filterMenuTab', 'generalMenuTab'] // Only show filter and general tabs
+                floatingFilter: false // Disable floating filters to reduce clutter
               }}
               singleClickEdit={true}
               stopEditingWhenCellsLoseFocus={true}
