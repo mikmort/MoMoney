@@ -60,10 +60,6 @@ export interface Transaction {
   // Transfer matching support
   transferId?: string; // ID of the matched transfer (for linking paired transfers)
   isTransferPrimary?: boolean; // True for the primary row in a collapsed transfer pair
-  // Receipt attachment support
-  attachedFileId?: string; // ID of the attached receipt/invoice file
-  attachedFileName?: string; // Name of the attached file for display
-  attachedFileType?: 'pdf' | 'image' | 'other'; // Type of the attached file
 }
 
 export interface Account {
