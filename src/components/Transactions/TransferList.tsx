@@ -143,6 +143,38 @@ export const TransferList: React.FC<TransferListProps> = ({
   onViewTransaction
 }) => {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [formattedTotalAmount, setFormattedTotalAmount] = useState<string>('$0.00');
+
+  // Format total amount using default currency
+  React.useEffect(() => {
+    const formatTotal = async () => {
+      try {
+        const total = collapsedTransfers.reduce((sum, t) => sum + t.amount, 0);
+        await currencyDisplayService.initialize();
+        const formattedAmount = await currencyDisplayService.formatAmount(total);
+        setFormattedTotalAmount(formattedAmount);
+      } catch (error) {
+        console.error('Error formatting total amount:', error);
+        try {
+          const defaultCurrency = await currencyDisplayService.getDefaultCurrency();
+          const total = collapsedTransfers.reduce((sum, t) => sum + t.amount, 0);
+          setFormattedTotalAmount(new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: defaultCurrency
+          }).format(total));
+        } catch {
+          // Final fallback
+          const total = collapsedTransfers.reduce((sum, t) => sum + t.amount, 0);
+          setFormattedTotalAmount(new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+          }).format(total));
+        }
+      }
+    };
+    
+    formatTotal();
+  }, [collapsedTransfers]);
 
   const unmatchedTransfers = allTransfers.filter(tx => !tx.reimbursementId);
 
@@ -274,10 +306,7 @@ export const TransferList: React.FC<TransferListProps> = ({
         <div className="stat">
           <div className="label">Total Amount</div>
           <div className="value">
-            {new Intl.NumberFormat('en-US', {
-              style: 'currency',
-              currency: 'USD'
-            }).format(collapsedTransfers.reduce((sum, t) => sum + t.amount, 0))}
+            {formattedTotalAmount}
           </div>
         </div>
       </div>

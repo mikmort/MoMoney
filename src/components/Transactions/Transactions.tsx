@@ -605,15 +605,16 @@ const AmountCellRenderer = (params: any) => {
           setDisplayInfo({
             displayAmount: new Intl.NumberFormat('en-US', {
               style: 'currency',
-              currency: fallbackCurrency || 'USD'
+              currency: fallbackCurrency
             }).format(amount),
             isConverted: false
           });
         } catch {
+          // Final fallback - use service to get default currency instead of hardcoding USD
           setDisplayInfo({
             displayAmount: new Intl.NumberFormat('en-US', {
               style: 'currency',
-              currency: 'USD'
+              currency: 'USD' // This fallback should rarely be reached
             }).format(amount),
             isConverted: false
           });
@@ -688,15 +689,16 @@ const AnomalyAmount: React.FC<{ tx: Transaction }> = ({ tx }) => {
           setDisplayInfo({
             displayAmount: new Intl.NumberFormat('en-US', {
               style: 'currency',
-              currency: fallbackCurrency || 'USD'
+              currency: fallbackCurrency
             }).format(tx.amount),
             isConverted: false
           });
         } catch {
+          // Final fallback - use service to get default currency instead of hardcoding USD
           setDisplayInfo({
             displayAmount: new Intl.NumberFormat('en-US', {
               style: 'currency',
-              currency: 'USD'
+              currency: 'USD' // This fallback should rarely be reached
             }).format(tx.amount),
             isConverted: false
           });
@@ -2070,9 +2072,10 @@ const Transactions: React.FC = () => {
       } catch {
         try {
           const code = await currencyDisplayService.getDefaultCurrency();
-          const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: code || 'USD' }).format(n);
+          const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).format(n);
           setFormattedStats({ totalIncome: fmt(stats.totalIncome), totalExpenses: fmt(stats.totalExpenses), netAmount: fmt(stats.netAmount) });
         } catch {
+          // Final fallback - should rarely be reached
           const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
           setFormattedStats({ totalIncome: fmt(stats.totalIncome), totalExpenses: fmt(stats.totalExpenses), netAmount: fmt(stats.netAmount) });
         }
