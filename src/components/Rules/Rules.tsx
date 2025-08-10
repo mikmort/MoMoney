@@ -682,8 +682,8 @@ const Rules: React.FC = () => {
               {/* Loading state */}
               {isLoading && (
                 <Card style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-                  <h3>🔄 Loading Rules...</h3>
-                  <p>Please wait while we load your category rules.</p>
+                  <h3>🔄 Initializing Rules...</h3>
+                  <p>Please wait while we check for existing rules and initialize the system.</p>
                 </Card>
               )}
             </>
