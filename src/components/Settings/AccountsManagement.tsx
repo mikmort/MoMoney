@@ -12,7 +12,8 @@ import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 const AccountsContainer = styled.div`
   .ag-theme-alpine {
-    height: 400px;
+  height: 85vh; /* expand to use more vertical space */
+  min-height: 600px; /* ensure it's comfortably tall on small screens */
     width: 100%;
   }
 `;
