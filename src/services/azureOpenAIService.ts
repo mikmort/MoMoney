@@ -51,9 +51,17 @@ interface OpenAIProxyResponse {
 export class AzureOpenAIService {
   private readonly deploymentName: string;
   private initialized = true; // Always initialized since we don't need client setup
+  private readonly fallbackDeployments: string[];
 
   constructor() {
     this.deploymentName = defaultConfig.azure.openai.deploymentName || 'gpt-4o';
+    // Optional comma-separated fallbacks, e.g. "gpt-5-chat,gpt-4o"
+    const envFallback = (process.env.REACT_APP_AZURE_OPENAI_FALLBACK_DEPLOYMENTS || '').split(',').map(s => s.trim()).filter(Boolean);
+    // Ensure we have at least the opposite popular option as a fallback
+    const defaultAlt = this.deploymentName === 'gpt-5-chat' ? ['gpt-4o'] : ['gpt-5-chat'];
+    const merged = [...envFallback, ...defaultAlt].filter((m, idx, arr) => arr.indexOf(m) === idx);
+    // Do not include primary in fallbacks
+    this.fallbackDeployments = merged.filter(m => m && m !== this.deploymentName);
   }
 
   private async callOpenAIProxy(request: OpenAIProxyRequest): Promise<OpenAIProxyResponse> {
@@ -76,6 +84,55 @@ export class AzureOpenAIService {
       console.error('Error calling OpenAI proxy:', error);
       throw error;
     }
+  }
+
+  // Helper: unified retry/backoff + deployment fallback
+  private async callOpenAIWithFallback(
+    request: Omit<OpenAIProxyRequest, 'deployment'> & { deployment?: string },
+    options?: { attemptsPerDeployment?: number; baseBackoffMs?: number }
+  ): Promise<OpenAIProxyResponse> {
+    const attemptsPerDeployment = options?.attemptsPerDeployment ?? 2;
+    const base = options?.baseBackoffMs ?? 400;
+
+    const deployments = [request.deployment || this.deploymentName, ...this.fallbackDeployments]
+      .filter((d, i, arr) => d && arr.indexOf(d) === i);
+
+    let lastErr: any;
+    for (const dep of deployments) {
+      for (let attempt = 1; attempt <= attemptsPerDeployment; attempt++) {
+        try {
+          const resp = await this.callOpenAIProxy({ ...(request as any), deployment: dep });
+          if (!resp.success) {
+            const err = String(resp.error || '').toLowerCase();
+            const retriable = err.includes('rate') || err.includes('limit') || err.includes('overload') || err.includes('timeout') || err.includes('5');
+            if (retriable && attempt < attemptsPerDeployment) {
+              const wait = base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 150);
+              await new Promise(r => setTimeout(r, wait));
+              continue;
+            }
+            // try next deployment
+            lastErr = new Error(resp.error || 'Proxy returned error');
+          } else {
+            return resp;
+          }
+        } catch (e: any) {
+          const msg = String(e?.message || '').toLowerCase();
+          const is429 = msg.includes('http 429');
+          const is5xx = /http\s*5\d\d/.test(msg);
+          const retriable = is429 || is5xx || msg.includes('timeout') || msg.includes('fetch') || msg.includes('network');
+          lastErr = e;
+          if (retriable && attempt < attemptsPerDeployment) {
+            const wait = base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 200);
+            await new Promise(r => setTimeout(r, wait));
+            continue;
+          }
+          // break to next deployment
+        }
+        // break inner loop to try next deployment
+        break;
+      }
+    }
+    throw lastErr || new Error('All deployments failed');
   }
 
   // Constrain AI output to the provided categories/subcategories catalog
@@ -168,7 +225,7 @@ Date: ${request.date}`;
         temperature: 0.1
       };
 
-      const response = await this.callOpenAIProxy(proxyRequest);
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 300 });
 
       if (!response.success || !response.data) {
         throw new Error(response.error || 'No response from OpenAI proxy');
@@ -233,8 +290,27 @@ Date: ${request.date}`;
   ): Promise<AIClassificationResponse[]> {
     if (!requests.length) return [];
 
+    // Process in chunks to reduce proxy load and avoid 500s when payloads are large
+    const MAX_BATCH = 20;
+    const chunks: AIClassificationRequest[][] = [];
+    for (let i = 0; i < requests.length; i += MAX_BATCH) {
+      chunks.push(requests.slice(i, i + MAX_BATCH));
+    }
+
+    const results: AIClassificationResponse[] = [];
+    for (const chunk of chunks) {
+      const chunkResults = await this.classifyTransactionsBatchChunk(chunk);
+      results.push(...chunkResults);
+    }
+    return results;
+  }
+
+  // Internal: classify a small chunk with retries and robust parsing
+  private async classifyTransactionsBatchChunk(
+    requests: AIClassificationRequest[],
+    attempt = 1
+  ): Promise<AIClassificationResponse[]> {
     try {
-      // Assume same categories set for the batch (common in our import flow)
       const categories = requests[0].availableCategories;
       const categoriesCatalog = categories
         .map(c => {
@@ -251,27 +327,13 @@ ${subs}
         })
         .join(',\n');
 
+      const items = requests.map((r, idx) => ({ index: idx, description: r.transactionText, amount: r.amount, date: r.date }));
+
       const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
 Return ONLY a JSON array with the EXACT SAME NUMBER OF ITEMS as the input list, in the SAME ORDER.
-Each element must strictly match (you may include an "index" number copied from the input to preserve order):
-{
-  "categoryId": "one of the allowed category ids",
-  "subcategoryId": "one of the allowed subcategory ids for the chosen category or null",
-  "confidence": 0.0-1.0,
-  "reasoning": "brief explanation"
-}
-Rules:
-- Use EXACT ids from the catalog below
-- Do not invent ids or names
-- If unsure, set subcategoryId to null
-- If you cannot determine confidently, set categoryId to "uncategorized" and confidence <= 0.3`;
-
-      const items = requests.map((r, idx) => ({
-        index: idx,
-        description: r.transactionText,
-        amount: r.amount,
-        date: r.date
-      }));
+Each element must strictly match and you may include an "index" copied from the input to preserve order.
+Fields: { categoryId, subcategoryId (or null), confidence (0-1), reasoning }.
+Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set subcategoryId=null; if uncertain set categoryId="uncategorized" and confidence<=0.3.`;
 
       const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same "index" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
 
@@ -281,29 +343,27 @@ Rules:
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 1200,
+        max_tokens: 1000,
         temperature: 0.1
       };
 
-      const response = await this.callOpenAIProxy(proxyRequest);
-
-      if (!response.success || !response.data) {
-        throw new Error(response.error || 'No response from OpenAI proxy');
-      }
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
+      if (!response.success || !response.data) throw new Error(response.error || 'No response from OpenAI proxy');
 
       const responseContent = response.data.choices[0]?.message?.content;
       if (!responseContent) throw new Error('No response content from OpenAI proxy');
 
-      // Attempt robust parsing: direct JSON, then extract first JSON array substring, then object.results
       const cleaned = this.cleanAIResponse(responseContent);
 
       const tryParseArray = (text: string): any[] | null => {
+        // Fast path: strict JSON
         try {
           const j = JSON.parse(text);
           if (Array.isArray(j)) return j;
-          if (j && Array.isArray(j.results)) return j.results;
+          if (j && Array.isArray((j as any).results)) return (j as any).results;
+          if (j && Array.isArray((j as any).items)) return (j as any).items;
         } catch {}
-        // Try to extract the first JSON array block
+        // Extract first JSON array
         const start = text.indexOf('[');
         const end = text.lastIndexOf(']');
         if (start !== -1 && end !== -1 && end > start) {
@@ -319,51 +379,41 @@ Rules:
       let parsed: any[] | null = tryParseArray(cleaned);
       if (!parsed) {
         console.warn('Batch parse failed (no JSON array found). Falling back to per-item classification.');
-        // Fallback: classify each item individually to avoid blanket Uncategorized
-        const singles = [] as AIClassificationResponse[];
+        const singles: AIClassificationResponse[] = [];
         for (const r of requests) {
           try {
-            const one = await this.classifyTransaction(r);
-            singles.push(one);
-          } catch (e) {
+            singles.push(await this.classifyTransaction(r));
+          } catch {
             singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Single fallback failed' });
           }
         }
         return singles;
       }
 
-      // If the array length mismatches, try to reorder by index field or pad via single calls
+      // Length reconcile
       if (parsed.length !== requests.length) {
-        // Attempt to sort by an 'index' property if provided
-        if (parsed.every((p) => typeof p?.index === 'number')) {
-          parsed.sort((a, b) => (a.index as number) - (b.index as number));
-        }
-
-        if (parsed.length !== requests.length) {
-          console.warn(`Batch length mismatch: got ${parsed.length}, expected ${requests.length}. Filling via single fallbacks for missing.`);
-          const results: AIClassificationResponse[] = [];
-          for (let i = 0; i < requests.length; i++) {
-            const p = parsed[i];
-            if (p) {
-              const categoryId = (p.categoryId || p.category || 'uncategorized') as string;
-              const subcategoryId = (p.subcategoryId || p.subcategory || null) as string | null;
-              const confidence = typeof p.confidence === 'number' ? p.confidence : 0.5;
-              const reasoning = (p.reasoning || 'AI classification') as string;
-              results.push({ categoryId, subcategoryId: subcategoryId || undefined, confidence, reasoning });
-            } else {
-              // Fallback classify for this item
-              try {
-                results.push(await this.classifyTransaction(requests[i]));
-              } catch {
-                results.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Missing batch item' });
-              }
+        if (parsed.every(p => typeof p?.index === 'number')) parsed.sort((a, b) => (a.index as number) - (b.index as number));
+        const results: AIClassificationResponse[] = [];
+        for (let i = 0; i < requests.length; i++) {
+          const p = parsed[i];
+          if (p) {
+            const categoryId = (p.categoryId || p.category || 'uncategorized') as string;
+            const subcategoryId = (p.subcategoryId || p.subcategory || null) as string | null;
+            const confidence = typeof p.confidence === 'number' ? p.confidence : 0.5;
+            const reasoning = (p.reasoning || 'AI classification') as string;
+            results.push(this.constrainToCatalog({ categoryId, subcategoryId, confidence, reasoning }, categories as any));
+          } else {
+            try {
+              results.push(await this.classifyTransaction(requests[i]));
+            } catch {
+              results.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Missing batch item' });
             }
           }
-          return results;
         }
+        return results;
       }
 
-      // Normalize 1:1 then constrain to catalog
+      // 1:1 normalization
       return parsed.map((p) => {
         const normalized = {
           categoryId: (p?.categoryId || p?.category || 'uncategorized') as string,
@@ -373,9 +423,24 @@ Rules:
         };
         return this.constrainToCatalog(normalized, categories as any);
       });
-    } catch (error) {
-      console.error('Error in batch classification:', error);
-      return requests.map(() => ({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Batch classification failed' }));
+    } catch (error: any) {
+      // Retry once on server errors, then fallback to singles for this chunk
+      const isServerError = /HTTP\s*5\d\d/i.test(String(error?.message || ''));
+      if (isServerError && attempt < 3) {
+        const backoffMs = attempt * 300 + Math.floor(Math.random() * 200);
+        await new Promise((r) => setTimeout(r, backoffMs));
+        return this.classifyTransactionsBatchChunk(requests, attempt + 1);
+      }
+      console.error('Error in batch classification chunk:', error);
+      const singles: AIClassificationResponse[] = [];
+      for (const r of requests) {
+        try {
+          singles.push(await this.classifyTransaction(r));
+        } catch {
+          singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Batch chunk failed' });
+        }
+      }
+      return singles;
     }
   }
 
@@ -392,7 +457,7 @@ Rules:
         temperature: 0
       };
 
-      const response = await this.callOpenAIProxy(proxyRequest);
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 2, baseBackoffMs: 250 });
       
       if (!response.success || !response.data) {
         console.error('Connection test failed:', response.error);
@@ -422,7 +487,7 @@ Rules:
       temperature: options?.temperature || 0.1
     };
 
-    const response = await this.callOpenAIProxy(proxyRequest);
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 2, baseBackoffMs: 300 });
     
     if (!response.success || !response.data) {
       throw new Error(response.error || 'No response from OpenAI proxy');
@@ -497,7 +562,7 @@ ${JSON.stringify(transactionData, null, 2)}`;
         temperature: 0.2
       };
 
-      const response = await this.callOpenAIProxy(proxyRequest);
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
       
       if (!response.success || !response.data) {
         console.error('Anomaly detection proxy call failed:', response.error);
@@ -582,7 +647,7 @@ ${JSON.stringify(transactionData, null, 2)}`;
         temperature: 0.1
       };
 
-      const response = await this.callOpenAIProxy(proxyRequest);
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
       
       if (!response.success || !response.data) {
         throw new Error(response.error || 'No response from OpenAI proxy');
@@ -713,7 +778,7 @@ Extract the account information following the security guidelines.`;
         temperature: 0.1
       };
 
-      const response = await this.callOpenAIProxy(proxyRequest);
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 350 });
 
       if (!response.success || !response.data) {
         throw new Error(response.error || 'No response from OpenAI proxy');
