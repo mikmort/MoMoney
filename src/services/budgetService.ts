@@ -140,12 +140,18 @@ class BudgetService {
     const { startDate, endDate } = this.getBudgetPeriodDates(budget);
     
     // Filter transactions for this category and period
-    const categoryTransactions = transactions.filter(t => 
-      t.category === budget.categoryId &&
-      t.type === 'expense' &&
-      t.date >= startDate &&
-      t.date <= endDate
-    );
+    // Match by category name rather than ID since transactions store category names
+    const categoryTransactions = transactions.filter(t => {
+      // Handle both direct category name match and subcategory format (e.g., "Food & Dining → Groceries")
+      const transactionCategory = t.category;
+      const isMainCategory = transactionCategory === categoryName;
+      const isSubcategory = transactionCategory && transactionCategory.startsWith(categoryName + ' →');
+      
+      return (isMainCategory || isSubcategory) &&
+             t.type === 'expense' &&
+             t.date >= startDate &&
+             t.date <= endDate;
+    });
 
     const actualSpent = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const percentage = (actualSpent / budget.amount) * 100;

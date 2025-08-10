@@ -207,6 +207,14 @@ const Budgets: React.FC = () => {
       headerName: 'Budget Name',
       flex: 2,
       minWidth: 200,
+      cellRenderer: (params: any) => (
+        <span 
+          onClick={() => handleEditBudget(params.data)}
+          style={{ cursor: 'pointer', color: '#1976d2', textDecoration: 'underline' }}
+        >
+          {params.value}
+        </span>
+      ),
     },
     {
       field: 'categoryName',
@@ -245,10 +253,14 @@ const Budgets: React.FC = () => {
       flex: 1,
       minWidth: 100,
       cellRenderer: (params: any) => {
-        return params.value ? (
-          <Badge variant="success">Active</Badge>
-        ) : (
-          <Badge variant="error">Inactive</Badge>
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {params.value ? (
+              <span title="Active Budget">✅</span>
+            ) : (
+              <span title="Inactive Budget">❌</span>
+            )}
+          </div>
         );
       },
     },
@@ -264,7 +276,7 @@ const Budgets: React.FC = () => {
       flex: 1,
       minWidth: 150,
       cellRenderer: (params: any) => (
-        <FlexBox gap="8px">
+        <FlexBox gap="8px" style={{ justifyContent: 'center', alignItems: 'center' }}>
           <Button 
             variant="outline" 
             onClick={() => handleEditBudget(params.data)}
@@ -373,15 +385,12 @@ const Budgets: React.FC = () => {
     <div>
       <PageHeader>
         <h1>🎯 Budgets</h1>
-        <Button onClick={handleCreateBudget}>
-          Create Budget
-        </Button>
       </PageHeader>
 
       {/* Budget Progress Overview */}
       {budgetProgress.length > 0 && (
         <Card>
-          <h3>Budget Progress</h3>
+          <h3>Budget Progress - {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
           <BudgetProgressGrid>
             {budgetProgress.map((progress) => (
               <BudgetProgressCard key={progress.budgetId}>
@@ -418,7 +427,9 @@ const Budgets: React.FC = () => {
       {/* Budget Management Table */}
       <Card>
         <div className="budget-header">
-          <h3>All Budgets</h3>
+          <Button onClick={handleCreateBudget}>
+            Create Budget
+          </Button>
         </div>
         <BudgetsContainer>
           <div className="ag-theme-alpine">
@@ -508,13 +519,13 @@ const Budgets: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
                   type="checkbox"
                   checked={budgetForm.isActive}
                   onChange={(e) => setBudgetForm({...budgetForm, isActive: e.target.checked})}
                 />
-                {' '}Active Budget
+                Active Budget
               </label>
               <div className="help-text">Only active budgets are tracked and show alerts</div>
             </div>
