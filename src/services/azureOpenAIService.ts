@@ -884,18 +884,19 @@ Extract the account information following the security guidelines.`;
   }
 
   private validateMaskedAccountNumber(value: any): string | undefined {
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      // Validate it follows the "Ending in XXX" pattern and only contains last 3 digits
-      if (/^Ending in \d{3}$/.test(trimmed)) {
-        return trimmed;
-      }
-      // If it's a longer string that might contain account info, reject it for security
-      if (trimmed.length > 20 || /\d{4,}/.test(trimmed)) {
-        console.warn('Rejected potentially unsafe masked account number format:', trimmed);
-        return undefined;
-      }
+    if (value === null || value === undefined) return undefined;
+
+    // Normalize any provided value into a string and extract digits only
+    const digitsOnly = String(value).match(/\d/g)?.join('') || '';
+
+    // Require at least 3 digits to form a safe mask; otherwise skip
+    if (digitsOnly.length >= 3) {
+      const last3 = digitsOnly.slice(-3);
+      // Always return canonical “Ending in XXX” with only last 3 digits
+      return `Ending in ${last3}`;
     }
+
+    // No sufficient digits to safely represent; omit instead of logging raw input
     return undefined;
   }
 }
