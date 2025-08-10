@@ -8,6 +8,7 @@ import { Account, AccountStatementAnalysisResponse } from '../../types';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { accountManagementService } from '../../services/accountManagementService';
+import BalanceHistoryModal from '../Accounts/BalanceHistoryModal';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -177,6 +178,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const [analysisResult, setAnalysisResult] = useState<AccountStatementAnalysisResponse | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // Balance history modal
+  const [showBalanceHistoryModal, setShowBalanceHistoryModal] = useState(false);
+  const [selectedAccountForHistory, setSelectedAccountForHistory] = useState<Account | null>(null);
 
   const sanitizeReasoning = (reason?: string): string => {
     if (!reason) return '';
@@ -376,6 +381,17 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     navigate(`/transactions?account=${encodeURIComponent(accountName)}`);
   };
 
+  const handleBalanceClick = (account: Account) => {
+    // Show balance history modal instead of navigating
+    setSelectedAccountForHistory(account);
+    setShowBalanceHistoryModal(true);
+  };
+
+  const handleCloseBalanceHistory = () => {
+    setShowBalanceHistoryModal(false);
+    setSelectedAccountForHistory(null);
+  };
+
   // React cell renderers
   const NameRenderer: React.FC<any> = (params) => {
     const isActive = params.data.isActive;
@@ -478,7 +494,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         style={style}
         onClick={(e) => {
           e.stopPropagation();
-          handleAccountClick(params.data.name);
+          handleBalanceClick(params.data);
         }}
         onMouseEnter={(e) => {
           (e.target as HTMLElement).style.textDecoration = 'underline';
@@ -486,7 +502,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         onMouseLeave={(e) => {
           (e.target as HTMLElement).style.textDecoration = 'none';
         }}
-        title={`Click to view transactions for ${params.data.name}`}
+        title={`Click to view balance history for ${params.data.name}`}
       >
         {formatted}
       </span>
@@ -1046,6 +1062,15 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             )}
           </EditModalContent>
         </EditModalOverlay>
+      )}
+      
+      {/* Balance History Modal */}
+      {showBalanceHistoryModal && selectedAccountForHistory && (
+        <BalanceHistoryModal
+          account={selectedAccountForHistory}
+          isOpen={showBalanceHistoryModal}
+          onClose={handleCloseBalanceHistory}
+        />
       )}
     </div>
   );
