@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, renderHook } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { ImportStateProvider, useImportState } from '../contexts/ImportStateContext';
@@ -224,23 +224,10 @@ describe('ImportStateContext', () => {
   });
 
   it('should throw error when used outside provider', () => {
-    // Suppress console.error for this test
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // Test the hook directly without a provider
+    const { result } = renderHook(() => useImportState());
     
-    // Create a component that uses the hook outside provider
-    const ComponentOutsideProvider = () => {
-      useImportState();
-      return <div>Should not render</div>;
-    };
-    
-    expect(() => {
-      render(
-        <BrowserRouter>
-          <ComponentOutsideProvider />
-        </BrowserRouter>
-      );
-    }).toThrow('useImportState must be used within an ImportStateProvider');
-    
-    consoleSpy.mockRestore();
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error.message).toBe('useImportState must be used within an ImportStateProvider');
   });
 });
