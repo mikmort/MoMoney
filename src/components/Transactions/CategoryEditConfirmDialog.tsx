@@ -1,5 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
+import { Modal } from '../shared/Modal';
+import { Button } from '../../styles/globalStyles';
 
 interface CategoryEditConfirmDialogProps {
   isOpen: boolean;
@@ -11,34 +13,6 @@ interface CategoryEditConfirmDialogProps {
   oldSubcategory?: string;
   newSubcategory?: string;
 }
-
-const Overlay = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-`;
-
-const Dialog = styled.div`
-  background: white;
-  border-radius: 8px;
-  padding: 24px;
-  width: 90%;
-  max-width: 500px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-`;
-
-const Title = styled.h3`
-  margin: 0 0 16px 0;
-  color: #333;
-  font-size: 1.2em;
-`;
 
 const Description = styled.div`
   margin-bottom: 20px;
@@ -126,21 +100,6 @@ const ButtonRow = styled.div`
   border-top: 1px solid #e9ecef;
 `;
 
-const CancelButton = styled.button`
-  padding: 8px 16px;
-  border: 1px solid #6c757d;
-  border-radius: 4px;
-  background: white;
-  color: #6c757d;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  
-  &:hover {
-    background: #6c757d;
-    color: white;
-  }
-`;
-
 export const CategoryEditConfirmDialog: React.FC<CategoryEditConfirmDialogProps> = ({
   isOpen,
   onClose,
@@ -151,8 +110,6 @@ export const CategoryEditConfirmDialog: React.FC<CategoryEditConfirmDialogProps>
   oldSubcategory,
   newSubcategory,
 }) => {
-  if (!isOpen) return null;
-
   const formatCategory = (category: string, subcategory?: string) => {
     return subcategory ? `${category} → ${subcategory}` : category;
   };
@@ -161,50 +118,56 @@ export const CategoryEditConfirmDialog: React.FC<CategoryEditConfirmDialogProps>
   const newCategoryText = formatCategory(newCategory, newSubcategory);
 
   return (
-    <Overlay onClick={onClose}>
-      <Dialog onClick={(e) => e.stopPropagation()}>
-        <Title>Apply Category Change</Title>
-        
-        <Description>
-          You've changed the category for this transaction. How would you like to apply this change?
-        </Description>
-        
-        <TransactionInfo>
-          <div className="transaction-desc">"{transactionDescription}"</div>
-          <div className="category-change">
-            <span className="old">{oldCategoryText}</span>
-            <span className="arrow">→</span>
-            <span className="new">{newCategoryText}</span>
+    <Modal 
+      isOpen={isOpen} 
+      onClose={onClose}
+      title="Apply Category Change"
+      maxWidth="500px"
+    >
+      <Description>
+        You've changed the category for this transaction. How would you like to apply this change?
+      </Description>
+      
+      <TransactionInfo>
+        <div className="transaction-desc">"{transactionDescription}"</div>
+        <div className="category-change">
+          <span className="old">{oldCategoryText}</span>
+          <span className="arrow">→</span>
+          <span className="new">{newCategoryText}</span>
+        </div>
+      </TransactionInfo>
+      
+      <Options>
+        <OptionButton onClick={() => onConfirm('current')}>
+          <div className="option-title">This transaction only</div>
+          <div className="option-description">
+            Change just this transaction. Future similar transactions won't be affected.
           </div>
-        </TransactionInfo>
+        </OptionButton>
         
-        <Options>
-          <OptionButton onClick={() => onConfirm('current')}>
-            <div className="option-title">This transaction only</div>
-            <div className="option-description">
-              Change just this transaction. Future similar transactions won't be affected.
-            </div>
-          </OptionButton>
-          
-          <OptionButton onClick={() => onConfirm('future')}>
-            <div className="option-title">Future transactions</div>
-            <div className="option-description">
-              Change this transaction and automatically categorize future transactions with the same description and account.
-            </div>
-          </OptionButton>
-          
-          <OptionButton onClick={() => onConfirm('all')}>
-            <div className="option-title">All existing and future transactions</div>
-            <div className="option-description">
-              Change this transaction, update existing transactions with the same description and account, and automatically categorize future ones.
-            </div>
-          </OptionButton>
-        </Options>
+        <OptionButton onClick={() => onConfirm('future')}>
+          <div className="option-title">Future transactions</div>
+          <div className="option-description">
+            Change this transaction and automatically categorize future transactions with the same description and account.
+          </div>
+        </OptionButton>
         
-        <ButtonRow>
-          <CancelButton onClick={onClose}>Cancel</CancelButton>
-        </ButtonRow>
-      </Dialog>
-    </Overlay>
+        <OptionButton onClick={() => onConfirm('all')}>
+          <div className="option-title">All existing and future transactions</div>
+          <div className="option-description">
+            Change this transaction, update existing transactions with the same description and account, and automatically categorize future ones.
+          </div>
+        </OptionButton>
+      </Options>
+      
+      <ButtonRow>
+        <Button 
+          variant="secondary" 
+          onClick={onClose}
+        >
+          Cancel
+        </Button>
+      </ButtonRow>
+    </Modal>
   );
 };

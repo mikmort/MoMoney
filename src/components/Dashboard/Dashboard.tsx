@@ -2,28 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { Bar, Doughnut } from 'react-chartjs-2';
-import 'chartjs-adapter-date-fns';
 import { Card, PageHeader, Grid, Badge } from '../../styles/globalStyles';
 import { DashboardStats, Transaction } from '../../types';
 import { dashboardService } from '../../services/dashboardService';
-import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { accountManagementService } from '../../services/accountManagementService';
-import { commonBarChartOptions, commonDoughnutOptions } from '../../utils/chartConfig';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { StatsCard } from '../shared/StatsCard';
-
-const ChartCard = styled(Card)`
-  height: 400px;
-  
-  .chart-container {
-    height: 320px;
-    position: relative;
-  }
-  
-  h3 {
-    margin-bottom: 20px;
-    color: #333;
-  }
-`;
+import { ChartCard } from '../shared/ChartCard';
+import { useLoadingState } from '../../hooks/useLoadingState';
+import { useCurrencyDisplay } from '../../hooks/useCurrencyDisplay';
+import { useChartSetup } from '../../hooks/useChartSetup';
 
 const RecentTransactions = styled(Card)`
   .transaction-item {
@@ -173,10 +161,8 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
   const [hasAccounts, setHasAccounts] = useState(false);
   const [hasTransactions, setHasTransactions] = useState(false);
-  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
   const [formattedStats, setFormattedStats] = useState<{
     totalIncome: string;
     totalExpenses: string;
@@ -187,55 +173,49 @@ const Dashboard: React.FC = () => {
     netIncome: '$0.00'
   });
 
+  // Use our new hooks to reduce duplication
+  const { isLoading, execute } = useLoadingState();
+  const { defaultCurrency, formatAmount } = useCurrencyDisplay();
+  const { barChartOptions, doughnutOptions } = useChartSetup();
+
   useEffect(() => {
     const loadDashboardData = async () => {
-      setLoading(true);
-      try {
-        // Check if accounts exist
-        const accounts = accountManagementService.getAccounts();
-        const accountsExist = accounts.length > 0;
-        setHasAccounts(accountsExist);
-        
-        // Initialize currency display service and get default currency
-        await currencyDisplayService.initialize();
-        const currency = await currencyDisplayService.getDefaultCurrency();
-        setDefaultCurrency(currency);
-        
-        const [stats, recent] = await Promise.all([
-          dashboardService.getDashboardStats(),
-          dashboardService.getRecentTransactions(5)
+      // Check if accounts exist
+      const accounts = accountManagementService.getAccounts();
+      const accountsExist = accounts.length > 0;
+      setHasAccounts(accountsExist);
+      
+      const [stats, recent] = await Promise.all([
+        dashboardService.getDashboardStats(),
+        dashboardService.getRecentTransactions(5)
+      ]);
+      
+      // Check if transactions exist
+      const transactionsExist = stats.transactionCount > 0;
+      setHasTransactions(transactionsExist);
+      
+      // Format the main stats using our currency hook
+      if (stats) {
+        const [totalIncomeFormatted, totalExpensesFormatted, netIncomeFormatted] = await Promise.all([
+          formatAmount(stats.totalIncome),
+          formatAmount(stats.totalExpenses),
+          formatAmount(stats.netIncome)
         ]);
         
-        // Check if transactions exist
-        const transactionsExist = stats.transactionCount > 0;
-        setHasTransactions(transactionsExist);
-        
-        // Format the main stats
-        if (stats) {
-          const [totalIncomeFormatted, totalExpensesFormatted, netIncomeFormatted] = await Promise.all([
-            currencyDisplayService.formatAmount(stats.totalIncome, currency),
-            currencyDisplayService.formatAmount(stats.totalExpenses, currency),
-            currencyDisplayService.formatAmount(stats.netIncome, currency)
-          ]);
-          
-          setFormattedStats({
-            totalIncome: totalIncomeFormatted,
-            totalExpenses: totalExpensesFormatted,
-            netIncome: netIncomeFormatted
-          });
-        }
-        
-        setStats(stats);
-        setRecentTransactions(recent);
-      } catch (error) {
-        console.error('Failed to load dashboard data:', error);
-      } finally {
-        setLoading(false);
+        setFormattedStats({
+          totalIncome: totalIncomeFormatted,
+          totalExpenses: totalExpensesFormatted,
+          netIncome: netIncomeFormatted
+        });
       }
+      
+      setStats(stats);
+      setRecentTransactions(recent);
     };
 
-    loadDashboardData();
-  }, []);
+    // Use the loading state hook
+    execute(loadDashboardData);
+  }, [execute, formatAmount]);
 
   const categoryChartData = {
     labels: stats?.topCategories.map((cat) => cat.categoryName) || [],
@@ -275,7 +255,7 @@ const Dashboard: React.FC = () => {
     ]
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div>
         <PageHeader>
@@ -380,7 +360,7 @@ const Dashboard: React.FC = () => {
             {stats && stats.topCategories.length > 0 ? (
               <Doughnut 
                 data={categoryChartData}
-                options={commonDoughnutOptions}
+                options={doughnutOptions}
               />
             ) : (
               <div style={{ 
@@ -404,7 +384,7 @@ const Dashboard: React.FC = () => {
               <Bar 
                 data={trendChartData}
                 options={{
-                  ...commonBarChartOptions,
+                  ...barChartOptions,
                   plugins: {
                     legend: {
                       position: 'top',

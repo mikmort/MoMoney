@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { Bar, Doughnut } from 'react-chartjs-2';
-import 'chartjs-adapter-date-fns';
 import { PageHeader, Card, Grid, Badge } from '../../styles/globalStyles';
 import { 
   reportsService, 
@@ -13,8 +12,11 @@ import {
   DateRange 
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
+import { ChartCard } from '../shared/ChartCard';
 import CategoryDrilldownModal from './CategoryDrilldownModal';
-import { currencyDisplayService } from '../../services/currencyDisplayService';
+import { useLoadingState } from '../../hooks/useLoadingState';
+import { useCurrencyDisplay } from '../../hooks/useCurrencyDisplay';
+import { useChartSetup } from '../../hooks/useChartSetup';
 
 const ReportsContainer = styled.div`
   .date-range-selector {
@@ -36,20 +38,6 @@ const ReportsContainer = styled.div`
       gap: 10px;
       align-items: center;
     }
-  }
-`;
-
-const ChartCard = styled(Card)`
-  height: 400px;
-  
-  .chart-container {
-    height: 320px;
-    position: relative;
-  }
-  
-  h3 {
-    margin-bottom: 20px;
-    color: #333;
   }
 `;
 
@@ -206,7 +194,6 @@ const BurnRateCard = styled(Card)`
 type DateRangeType = 'all' | 'current-month' | 'last-3-months' | 'last-12-months' | 'custom';
 
 const Reports: React.FC = () => {
-  const [loading, setLoading] = useState(true);
   const [dateRangeType, setDateRangeType] = useState<DateRangeType>('last-12-months');
   const [customDateRange, setCustomDateRange] = useState<DateRange | null>(null);
   const [spendingByCategory, setSpendingByCategory] = useState<SpendingByCategory[]>([]);
@@ -215,6 +202,11 @@ const Reports: React.FC = () => {
   const [spendingInsights, setSpendingInsights] = useState<SpendingInsights | null>(null);
   const [burnRateAnalysis, setBurnRateAnalysis] = useState<BurnRateAnalysis | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Use our new hooks to reduce duplication
+  const { isLoading, execute } = useLoadingState();
+  const { defaultCurrency } = useCurrencyDisplay();
+  const { barChartOptions, doughnutOptions } = useChartSetup();
 
   const getCurrentDateRange = useCallback((): DateRange | undefined => {
     switch (dateRangeType) {
@@ -235,39 +227,27 @@ const Reports: React.FC = () => {
 
   useEffect(() => {
     const loadReportsData = async () => {
-      setLoading(true);
-      try {
-        const dateRange = getCurrentDateRange();
-        
-        const [categoryData, trendsData, analysisData, insightsData, burnRateData] = await Promise.all([
-          reportsService.getSpendingByCategory(dateRange),
-          reportsService.getMonthlySpendingTrends(dateRange),
-          reportsService.getIncomeExpenseAnalysis(dateRange),
-          reportsService.getSpendingInsights(dateRange),
-          reportsService.getBurnRateAnalysis(dateRange)
-        ]);
-        
-        setSpendingByCategory(categoryData);
-        setMonthlyTrends(trendsData);
-        setIncomeExpenseAnalysis(analysisData);
-        setSpendingInsights(insightsData);
-        setBurnRateAnalysis(burnRateData);
-      } catch (error) {
-        console.error('Failed to load reports data:', error);
-      } finally {
-        setLoading(false);
-      }
+      const dateRange = getCurrentDateRange();
+      
+      const [categoryData, trendsData, analysisData, insightsData, burnRateData] = await Promise.all([
+        reportsService.getSpendingByCategory(dateRange),
+        reportsService.getMonthlySpendingTrends(dateRange),
+        reportsService.getIncomeExpenseAnalysis(dateRange),
+        reportsService.getSpendingInsights(dateRange),
+        reportsService.getBurnRateAnalysis(dateRange)
+      ]);
+      
+      setSpendingByCategory(categoryData);
+      setMonthlyTrends(trendsData);
+      setIncomeExpenseAnalysis(analysisData);
+      setSpendingInsights(insightsData);
+      setBurnRateAnalysis(burnRateData);
     };
 
-    loadReportsData();
-  }, [dateRangeType, customDateRange, getCurrentDateRange]);
+    // Use the loading state hook
+    execute(loadReportsData);
+  }, [dateRangeType, customDateRange, getCurrentDateRange, execute]);
 
-  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
-  useEffect(() => {
-    (async () => {
-      setDefaultCurrency(await currencyDisplayService.getDefaultCurrency());
-    })();
-  }, []);
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -352,7 +332,7 @@ const Reports: React.FC = () => {
     ]
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <ReportsContainer>
         <PageHeader>
@@ -484,12 +464,9 @@ const Reports: React.FC = () => {
               <Doughnut 
                 data={categoryChartData}
                 options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
+                  ...doughnutOptions,
                   plugins: {
-                    legend: {
-                      position: 'bottom',
-                    },
+                    ...doughnutOptions.plugins,
                     tooltip: {
                       callbacks: {
                         label: function(context) {
@@ -526,16 +503,17 @@ const Reports: React.FC = () => {
               <Bar 
                 data={trendsChartData}
                 options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
+                  ...barChartOptions,
                   plugins: {
+                    ...barChartOptions.plugins,
                     legend: {
                       position: 'top',
                     },
                   },
                   scales: {
+                    ...barChartOptions.scales,
                     y: {
-                      beginAtZero: true,
+                      ...barChartOptions.scales.y,
                       ticks: {
                         callback: function(value) {
                           return formatCurrency(Number(value));
@@ -570,9 +548,9 @@ const Reports: React.FC = () => {
               <Bar 
                 data={netIncomeChartData}
                 options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
+                  ...barChartOptions,
                   plugins: {
+                    ...barChartOptions.plugins,
                     legend: {
                       display: false,
                     },
@@ -587,7 +565,9 @@ const Reports: React.FC = () => {
                     }
                   },
                   scales: {
+                    ...barChartOptions.scales,
                     y: {
+                      ...barChartOptions.scales.y,
                       ticks: {
                         callback: function(value) {
                           return formatCurrency(Number(value));
