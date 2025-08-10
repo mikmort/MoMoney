@@ -20,7 +20,6 @@ class DataService {
 
   private async initialize(): Promise<void> {
     if (this.isInitialized) return;
-<<<<<<< Updated upstream
     
     try {
       // Initialize IndexedDB and handle migration
@@ -32,55 +31,6 @@ class DataService {
       // Initialize with sample data if empty (skip in test environment)
       if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
         this.initializeSampleData();
-=======
-    // Coalesce concurrent calls into a single in-flight promise
-    if (this.initializingPromise) {
-      await this.initializingPromise;
-      return;
-    }
-
-    this.initializingPromise = (async () => {
-      try {
-        // Initialize IndexedDB and handle migration
-        await initializeDB();
-
-        // Load data from IndexedDB
-        await this.loadFromDB();
-
-        // One-time dedup migration: clean up any exact duplicates persisted previously
-        // Runs only once per browser profile, guarded by a localStorage flag
-        try {
-          const MIGRATION_FLAG = 'mo-money-dedup-migration-2025-08-10';
-          const alreadyRan = typeof window !== 'undefined' && window.localStorage?.getItem(MIGRATION_FLAG) === 'true';
-          if (!alreadyRan && this.transactions.length > 0) {
-            const removed = await this.dedupeExistingTransactions();
-            if (typeof window !== 'undefined' && window.localStorage) {
-              window.localStorage.setItem(MIGRATION_FLAG, 'true');
-            }
-            if (removed > 0) {
-              console.warn(`One-time dedup migration removed ${removed} duplicate transaction(s) from IndexedDB`);
-            } else {
-              console.log('One-time dedup migration found no duplicates');
-            }
-          }
-        } catch (e) {
-          console.error('One-time dedup migration failed:', e);
-          // Continue app startup even if migration fails
-        }
-
-        // Initialize with sample data if empty (skip in test environment)
-        if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
-          await this.initializeSampleData();
-        }
-      } catch (error) {
-        console.error('Failed to initialize DataService:', error);
-        // Fallback to empty state
-        this.transactions = [];
-        this.history = {};
-      } finally {
-        this.isInitialized = true;
-        this.initializingPromise = null;
->>>>>>> Stashed changes
       }
       
       this.isInitialized = true;
@@ -304,6 +254,22 @@ class DataService {
   async addTransactions(transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<Transaction[]> {
     await this.ensureInitialized();
     console.log(`DataService: Adding ${transactions.length} transactions`);
+    // Lightweight deduplication: skip any incoming transaction that exactly matches
+    // an existing one by date, amount, description, account, and type.
+    if (this.transactions.length > 0 && transactions.length > 0) {
+      const existingKeys = new Set(
+        this.transactions.map(t => `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`)
+      );
+      const before = transactions.length;
+      transactions = transactions.filter(t => {
+        const key = `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`;
+        return !existingKeys.has(key);
+      });
+      const skipped = before - transactions.length;
+      if (skipped > 0) {
+        console.log(`DataService: Skipped ${skipped} duplicate transaction(s) during bulk add`);
+      }
+    }
     const now = new Date();
     const newTransactions = transactions.map(transaction => ({
       ...transaction,
@@ -802,7 +768,7 @@ class DataService {
 
   async findExistingDuplicates(config?: DuplicateDetectionConfig): Promise<DuplicateTransaction[]> {
     await this.ensureInitialized();
-    
+
     // Default configuration for duplicate detection
     const defaultConfig: DuplicateDetectionConfig = {
       amountTolerance: 0.02, // 2% tolerance
@@ -818,20 +784,13 @@ class DataService {
 
     for (let i = 0; i < this.transactions.length; i++) {
       const transaction = this.transactions[i];
-      
-      if (processedIds.has(transaction.id)) {
-        continue;
-      }
+      if (processedIds.has(transaction.id)) continue;
 
       for (let j = i + 1; j < this.transactions.length; j++) {
         const otherTransaction = this.transactions[j];
-        
-        if (processedIds.has(otherTransaction.id)) {
-          continue;
-        }
+        if (processedIds.has(otherTransaction.id)) continue;
 
         const matchInfo = this.calculateTransactionSimilarity(transaction, otherTransaction, finalConfig);
-        
         if (matchInfo.similarity >= 0.8) { // 80% similarity threshold for duplicates
           duplicates.push({
             existingTransaction: transaction,
@@ -842,7 +801,7 @@ class DataService {
             daysDifference: matchInfo.daysDifference,
             matchType: matchInfo.matchType
           });
-          
+
           // Mark the "newer" transaction (otherTransaction) as processed so it's not compared again
           processedIds.add(otherTransaction.id);
         }

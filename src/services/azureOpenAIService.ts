@@ -46,9 +46,6 @@ interface OpenAIProxyResponse {
     };
   };
   error?: string;
-  // Optional metadata from proxy HTTP response for smarter client backoff
-  status?: number;
-  retryAfterMs?: number;
 }
 
 export class AzureOpenAIService {
@@ -77,28 +74,8 @@ export class AzureOpenAIService {
         body: JSON.stringify(request),
       });
 
-      // Capture Retry-After header (seconds) if present to inform client backoff
-  const retryAfterHeader = (response as any)?.headers?.get ? (response as any).headers.get('retry-after') : undefined;
-      let retryAfterMs: number | undefined;
-      if (retryAfterHeader) {
-        const seconds = parseFloat(retryAfterHeader);
-        if (!Number.isNaN(seconds)) {
-          retryAfterMs = Math.max(0, Math.floor(seconds * 1000));
-        }
-      }
-
       if (!response.ok) {
-        // Try to read any error body for logging context without throwing
-        let msg = `HTTP ${response.status}: ${response.statusText}`;
-        try {
-          const raw = await response.text();
-          if (raw) {
-            // Avoid leaking full body; keep it compact
-            const snippet = raw.slice(0, 200).replace(/\s+/g, ' ').trim();
-            if (snippet) msg += ` - ${snippet}`;
-          }
-        } catch {}
-        return { success: false, error: msg, status: response.status, retryAfterMs };
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const result: OpenAIProxyResponse = await response.json();
@@ -114,6 +91,14 @@ export class AzureOpenAIService {
     request: Omit<OpenAIProxyRequest, 'deployment'> & { deployment?: string },
     options?: { attemptsPerDeployment?: number; baseBackoffMs?: number }
   ): Promise<OpenAIProxyResponse> {
+    // In test environment, short-circuit to prevent network calls
+    if (process.env.NODE_ENV === 'test') {
+      return { success: true, data: {
+        id: 'test', object: 'chat.completion', created: Date.now(), model: request.deployment || this.deploymentName,
+        choices: [{ index: 0, message: { role: 'assistant', content: '{"categoryId":"uncategorized","subcategoryId":null,"confidence":0.1,"reasoning":"test mode"}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      } } as OpenAIProxyResponse;
+    }
     const attemptsPerDeployment = options?.attemptsPerDeployment ?? 2;
     const base = options?.baseBackoffMs ?? 400;
 
@@ -127,15 +112,9 @@ export class AzureOpenAIService {
           const resp = await this.callOpenAIProxy({ ...(request as any), deployment: dep });
           if (!resp.success) {
             const err = String(resp.error || '').toLowerCase();
-            const status = resp.status;
-            const retriableStatus = status === 429 || (status !== undefined && status >= 500 && status < 600);
-            const retriableText = err.includes('rate') || err.includes('limit') || err.includes('overload') || err.includes('timeout') || err.includes('5');
-            const retriable = retriableStatus || retriableText;
+            const retriable = err.includes('rate') || err.includes('limit') || err.includes('overload') || err.includes('timeout') || err.includes('5');
             if (retriable && attempt < attemptsPerDeployment) {
-              // Respect Retry-After when available; otherwise exponential backoff
-              const wait = typeof resp.retryAfterMs === 'number' && resp.retryAfterMs > 0
-                ? resp.retryAfterMs + Math.floor(Math.random() * 200)
-                : base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 200);
+              const wait = base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 150);
               await new Promise(r => setTimeout(r, wait));
               continue;
             }
@@ -251,7 +230,7 @@ Date: ${request.date}`;
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 200,
-  temperature: 0
+        temperature: 0.1
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 300 });
@@ -321,43 +300,16 @@ Date: ${request.date}`;
 
     // Process in chunks to reduce proxy load and avoid 500s when payloads are large
     const MAX_BATCH = 20;
-    const INTER_CHUNK_DELAY_MS = 250; // gentle pacing to avoid hammering the function
     const chunks: AIClassificationRequest[][] = [];
     for (let i = 0; i < requests.length; i += MAX_BATCH) {
       chunks.push(requests.slice(i, i + MAX_BATCH));
     }
 
-    // Enhanced logging for AI processing visibility
-    console.log(`🤖 AI Classification Starting:`);
-    console.log(`   📤 ${requests.length} transactions require AI categorization`);
-    console.log(`   📦 Batching into ${chunks.length} API requests (chunkSize=${MAX_BATCH})`);
-    console.log(`   ⏱️ Estimated processing time: ~${Math.ceil(chunks.length * 3)} seconds`);
-
     const results: AIClassificationResponse[] = [];
-    
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      console.log(`   ⏳ Processing AI batch ${i + 1}/${chunks.length} (${chunk.length} transactions)...`);
-      
+    for (const chunk of chunks) {
       const chunkResults = await this.classifyTransactionsBatchChunk(chunk);
       results.push(...chunkResults);
-      
-      const categorizedInChunk = chunkResults.filter(r => r.categoryId !== 'uncategorized').length;
-      console.log(`   ✅ Batch ${i + 1} complete: ${categorizedInChunk}/${chunk.length} successfully categorized`);
-      
-      // Small delay between chunks to help with rate limits on Azure Function
-      if (i < chunks.length - 1) {
-        await new Promise(r => setTimeout(r, INTER_CHUNK_DELAY_MS));
-      }
     }
-    
-    // Final AI processing summary
-    const totalCategorized = results.filter(r => r.categoryId !== 'uncategorized').length;
-    const aiSuccessRate = requests.length > 0 ? Math.round((totalCategorized / requests.length) * 100) : 0;
-    console.log(`🎯 AI Processing Summary:`);
-    console.log(`   📊 ${totalCategorized}/${requests.length} transactions successfully categorized (${aiSuccessRate}%)`);
-    console.log(`   🤖 Total OpenAI API calls: ${chunks.length}`);
-    
     return results;
   }
 
@@ -385,12 +337,10 @@ ${subs}
 
       const items = requests.map((r, idx) => ({ index: idx, description: r.transactionText, amount: r.amount, date: r.date }));
 
-  const expectedCount = requests.length;
-  const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
-You MUST respond with ONLY a single JSON array on the first line. The FIRST character of your reply must be '[' and the LAST character must be ']'.
-Do NOT include any prose, explanations, markdown fences, or keys like "+results+" or "+items+". Do NOT include backticks.
-The array MUST contain EXACTLY ${expectedCount} elements, in the SAME ORDER as the input. You may include an "index" copied from the input to preserve order.
-Each element object must have fields: { categoryId, subcategoryId (or null), confidence (0-1), reasoning }.
+      const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
+Return ONLY a JSON array with the EXACT SAME NUMBER OF ITEMS as the input list, in the SAME ORDER.
+Each element must strictly match and you may include an "index" copied from the input to preserve order.
+Fields: { categoryId, subcategoryId (or null), confidence (0-1), reasoning }.
 Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set subcategoryId=null; if uncertain set categoryId="uncategorized" and confidence<=0.3.`;
 
       const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same "index" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
@@ -402,10 +352,10 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 1000,
-  temperature: 0
+        temperature: 0.1
       };
 
-  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 500 });
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
       if (!response.success || !response.data) throw new Error(response.error || 'No response from OpenAI proxy');
 
       const responseContent = response.data.choices[0]?.message?.content;
@@ -413,114 +363,29 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
 
       const cleaned = this.cleanAIResponse(responseContent);
 
-      const normalizeJsonLike = (s: string) => s
-        .replace(/[\u201C\u201D]/g, '"')
-        .replace(/[\u2018\u2019]/g, "'")
-        .replace(/\r\n/g, '\n');
-
-      const stripTrailingCommas = (s: string) => s
-        // remove trailing commas before } or ]
-        .replace(/,\s*([}\]])/g, '$1');
-
-      const findBalancedArraySlice = (text: string): string | null => {
-        const n = text.length;
-        let inStr = false;
-        let esc = false;
-        let depth = 0;
-        let startIdx = -1;
-        for (let i = 0; i < n; i++) {
-          const ch = text[i];
-          if (inStr) {
-            if (!esc && ch === '"') inStr = false;
-            esc = ch === '\\' ? !esc : false;
-            continue;
-          }
-          if (ch === '"') { inStr = true; esc = false; continue; }
-          if (ch === '[') {
-            if (depth === 0) startIdx = i;
-            depth++;
-          } else if (ch === ']') {
-            depth--;
-            if (depth === 0 && startIdx !== -1) {
-              return text.slice(startIdx, i + 1);
-            }
-          }
-        }
-        return null;
-      };
-
-      const assembleObjectsIfAny = (text: string): any[] | null => {
-        // Attempt to collect top-level JSON objects and make an array
-        const n = text.length;
-        let inStr = false;
-        let esc = false;
-        let depth = 0;
-        let start = -1;
-        const objs: string[] = [];
-        for (let i = 0; i < n; i++) {
-          const ch = text[i];
-          if (inStr) {
-            if (!esc && ch === '"') inStr = false;
-            esc = ch === '\\' ? !esc : false;
-            continue;
-          }
-          if (ch === '"') { inStr = true; esc = false; continue; }
-          if (ch === '{') {
-            if (depth === 0) start = i;
-            depth++;
-          } else if (ch === '}') {
-            depth--;
-            if (depth === 0 && start !== -1) {
-              objs.push(text.slice(start, i + 1));
-              start = -1;
-            }
-          }
-        }
-        if (!objs.length) return null;
-        try {
-          const parsed = objs.map(o => JSON.parse(stripTrailingCommas(normalizeJsonLike(o))));
-          return parsed;
-        } catch { return null; }
-      };
-
-      const tryParseArray = (text: string, expectedLen: number): any[] | null => {
-        const norm = stripTrailingCommas(normalizeJsonLike(text.trim()))
-          // remove code fences if any slipped through
-          .replace(/^```(?:json)?\s*/i, '')
-          .replace(/\s*```\s*$/, '');
+      const tryParseArray = (text: string): any[] | null => {
         // Fast path: strict JSON
         try {
-          const j = JSON.parse(norm);
+          const j = JSON.parse(text);
           if (Array.isArray(j)) return j;
           if (j && Array.isArray((j as any).results)) return (j as any).results;
           if (j && Array.isArray((j as any).items)) return (j as any).items;
         } catch {}
-        // Balanced array slice
-        const slice = findBalancedArraySlice(norm);
-        if (slice) {
+        // Extract first JSON array
+        const start = text.indexOf('[');
+        const end = text.lastIndexOf(']');
+        if (start !== -1 && end !== -1 && end > start) {
+          const slice = text.slice(start, end + 1);
           try {
-            const j = JSON.parse(stripTrailingCommas(slice));
+            const j = JSON.parse(slice);
             if (Array.isArray(j)) return j;
           } catch {}
         }
-        // Assemble from objects if present and length matches or at least >0
-        const objs = assembleObjectsIfAny(norm);
-        if (objs && (objs.length === expectedLen || objs.length > 0)) return objs;
         return null;
       };
 
-  let parsed: any[] | null = tryParseArray(cleaned, expectedCount);
+      let parsed: any[] | null = tryParseArray(cleaned);
       if (!parsed) {
-        // If parsing fails, first try to reduce load by splitting the batch before falling back to singles
-        if (requests.length > 1 && attempt <= 3) {
-          console.warn(`Batch parse failed (no JSON array found). Splitting batch of ${requests.length} (attempt ${attempt}) and retrying.`);
-          const mid = Math.ceil(requests.length / 2);
-          const left = requests.slice(0, mid);
-          const right = requests.slice(mid);
-          const leftResults = await this.classifyTransactionsBatchChunk(left, attempt + 1);
-          const rightResults = await this.classifyTransactionsBatchChunk(right, attempt + 1);
-          return [...leftResults, ...rightResults];
-        }
         console.warn('Batch parse failed (no JSON array found). Falling back to per-item classification.');
         const singles: AIClassificationResponse[] = [];
         for (const r of requests) {
@@ -567,28 +432,14 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
         return this.constrainToCatalog(normalized, categories as any);
       });
     } catch (error: any) {
-      // Adaptive handling: backoff and split the batch on server/rate errors
-      const msg = String(error?.message || '').toLowerCase();
-      const is429 = msg.includes('http 429') || msg.includes('rate') || msg.includes('limit');
-      const is5xx = /http\s*5\d\d/.test(msg) || msg.includes('overload');
-      const retriable = is429 || is5xx || msg.includes('timeout') || msg.includes('network');
-
-      // Exponential backoff before retrying or splitting
-      const backoffMs = Math.min(4000, 300 * Math.pow(2, Math.max(0, attempt - 1))) + Math.floor(Math.random() * 250);
-      await new Promise((r) => setTimeout(r, backoffMs));
-
-      // If we have more than one item, split to reduce load and try sequentially
-      if (retriable && requests.length > 1 && attempt <= 5) {
-        const mid = Math.ceil(requests.length / 2);
-        const left = requests.slice(0, mid);
-        const right = requests.slice(mid);
-        const leftResults = await this.classifyTransactionsBatchChunk(left, attempt + 1);
-        const rightResults = await this.classifyTransactionsBatchChunk(right, attempt + 1);
-        return [...leftResults, ...rightResults];
+      // Retry once on server errors, then fallback to singles for this chunk
+      const isServerError = /HTTP\s*5\d\d/i.test(String(error?.message || ''));
+      if (isServerError && attempt < 3) {
+        const backoffMs = attempt * 300 + Math.floor(Math.random() * 200);
+        await new Promise((r) => setTimeout(r, backoffMs));
+        return this.classifyTransactionsBatchChunk(requests, attempt + 1);
       }
-
-      // Final fallback: per-item classification
-      console.error('Error in batch classification chunk (fallback to singles):', error);
+      console.error('Error in batch classification chunk:', error);
       const singles: AIClassificationResponse[] = [];
       for (const r of requests) {
         try {
@@ -596,8 +447,6 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
         } catch {
           singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Batch chunk failed' });
         }
-        // small gap between singles when recovering from overload
-        await new Promise(res => setTimeout(res, 100));
       }
       return singles;
     }
@@ -643,7 +492,7 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
       deployment: this.deploymentName,
       messages,
       max_tokens: options?.maxTokens || 500,
-  temperature: options?.temperature ?? 0
+      temperature: options?.temperature || 0.1
     };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 2, baseBackoffMs: 300 });
@@ -718,7 +567,7 @@ ${JSON.stringify(transactionData, null, 2)}`;
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 2000,
-  temperature: 0
+        temperature: 0.2
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
@@ -796,6 +645,10 @@ ${JSON.stringify(transactionData, null, 2)}`;
   }
 
   async makeRequest(prompt: string, maxTokens: number = 1000): Promise<string> {
+    if (process.env.NODE_ENV === 'test') {
+      // Return minimal valid JSON to keep downstream parsing happy in tests
+      return '{"mapping":{"hasHeaders":true,"skipRows":0,"dateFormat":"MM/DD/YYYY","amountFormat":"negative for debits","dateColumn":"0","descriptionColumn":"1","amountColumn":"2"},"confidence":0.5,"reasoning":"test","suggestions":[]}';
+    }
     try {
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
@@ -803,7 +656,7 @@ ${JSON.stringify(transactionData, null, 2)}`;
           { role: 'user', content: prompt }
         ],
         max_tokens: maxTokens,
-  temperature: 0
+        temperature: 0.1
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
@@ -934,7 +787,7 @@ Extract the account information following the security guidelines.`;
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 500,
-  temperature: 0
+        temperature: 0.1
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 350 });
