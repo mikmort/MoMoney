@@ -56,8 +56,15 @@ export class AccountManagementService {
 
   // Add a new account
   addAccount(account: Omit<Account, 'id'>): Account {
+    // Defensive: ensure any provided maskedAccountNumber is canonical (Ending in XXX)
+    const sanitizeMask = (val: any): string | undefined => {
+      const digits = String(val ?? '').match(/\d/g)?.join('') || '';
+      return digits.length >= 3 ? `Ending in ${digits.slice(-3)}` : undefined;
+    };
+
     const newAccount: Account = {
       ...account,
+      maskedAccountNumber: sanitizeMask((account as any).maskedAccountNumber),
       id: this.generateAccountId(account.name, account.institution)
     };
     
@@ -73,7 +80,12 @@ export class AccountManagementService {
     const index = this.accounts.findIndex(account => account.id === id);
     if (index === -1) return null;
 
-    this.accounts[index] = { ...this.accounts[index], ...updates };
+    const sanitizeMask = (val: any): string | undefined => {
+      const digits = String(val ?? '').match(/\d/g)?.join('') || '';
+      return digits.length >= 3 ? `Ending in ${digits.slice(-3)}` : undefined;
+    };
+
+    this.accounts[index] = { ...this.accounts[index], ...updates, maskedAccountNumber: sanitizeMask(updates.maskedAccountNumber ?? this.accounts[index].maskedAccountNumber) };
     this.saveToStorage();
     return this.accounts[index];
   }
