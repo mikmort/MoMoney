@@ -96,11 +96,12 @@ class RulesService {
 
       for (const rule of activeRules) {
         if (this.evaluateRule(transaction, rule)) {
-          // Apply the rule's category/subcategory
+          // Apply the rule's category/subcategory and optional type
           const updatedTransaction = {
             ...transaction,
             category: rule.action.categoryName,
             subcategory: rule.action.subcategoryName,
+            type: rule.action.transactionType || transaction.type, // Override type if specified
             confidence: 1.0,
             reasoning: `Matched rule: ${rule.name}`,
           };

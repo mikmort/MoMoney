@@ -322,6 +322,7 @@ export interface RuleAction {
   categoryName: string;
   subcategoryId?: string;
   subcategoryName?: string;
+  transactionType?: 'income' | 'expense' | 'transfer'; // Optional override for transaction type
 }
 
 export interface RuleMatchResult {

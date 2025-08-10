@@ -80,7 +80,8 @@ class TransferDetectionService {
               categoryId: 'internal-transfer',
               categoryName: 'Internal Transfer',
               subcategoryId: 'transfer-between-accounts',
-              subcategoryName: 'Between Accounts'
+              subcategoryName: 'Between Accounts',
+              transactionType: 'transfer' // Set transaction type to transfer
             }
           });
           
@@ -352,7 +353,8 @@ class TransferDetectionService {
                 categoryId: 'internal-transfer',
                 categoryName: 'Internal Transfer',
                 subcategoryId: 'transfer-between-accounts',
-                subcategoryName: 'Between Accounts'
+                subcategoryName: 'Between Accounts',
+                transactionType: 'transfer' // Set transaction type to transfer
               }
             });
             rulesCreated++;
@@ -402,7 +404,8 @@ class TransferDetectionService {
                 categoryId: 'internal-transfer',
                 categoryName: 'Internal Transfer',
                 subcategoryId: 'transfer-between-accounts',
-                subcategoryName: 'Between Accounts'
+                subcategoryName: 'Between Accounts',
+                transactionType: 'transfer' // Set transaction type to transfer
               }
             });
             rulesCreated++;
