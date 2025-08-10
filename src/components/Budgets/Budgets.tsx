@@ -540,15 +540,17 @@ const Budgets: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', whiteSpace: 'nowrap', flexWrap: 'nowrap', justifyContent: 'flex-start' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', paddingLeft: '12px' }}>
                 <input
                   type="checkbox"
                   checked={budgetForm.isActive}
                   onChange={(e) => setBudgetForm({...budgetForm, isActive: e.target.checked})}
-                  style={{ marginBottom: '0', flexShrink: 0 }}
+                  style={{ margin: '0', flexShrink: 0 }}
                 />
-                Active Budget
-              </label>
+                <label style={{ margin: '0', cursor: 'pointer', fontWeight: '500', color: '#333' }}>
+                  Active Budget
+                </label>
+              </div>
               <div className="help-text">Only active budgets are tracked and show alerts</div>
             </div>
 
