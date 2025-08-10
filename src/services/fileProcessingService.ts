@@ -810,53 +810,34 @@ Return ONLY a clean JSON response:
     let remainingUnmatchedTransactions = [...ruleResults.unmatchedTransactions];
     let allMatchedTransactions = [...ruleResults.matchedTransactions];
     
-    if (batchRequests.length > 0) {
+    if (remainingUnmatchedTransactions.length > 0) {
       const CHUNK = 20; // increased batch size to 20 to speed up processing
-      for (let start = 0; start < batchRequests.length; start += CHUNK) {
+      let batchNumber = 0;
+      
+      while (remainingUnmatchedTransactions.length > 0) {
+        batchNumber++;
+        
         if (this.isCancelled(fileId)) {
           console.log('🛑 Transaction processing cancelled during batch classification');
           throw new Error('Import cancelled by user');
         }
         
-        // Before processing each batch, check for new rules that might have been created
-        if (start > 0) {
-          console.log(`🔄 Checking for new rules before batch ${Math.floor(start/CHUNK) + 1}...`);
+        // Before processing each batch (after the first), check for new rules that might have been created
+        if (batchNumber > 1) {
+          console.log(`🔄 Checking for new rules before batch ${batchNumber}...`);
           const currentRules = await rulesService.getAllRules();
           const activeRulesCount = currentRules.filter(r => r.isActive).length;
           console.log(`📋 Current active rules: ${activeRulesCount}`);
           
           // Re-apply rules to remaining unmatched transactions to catch any new matches
-          if (remainingUnmatchedTransactions.length > 0) {
-            const newRuleResults = await rulesService.applyRulesToBatch(remainingUnmatchedTransactions);
-            console.log(`📋 Rules re-applied: ${newRuleResults.matchedTransactions.length} newly matched, ${newRuleResults.unmatchedTransactions.length} still unmatched`);
-            
-            if (newRuleResults.matchedTransactions.length > 0) {
-              // Update our tracking variables
-              allMatchedTransactions.push(...newRuleResults.matchedTransactions);
-              remainingUnmatchedTransactions = newRuleResults.unmatchedTransactions;
-              
-              // Update batchRequests to only include still-unmatched transactions
-              const startingBatchIndex = start;
-              const currentBatchEnd = Math.min(start + CHUNK, batchRequests.length);
-              const affectedRequests = batchRequests.slice(startingBatchIndex, currentBatchEnd);
-              
-              // Filter out requests for transactions that are now rule-matched
-              const currentRemainingUnmatchedTransactions = remainingUnmatchedTransactions;
-              const stillUnmatchedIndices: number[] = [];
-              
-              for (const transaction of newRuleResults.unmatchedTransactions) {
-                const matchIndex = currentRemainingUnmatchedTransactions.findIndex(remaining => 
-                  remaining.description === transaction.description && 
-                  remaining.amount === transaction.amount && 
-                  remaining.date.getTime() === transaction.date.getTime()
-                );
-                if (matchIndex !== -1) {
-                  stillUnmatchedIndices.push(matchIndex);
-                }
-              }
-              
-              console.log(`📊 Adjusted batch processing: ${affectedRequests.length} original requests, ${stillUnmatchedIndices.length} still need AI`);
-            }
+          const newRuleResults = await rulesService.applyRulesToBatch(remainingUnmatchedTransactions);
+          console.log(`📋 Rules re-applied: ${newRuleResults.matchedTransactions.length} newly matched, ${newRuleResults.unmatchedTransactions.length} still unmatched`);
+          
+          if (newRuleResults.matchedTransactions.length > 0) {
+            // Update our tracking variables
+            allMatchedTransactions.push(...newRuleResults.matchedTransactions);
+            remainingUnmatchedTransactions = newRuleResults.unmatchedTransactions;
+            console.log(`📊 After rule re-application: ${allMatchedTransactions.length} total rule-matched, ${remainingUnmatchedTransactions.length} still need AI`);
           }
         } else {
           // First batch - just log initial rule count
@@ -865,26 +846,97 @@ Return ONLY a clean JSON response:
           console.log(`📋 Starting batch processing with ${activeRulesCount} active rules`);
         }
         
-        const slice = batchRequests.slice(start, start + CHUNK);
+        // If all transactions are now rule-matched, break out
+        if (remainingUnmatchedTransactions.length === 0) {
+          console.log(`📊 All remaining transactions matched by rules - no more AI processing needed`);
+          break;
+        }
+        
+        // Process the current chunk of unmatched transactions
+        const currentChunk = remainingUnmatchedTransactions.slice(0, CHUNK);
+        console.log(`📊 Processing batch ${batchNumber} with ${currentChunk.length} transactions`);
+        
+        // Create batch requests for current chunk
+        const chunkRequests: AIClassificationRequest[] = currentChunk.map(transaction => ({
+          transactionText: transaction.description,
+          amount: transaction.amount,
+          date: transaction.date.toISOString(),
+          availableCategories: categories
+        }));
+        
         try {
-          const res = await azureOpenAIService.classifyTransactionsBatch(slice);
-          batchResults.push(...res);
+          const res = await azureOpenAIService.classifyTransactionsBatch(chunkRequests);
           const uncategorizedCount = res.filter(r => (r.categoryId || '').toLowerCase() === 'uncategorized').length;
-          console.log(`📊 AI classification succeeded for batch ${Math.floor(start/CHUNK) + 1}, got ${res.length} results (uncategorized: ${uncategorizedCount})`);
+          console.log(`📊 AI classification succeeded for batch ${batchNumber}, got ${res.length} results (uncategorized: ${uncategorizedCount})`);
+          
+          // CRITICAL FIX: Create auto-rules immediately after each batch
+          console.log(`📋 Creating auto-rules from batch ${batchNumber} results...`);
+          let autoRulesCreatedThisBatch = 0;
+          
+          // Process this batch's results and create rules immediately
+          const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
+          const idToNameSub = new Map<string, { name: string; parentId: string }>();
+          categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
+          
+          for (let i = 0; i < currentChunk.length && i < res.length; i++) {
+            const transaction = currentChunk[i];
+            const ai = res[i];
+            
+            // Auto-create rule from AI classification if confidence is high enough
+            if (ai.confidence >= 0.8 && 
+                ai.categoryId && 
+                ai.categoryId !== 'Uncategorized' && 
+                ai.categoryId !== 'uncategorized') {
+              
+              try {
+                const categoryName = idToNameCategory.get(ai.categoryId) || ai.categoryId;
+                const subName = ai.subcategoryId ? (idToNameSub.get(ai.subcategoryId)?.name) : undefined;
+                
+                await rulesService.createAutoRuleFromAI(
+                  transaction.account,
+                  transaction.description,
+                  categoryName,
+                  subName,
+                  ai.confidence
+                );
+                autoRulesCreatedThisBatch++;
+                console.log(`📋 Auto-created rule from batch ${batchNumber}: ${transaction.description} → ${categoryName}`);
+              } catch (error) {
+                console.warn('Failed to create auto-rule from AI classification:', error);
+              }
+            }
+          }
+          
+          if (autoRulesCreatedThisBatch > 0) {
+            console.log(`📋 Created ${autoRulesCreatedThisBatch} auto-rules from batch ${batchNumber} - these will be available for subsequent batches`);
+          }
+          
+          // Store results for final transaction creation
+          batchResults.push(...res);
+          
+          // Remove processed transactions from remaining list
+          remainingUnmatchedTransactions = remainingUnmatchedTransactions.slice(currentChunk.length);
+          
         } catch (error) {
           console.warn('⚠️ AI classification failed, using default categorization:', error);
           // Create default responses for failed AI classification
-          const defaultResponses = slice.map(() => ({
+          const defaultResponses = chunkRequests.map(() => ({
             categoryId: 'uncategorized',
             subcategoryId: undefined,
             confidence: 0.1,
             reasoning: 'AI classification unavailable, manually review recommended'
           } as AIClassificationResponse));
           batchResults.push(...defaultResponses);
+          
+          // Remove processed transactions from remaining list
+          remainingUnmatchedTransactions = remainingUnmatchedTransactions.slice(currentChunk.length);
+          
           console.log(`📊 Created ${defaultResponses.length} default responses for failed AI classification`);
         }
+        
+        // Update progress
         if (onProgress) {
-          const processed = allMatchedTransactions.length + Math.min(remainingUnmatchedTransactions.length, start + slice.length);
+          const processed = allMatchedTransactions.length + batchResults.length;
           onProgress(processed);
         }
       }
@@ -907,15 +959,14 @@ Return ONLY a clean JSON response:
       });
     });
 
-    // Process AI results for unmatched transactions
+    // Process AI results for unmatched transactions (rebuild from original unmatched list)
+    const originalUnmatchedTransactions = ruleResults.unmatchedTransactions;
     const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
     const idToNameSub = new Map<string, { name: string; parentId: string }>();
     categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
 
-    let autoRulesCreated = 0;
-
-    for (let index = 0; index < remainingUnmatchedTransactions.length; index++) {
-      const transaction = remainingUnmatchedTransactions[index];
+    for (let index = 0; index < batchResults.length && index < originalUnmatchedTransactions.length; index++) {
+      const transaction = originalUnmatchedTransactions[index];
       const ai = batchResults[index] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
 
       // Constrain AI result to valid categories
@@ -945,27 +996,7 @@ Return ONLY a clean JSON response:
       const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
       const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
 
-      // Auto-create rule from AI classification if confidence is high enough
-      if (ai.confidence >= 0.8 && 
-          categoryName && 
-          categoryName !== 'Uncategorized' && 
-          categoryName !== 'uncategorized') {
-        
-        try {
-          // Make this synchronous so rules are available for next batch
-          await rulesService.createAutoRuleFromAI(
-            transaction.account,
-            transaction.description,
-            categoryName,
-            subName,
-            ai.confidence
-          );
-          console.log(`📋 Auto-created rule for: ${transaction.description} (${transaction.account}) → ${categoryName}`);
-          autoRulesCreated++;
-        } catch (error) {
-          console.warn('Failed to create auto-rule from AI classification:', error);
-        }
-      }
+      // Note: Auto-rule creation now happens immediately after each batch (above) for better availability
 
       transactions.push({
         ...transaction,
@@ -977,10 +1008,6 @@ Return ONLY a clean JSON response:
         addedDate: new Date(),
         lastModifiedDate: new Date(),
       });
-    }
-
-    if (autoRulesCreated > 0) {
-      console.log(`📋 Initiated creation of ${autoRulesCreated} auto-rules from high-confidence AI classifications`);
     }
 
     console.log(`📊 processTransactions completed. Returning ${transactions.length} transactions`);
@@ -1110,7 +1137,7 @@ Return ONLY a clean JSON response:
           return date;
         }
       }
-      
+
       // Handle European format DD.MM.YYYY
       const europeanMatch = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
       if (europeanMatch) {
