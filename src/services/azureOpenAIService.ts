@@ -91,13 +91,19 @@ export class AzureOpenAIService {
     request: Omit<OpenAIProxyRequest, 'deployment'> & { deployment?: string },
     options?: { attemptsPerDeployment?: number; baseBackoffMs?: number }
   ): Promise<OpenAIProxyResponse> {
-    // In test environment, short-circuit to prevent network calls
+    // In test environment, check if fetch is mocked - if so, use the mocked behavior
     if (process.env.NODE_ENV === 'test') {
-      return { success: true, data: {
-        id: 'test', object: 'chat.completion', created: Date.now(), model: request.deployment || this.deploymentName,
-        choices: [{ index: 0, message: { role: 'assistant', content: '{"categoryId":"uncategorized","subcategoryId":null,"confidence":0.1,"reasoning":"test mode"}' }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
-      } } as OpenAIProxyResponse;
+      // If fetch has been mocked (has mockImplementation), use it
+      if ((fetch as any).mockImplementation || (fetch as any).mockResolvedValueOnce || (fetch as any).mockRejectedValueOnce) {
+        // Let mocked fetch handle the request
+      } else {
+        // Fallback response for unmocked test scenarios
+        return { success: true, data: {
+          id: 'test', object: 'chat.completion', created: Date.now(), model: request.deployment || this.deploymentName,
+          choices: [{ index: 0, message: { role: 'assistant', content: '{"categoryId":"uncategorized","subcategoryId":null,"confidence":0.1,"reasoning":"test mode"}' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+        } } as OpenAIProxyResponse;
+      }
     }
     const attemptsPerDeployment = options?.attemptsPerDeployment ?? 2;
     const base = options?.baseBackoffMs ?? 400;

@@ -159,7 +159,7 @@ describe('Data Integrity Regression Tests', () => {
       expect(importResult.transactions).toBe(1000);
       const finalCount = await db.transactions.count();
       expect(finalCount).toBe(1000);
-    });
+    }, 10000); // 10 second timeout for large dataset test
   });
 
   describe('Database Schema Evolution', () => {

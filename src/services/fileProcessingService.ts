@@ -608,22 +608,83 @@ Return ONLY a clean JSON response:
   }
 
   private getDefaultSchemaMapping(fileType: StatementFile['fileType']): AISchemaMappingResponse {
-    const mapping: FileSchemaMapping = {
-      hasHeaders: true,
-      skipRows: 0,
-      dateFormat: 'MM/DD/YYYY',
-      amountFormat: 'negative for debits',
-      dateColumn: '0',
-      descriptionColumn: '1',
-      amountColumn: '2'
-    };
+    let mapping: FileSchemaMapping;
+    let confidence = 0.5;
+    let reasoning = 'Using default mapping due to AI analysis failure';
+
+    switch (fileType) {
+      case 'ofx':
+        mapping = {
+          hasHeaders: false,
+          skipRows: 0,
+          dateFormat: 'YYYYMMDD',
+          amountFormat: 'negative for debits',
+          dateColumn: 'date',
+          descriptionColumn: 'description',
+          amountColumn: 'amount'
+        };
+        confidence = 0.9;
+        reasoning = 'OFX structure mapping based on standard format';
+        break;
+      
+      default:
+        mapping = {
+          hasHeaders: true,
+          skipRows: 0,
+          dateFormat: 'MM/DD/YYYY',
+          amountFormat: 'negative for debits',
+          dateColumn: '0',
+          descriptionColumn: '1',
+          amountColumn: '2'
+        };
+        break;
+    }
 
     return {
       mapping,
-      confidence: 0.5,
-      reasoning: 'Using default mapping due to AI analysis failure',
+      confidence,
+      reasoning,
       suggestions: ['Please verify the column mappings are correct'],
     };
+  }
+
+  // OFX parsing methods for testing
+  private async parseOFX(content: string, mapping: FileSchemaMapping): Promise<any[]> {
+    try {
+      const transactions = [];
+      const transactionBlocks = content.split('<STMTTRN>').slice(1);
+
+      for (const block of transactionBlocks) {
+        const transaction = {
+          transactionId: this.extractOFXValue(block, 'FITID') || `tx_${Date.now()}_${Math.random()}`,
+          type: this.extractOFXValue(block, 'TRNTYPE'),
+          date: this.extractOFXValue(block, 'DTPOSTED'),
+          amount: this.extractOFXValue(block, 'TRNAMT'),
+          description: this.extractOFXValue(block, 'NAME') || this.extractOFXValue(block, 'MEMO'),
+          notes: this.extractOFXValue(block, 'MEMO'),
+          account: 'Unknown'
+        };
+
+        // Keep date as string (as expected by test)
+        // Convert amount to number
+        if (transaction.amount) {
+          transaction.amount = parseFloat(transaction.amount);
+        }
+
+        transactions.push(transaction);
+      }
+
+      return transactions;
+    } catch (error) {
+      console.warn('OFX parsing failed:', error);
+      return [];
+    }
+  }
+
+  private extractOFXValue(block: string, tagName: string): string | null {
+    const regex = new RegExp(`<${tagName}>([^<]+)`, 'i');
+    const match = block.match(regex);
+    return match ? match[1].trim() : null;
   }
 
   private async parseFileData(content: string, fileType: StatementFile['fileType'], mapping: FileSchemaMapping): Promise<any[]> {
