@@ -335,7 +335,9 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         ...accountForm,
         maskedAccountNumber: analysisResult.maskedAccountNumber,
         historicalBalance: accountForm.balance,
-        historicalBalanceDate: analysisResult.balanceDate
+  historicalBalanceDate: analysisResult.balanceDate,
+  // Align with service: set lastSyncDate to the baseline date
+  lastSyncDate: analysisResult.balanceDate
       };
       
       addAccount(newAccountData).then(() => {
@@ -422,7 +424,12 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       };
       
       calculateBalance();
-    }, [params.data.id, params.data.balance]);
+    }, [
+      params.data.id,
+      params.data.balance,
+      params.data.historicalBalance,
+      params.data.historicalBalanceDate
+    ]);
 
     if (isLoading) {
       return <span style={{ color: '#666', fontStyle: 'italic' }}>Loading...</span>;

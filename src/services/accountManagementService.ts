@@ -367,7 +367,9 @@ ${userPrompt}`;
         historicalBalance: analysis.balance,
         historicalBalanceDate: analysis.balanceDate,
         maskedAccountNumber: analysis.maskedAccountNumber,
-        lastSyncDate: new Date(),
+  // Set lastSyncDate to the historical balance date so future calculations include
+  // all transactions AFTER this date instead of short-circuiting to "now"
+  lastSyncDate: analysis.balanceDate,
         isActive: true
       };
 
