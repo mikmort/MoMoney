@@ -832,8 +832,9 @@ Return ONLY a clean JSON response:
               const affectedRequests = batchRequests.slice(startingBatchIndex, currentBatchEnd);
               
               // Filter out requests for transactions that are now rule-matched
+              const remainingUnmatchedForSearch = remainingUnmatchedTransactions;
               const stillUnmatchedIndices = newRuleResults.unmatchedTransactions.map(t => {
-                return remainingUnmatchedTransactions.findIndex(remaining => 
+                return remainingUnmatchedForSearch.findIndex(remaining => 
                   remaining.description === t.description && remaining.amount === t.amount && remaining.date.getTime() === t.date.getTime()
                 );
               }).filter(idx => idx !== -1);
