@@ -2120,7 +2120,22 @@ const Transactions: React.FC = () => {
       field: 'date',
       sortable: true,
       filter: 'agDateColumnFilter',
+      sort: 'desc',
+      sortIndex: 0,
       width: 120,
+      comparator: (a: any, b: any) => {
+        // Normalize values that could be Date, string, or number
+        const toTime = (v: any): number => {
+          if (!v) return 0;
+          if (v instanceof Date) return v.getTime();
+          if (typeof v === 'number') return v;
+          const t = new Date(v as any).getTime();
+          return Number.isFinite(t) ? t : 0;
+        };
+        const ta = toTime(a);
+        const tb = toTime(b);
+        return ta - tb;
+      },
       valueFormatter: (params: any) => {
         return new Date(params.value).toLocaleDateString();
       }
