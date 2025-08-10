@@ -180,7 +180,7 @@ export const CategoryEditConfirmDialog: React.FC<CategoryEditConfirmDialogProps>
         
         <Options>
           <OptionButton onClick={() => onConfirm('current')}>
-            <div className="option-title">This transaction only</div>
+            <div className="option-title">Apply just to this transaction</div>
             <div className="option-description">
               Change just this transaction. Future similar transactions won't be affected.
             </div>
@@ -194,9 +194,9 @@ export const CategoryEditConfirmDialog: React.FC<CategoryEditConfirmDialogProps>
           </OptionButton>
           
           <OptionButton onClick={() => onConfirm('all')}>
-            <div className="option-title">All existing and future transactions</div>
+            <div className="option-title">Apply to all transactions with description "{transactionDescription}"</div>
             <div className="option-description">
-              Change this transaction, update existing transactions with the same description and account, and automatically categorize future ones.
+              Change this transaction and update all existing and future transactions with the same description and account.
             </div>
           </OptionButton>
         </Options>
