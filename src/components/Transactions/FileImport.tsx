@@ -460,11 +460,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             <ProgressFill width={progress.progress} />
           </ProgressBar>
 
-          {progress.totalRows > 0 && (
-            <div style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>
-              Processed {progress.processedRows} of {progress.totalRows} transactions
-            </div>
-          )}
+          {progress.totalRows > 0 && null}
 
           {progress.status === 'completed' && (
             <div style={{ color: '#4caf50', fontWeight: 'bold', marginTop: '8px' }}>

@@ -4,8 +4,21 @@ import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequ
 // OpenAI Proxy configuration
 // Allow overriding the proxy URL via environment variable for production or remote Azure Function usage.
 // Example: REACT_APP_OPENAI_PROXY_URL=https://<your-func>.azurewebsites.net/api/openai/chat/completions
-const OPENAI_PROXY_URL =
-  (process.env.REACT_APP_OPENAI_PROXY_URL as string | undefined) || '/api/openai/chat/completions';
+// In development, we keep it relative to leverage CRA's setupProxy.
+// In production, if it's relative and a base is provided, build an absolute URL to the Azure Function.
+const OPENAI_PROXY_URL: string = (() => {
+  const envUrl = (process.env.REACT_APP_OPENAI_PROXY_URL as string | undefined) || '/api/openai/chat/completions';
+  const isAbsolute = /^https?:\/\//i.test(envUrl);
+  if (isAbsolute) return envUrl;
+  const isProd = process.env.NODE_ENV === 'production';
+  const base = (process.env.REACT_APP_FUNCTION_BASE_URL as string | undefined) || '';
+  if (isProd && base) {
+    const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+    const path = envUrl.startsWith('/') ? envUrl : `/${envUrl}`;
+    return `${trimmedBase}${path}`;
+  }
+  return envUrl; // development or no base provided
+})();
 
 // Types for the proxy API
 interface ChatMessage {
@@ -117,6 +130,36 @@ export class AzureOpenAIService {
       const result: OpenAIProxyResponse = await response.json();
       return result;
     } catch (error) {
+      // If the proxy URL is relative (e.g., "/api/..."), the dev proxy might not be running.
+      // Retry with absolute Azure Function URL if available.
+      const url = OPENAI_PROXY_URL;
+      const isAbsolute = /^https?:\/\//i.test(url);
+      const base = (process.env.REACT_APP_FUNCTION_BASE_URL as string | undefined) || '';
+      if (!isAbsolute && base) {
+        try {
+          const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+          const path = url.startsWith('/') ? url : `/${url}`;
+          const absoluteUrl = `${trimmedBase}${path}`;
+          const fallbackResp = await fetch(absoluteUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request),
+          });
+          if (!fallbackResp.ok) {
+            let detail = '';
+            try {
+              const text = await fallbackResp.text();
+              detail = text?.slice(0, 500) || '';
+            } catch {}
+            const dash = detail ? ` | ${detail}` : '';
+            throw new Error(`HTTP ${fallbackResp.status}: ${fallbackResp.statusText}${dash}`);
+          }
+          const result: OpenAIProxyResponse = await fallbackResp.json();
+          return result;
+        } catch (fallbackErr) {
+          console.error('Error calling OpenAI proxy (fallback absolute URL):', fallbackErr);
+        }
+      }
       console.error('Error calling OpenAI proxy:', error);
       throw error;
     }
