@@ -67,6 +67,10 @@ export interface Account {
   balance?: number;
   lastSyncDate?: Date;
   isActive: boolean;
+  // New fields for statement-based account creation
+  maskedAccountNumber?: string; // Format: "Ending in XXX"
+  historicalBalance?: number; // Balance as of historicalBalanceDate
+  historicalBalanceDate?: Date; // Date when the balance was established
 }
 
 export interface Category {
@@ -363,4 +367,24 @@ export interface TransferDisplayOptions {
   showTransfers: boolean;
   collapseMatched: boolean;
   showFees: boolean;
+}
+
+// Account statement processing interfaces
+export interface AccountStatementAnalysisRequest {
+  fileContent: string;
+  fileName: string;
+  fileType: 'pdf' | 'csv' | 'excel' | 'image';
+}
+
+export interface AccountStatementAnalysisResponse {
+  accountName?: string;
+  institution?: string;
+  accountType?: 'checking' | 'savings' | 'credit' | 'investment' | 'cash';
+  currency?: string;
+  balance?: number;
+  balanceDate?: Date;
+  maskedAccountNumber?: string; // Format: "Ending in XXX"
+  confidence: number; // 0-1 confidence in the extraction
+  reasoning: string; // AI explanation of extraction
+  extractedFields: string[]; // List of fields that were successfully extracted
 }

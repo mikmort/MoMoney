@@ -1,5 +1,5 @@
 import { defaultConfig } from '../config/appConfig';
-import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult } from '../types';
+import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult, AccountStatementAnalysisRequest, AccountStatementAnalysisResponse } from '../types';
 
 // OpenAI Proxy configuration
 // Allow overriding the proxy URL via environment variable for production or remote Azure Function usage.
@@ -633,6 +633,170 @@ ${JSON.stringify(transactionData, null, 2)}`;
     }
     
     return cleaned.trim();
+  }
+
+  /**
+   * Extract account information from a bank statement using AI
+   */
+  async extractAccountInfoFromStatement(request: AccountStatementAnalysisRequest): Promise<AccountStatementAnalysisResponse> {
+    const startTime = Date.now();
+    
+    try {
+      const systemPrompt = `You are a financial document analyzer that extracts account information from bank statements. 
+Analyze the provided document content and extract key account details. Return ONLY a JSON object with this exact schema:
+
+{
+  "accountName": "name of the account or null",
+  "institution": "name of the bank/financial institution or null", 
+  "accountType": "checking|savings|credit|investment|cash or null",
+  "currency": "currency code (USD, EUR, etc.) or null",
+  "balance": number or null,
+  "balanceDate": "YYYY-MM-DD date string or null",
+  "maskedAccountNumber": "Ending in XXX format or null",
+  "confidence": 0.0-1.0,
+  "reasoning": "detailed explanation of extraction decisions",
+  "extractedFields": ["list of fields successfully extracted"]
+}
+
+CRITICAL SECURITY RULES:
+- NEVER include full account numbers in any field
+- For maskedAccountNumber, use format "Ending in XXX" where XXX is only the last 3 digits
+- If you see a full account number, extract only the last 3 digits
+- If no account number is visible, set maskedAccountNumber to null
+
+Guidelines:
+- Look for account names like "Primary Checking", "Savings Account", etc.
+- Institution names are usually at the top of statements
+- Account types can be inferred from context (checking, savings, credit card, etc.)
+- Balance is typically shown as current balance, ending balance, or statement balance
+- Date should be the statement date or balance as-of date
+- Set confidence based on clarity and completeness of extracted information
+- Only include fields in extractedFields array that have non-null values`;
+
+      const userPrompt = `Document to analyze:
+File name: ${request.fileName}
+File type: ${request.fileType}
+
+Content (first 3000 characters):
+${request.fileContent.substring(0, 3000)}
+
+Extract the account information following the security guidelines.`;
+
+      const proxyRequest: OpenAIProxyRequest = {
+        deployment: this.deploymentName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 500,
+        temperature: 0.1
+      };
+
+      const response = await this.callOpenAIProxy(proxyRequest);
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'No response from OpenAI proxy');
+      }
+
+      const responseContent = response.data.choices[0]?.message?.content;
+      if (!responseContent) {
+        throw new Error('No response content from OpenAI proxy');
+      }
+
+      const cleanedResponse = this.cleanAIResponse(responseContent);
+      const parsed = JSON.parse(cleanedResponse);
+
+      // Validate and sanitize the response
+      const result: AccountStatementAnalysisResponse = {
+        accountName: this.sanitizeString(parsed.accountName),
+        institution: this.sanitizeString(parsed.institution),
+        accountType: this.validateAccountType(parsed.accountType),
+        currency: this.sanitizeCurrency(parsed.currency),
+        balance: this.sanitizeNumber(parsed.balance),
+        balanceDate: this.sanitizeDate(parsed.balanceDate),
+        maskedAccountNumber: this.validateMaskedAccountNumber(parsed.maskedAccountNumber),
+        confidence: Math.min(Math.max(parsed.confidence || 0, 0), 1),
+        reasoning: parsed.reasoning || 'Account information extracted from statement',
+        extractedFields: Array.isArray(parsed.extractedFields) ? parsed.extractedFields : []
+      };
+
+      console.log(`🏦 Account extraction completed in ${Date.now() - startTime}ms with confidence ${result.confidence}`);
+      return result;
+
+    } catch (error) {
+      console.error('Error extracting account info from statement:', error);
+      
+      return {
+        confidence: 0,
+        reasoning: 'Failed to extract account information from statement: ' + (error instanceof Error ? error.message : 'Unknown error'),
+        extractedFields: []
+      };
+    }
+  }
+
+  private sanitizeString(value: any): string | undefined {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    return undefined;
+  }
+
+  private validateAccountType(value: any): 'checking' | 'savings' | 'credit' | 'investment' | 'cash' | undefined {
+    const validTypes = ['checking', 'savings', 'credit', 'investment', 'cash'];
+    if (typeof value === 'string' && validTypes.includes(value.toLowerCase())) {
+      return value.toLowerCase() as 'checking' | 'savings' | 'credit' | 'investment' | 'cash';
+    }
+    return undefined;
+  }
+
+  private sanitizeCurrency(value: any): string | undefined {
+    if (typeof value === 'string' && /^[A-Z]{3}$/.test(value.toUpperCase())) {
+      return value.toUpperCase();
+    }
+    return undefined;
+  }
+
+  private sanitizeNumber(value: any): number | undefined {
+    if (typeof value === 'number' && !isNaN(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const num = parseFloat(value.replace(/[,$\s]/g, ''));
+      if (!isNaN(num)) {
+        return num;
+      }
+    }
+    return undefined;
+  }
+
+  private sanitizeDate(value: any): Date | undefined {
+    if (!value) return undefined;
+    
+    try {
+      const date = new Date(value);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    } catch {
+      // Continue to return undefined
+    }
+    return undefined;
+  }
+
+  private validateMaskedAccountNumber(value: any): string | undefined {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      // Validate it follows the "Ending in XXX" pattern and only contains last 3 digits
+      if (/^Ending in \d{3}$/.test(trimmed)) {
+        return trimmed;
+      }
+      // If it's a longer string that might contain account info, reject it for security
+      if (trimmed.length > 20 || /\d{4,}/.test(trimmed)) {
+        console.warn('Rejected potentially unsafe masked account number format:', trimmed);
+        return undefined;
+      }
+    }
+    return undefined;
   }
 }
 
