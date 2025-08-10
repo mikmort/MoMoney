@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
@@ -880,6 +880,7 @@ const AnomalyResultsPanel = styled(Card)`
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
@@ -1421,6 +1422,17 @@ const Transactions: React.FC = () => {
 
     loadTransactions();
   }, [transferDisplayOptions.showTransfers]);
+
+  // Handle URL parameters for filtering
+  useEffect(() => {
+    const accountParam = searchParams.get('account');
+    if (accountParam) {
+      setFilters(prevFilters => ({
+        ...prevFilters,
+        account: accountParam
+      }));
+    }
+  }, [searchParams]);
 
   // Handle transfer display options changes
   useEffect(() => {
@@ -3030,8 +3042,7 @@ const Transactions: React.FC = () => {
                 resizable: true,
                 sortable: true,
                 filter: true,
-                floatingFilter: false, // Disable floating filters to reduce clutter
-                menuTabs: ['filterMenuTab', 'generalMenuTab'] // Only show filter and general tabs
+                floatingFilter: false // Disable floating filters to reduce clutter
               }}
               singleClickEdit={true}
               stopEditingWhenCellsLoseFocus={true}

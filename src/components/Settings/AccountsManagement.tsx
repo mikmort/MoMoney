@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
+import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
 import { Account, AccountStatementAnalysisResponse } from '../../types';
@@ -12,7 +13,8 @@ import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 const AccountsContainer = styled.div`
   .ag-theme-alpine {
-    height: 400px;
+  height: 85vh; /* expand to use more vertical space */
+  min-height: 600px; /* ensure it's comfortably tall on small screens */
     width: 100%;
   }
 `;
@@ -150,7 +152,8 @@ const AnalysisResult = styled.div`
 interface AccountsManagementProps {}
 
 export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
-  const { accounts, addAccount, updateAccount, deleteAccount, error } = useAccountManagement();
+  const navigate = useNavigate();
+  const { accounts, addAccount, updateAccount, deleteAccount, error, refreshAccounts } = useAccountManagement();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -171,6 +174,16 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const [analysisResult, setAnalysisResult] = useState<AccountStatementAnalysisResponse | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  const sanitizeReasoning = (reason?: string): string => {
+    if (!reason) return '';
+    const lower = reason.toLowerCase();
+    const flagged = ['encrypted', 'unreadable', 'corrupted', 'gibberish', 'nonsensical'];
+    if (flagged.some(w => lower.includes(w))) {
+      return 'Insufficient readable text was available from this file in the browser context. The analysis relied on the filename and any readable snippets; confidence is adjusted accordingly.';
+    }
+    return reason;
+  };
 
   const handleDeleteAccount = (accountId: string) => {
     const account = accounts.find(a => a.id === accountId);
@@ -260,7 +273,8 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       if (result.success && result.account) {
         // Account created successfully
         setShowStatementUpload(false);
-        // The useAccountManagement hook should automatically refresh the accounts list
+        // Ensure the accounts list reflects the newly created account immediately
+        refreshAccounts();
       } else if (result.analysis) {
         // Analysis completed but needs user review
         setAnalysisResult(result.analysis);
@@ -324,7 +338,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         historicalBalanceDate: analysisResult.balanceDate
       };
       
-      addAccount(newAccountData);
+      addAccount(newAccountData).then(() => {
+        // Refresh to ensure the grid updates immediately
+        refreshAccounts();
+      });
       setShowStatementUpload(false);
       setAnalysisResult(null);
       setUploadedFile(null);
@@ -337,12 +354,36 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     return 'low';
   };
 
+  const handleAccountClick = (accountName: string) => {
+    // Navigate to transactions page with account filter
+    navigate(`/transactions?account=${encodeURIComponent(accountName)}`);
+  };
+
   // React cell renderers
   const NameRenderer: React.FC<any> = (params) => {
     const isActive = params.data.isActive;
-    const style: React.CSSProperties = { fontWeight: isActive ? 600 : 400, color: isActive ? '#333' : '#999' };
+    const style: React.CSSProperties = { 
+      fontWeight: isActive ? 600 : 400, 
+      color: isActive ? '#2196f3' : '#999',
+      cursor: 'pointer',
+      textDecoration: 'none'
+    };
+    
     return (
-      <span style={style}>
+      <span 
+        style={style}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleAccountClick(params.value);
+        }}
+        onMouseEnter={(e) => {
+          (e.target as HTMLElement).style.textDecoration = 'underline';
+        }}
+        onMouseLeave={(e) => {
+          (e.target as HTMLElement).style.textDecoration = 'none';
+        }}
+        title={`Click to view transactions for ${params.value}`}
+      >
         {params.value}
         {!isActive ? ' (Inactive)' : ''}
       </span>
@@ -363,25 +404,48 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   };
 
   const BalanceRenderer: React.FC<any> = (params) => {
-    const balance: number | undefined = params.value;
-    if (balance === undefined || balance === null) return null;
+    const [currentBalance, setCurrentBalance] = React.useState<number | null>(null);
+    const [isLoading, setIsLoading] = React.useState(true);
+    
+    React.useEffect(() => {
+      const calculateBalance = async () => {
+        setIsLoading(true);
+        try {
+          const balance = await accountManagementService.calculateCurrentBalance(params.data.id);
+          setCurrentBalance(balance);
+        } catch (error) {
+          console.error('Error calculating balance:', error);
+          setCurrentBalance(params.data.balance || 0);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      calculateBalance();
+    }, [params.data.id, params.data.balance]);
+
+    if (isLoading) {
+      return <span style={{ color: '#666', fontStyle: 'italic' }}>Loading...</span>;
+    }
+
+    if (currentBalance === null || currentBalance === undefined) return null;
 
     const currencyCode: string = params.data?.currency || 'USD';
     let formatted = '';
 
     // Try native Intl currency formatting first
     try {
-      formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(balance);
+      formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(currentBalance);
     } catch {
       // Fallback for unknown/unsupported currency codes
       const symbol = userPreferencesService.getCurrencySymbol(currencyCode);
-      const abs = Math.abs(balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const sign = balance < 0 ? '-' : '';
+      const abs = Math.abs(currentBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const sign = currentBalance < 0 ? '-' : '';
       // Place symbol before number by default; some currencies append, but keep simple here
       formatted = `${sign}${symbol}${abs}`;
     }
 
-    const style: React.CSSProperties = { color: balance >= 0 ? '#4caf50' : '#f44336' };
+    const style: React.CSSProperties = { color: currentBalance >= 0 ? '#4caf50' : '#f44336' };
     return <span style={style}>{formatted}</span>;
   };
 
@@ -578,12 +642,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             </div>
 
             <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
                 <input
                   type="checkbox"
                   checked={accountForm.isActive}
                   onChange={(e) => handleFormChange('isActive', e.target.checked)}
-                  style={{ marginRight: '8px' }}
                 />
                 Account is active
               </label>
@@ -705,7 +768,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                     </div>
                   )}
                   
-                  <div className="reasoning">{analysisResult.reasoning}</div>
+                  <div className="reasoning">{sanitizeReasoning(analysisResult.reasoning)}</div>
                 </AnalysisResult>
 
                 {analysisResult.confidence >= 0.3 && (
@@ -806,14 +869,19 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                 )}
 
                 {analysisResult.confidence < 0.3 && (
-                  <div className="form-actions">
+                  <>
+                    <div style={{ color: '#666', marginBottom: 12 }}>
+                      Tip: If this was a PDF or image, the browser may not expose full text. Try uploading a CSV/Excel export from your bank for better results, or create the account manually below.
+                    </div>
+                    <div className="form-actions">
                     <Button variant="outline" onClick={() => setShowStatementUpload(false)}>
                       Close
                     </Button>
                     <Button onClick={handleAddAccount}>
                       Create Account Manually
                     </Button>
-                  </div>
+                    </div>
+                  </>
                 )}
               </>
             )}
