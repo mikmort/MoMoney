@@ -251,7 +251,7 @@ Date: ${request.date}`;
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 200,
-        temperature: 0.1
+  temperature: 0
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 300 });
@@ -364,10 +364,12 @@ ${subs}
 
       const items = requests.map((r, idx) => ({ index: idx, description: r.transactionText, amount: r.amount, date: r.date }));
 
-      const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
-Return ONLY a JSON array with the EXACT SAME NUMBER OF ITEMS as the input list, in the SAME ORDER.
-Each element must strictly match and you may include an "index" copied from the input to preserve order.
-Fields: { categoryId, subcategoryId (or null), confidence (0-1), reasoning }.
+  const expectedCount = requests.length;
+  const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
+You MUST respond with ONLY a single JSON array on the first line. The FIRST character of your reply must be '[' and the LAST character must be ']'.
+Do NOT include any prose, explanations, markdown fences, or keys like "+results+" or "+items+". Do NOT include backticks.
+The array MUST contain EXACTLY ${expectedCount} elements, in the SAME ORDER as the input. You may include an "index" copied from the input to preserve order.
+Each element object must have fields: { categoryId, subcategoryId (or null), confidence (0-1), reasoning }.
 Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set subcategoryId=null; if uncertain set categoryId="uncategorized" and confidence<=0.3.`;
 
       const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same "index" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
@@ -379,7 +381,7 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 1000,
-        temperature: 0.1
+  temperature: 0
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 500 });
@@ -390,28 +392,103 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
 
       const cleaned = this.cleanAIResponse(responseContent);
 
-      const tryParseArray = (text: string): any[] | null => {
-        // Fast path: strict JSON
-        try {
-          const j = JSON.parse(text);
-          if (Array.isArray(j)) return j;
-          if (j && Array.isArray((j as any).results)) return (j as any).results;
-          if (j && Array.isArray((j as any).items)) return (j as any).items;
-        } catch {}
-        // Extract first JSON array
-        const start = text.indexOf('[');
-        const end = text.lastIndexOf(']');
-        if (start !== -1 && end !== -1 && end > start) {
-          const slice = text.slice(start, end + 1);
-          try {
-            const j = JSON.parse(slice);
-            if (Array.isArray(j)) return j;
-          } catch {}
+      const normalizeJsonLike = (s: string) => s
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/\r\n/g, '\n');
+
+      const stripTrailingCommas = (s: string) => s
+        // remove trailing commas before } or ]
+        .replace(/,\s*([}\]])/g, '$1');
+
+      const findBalancedArraySlice = (text: string): string | null => {
+        const n = text.length;
+        let inStr = false;
+        let esc = false;
+        let depth = 0;
+        let startIdx = -1;
+        for (let i = 0; i < n; i++) {
+          const ch = text[i];
+          if (inStr) {
+            if (!esc && ch === '"') inStr = false;
+            esc = ch === '\\' ? !esc : false;
+            continue;
+          }
+          if (ch === '"') { inStr = true; esc = false; continue; }
+          if (ch === '[') {
+            if (depth === 0) startIdx = i;
+            depth++;
+          } else if (ch === ']') {
+            depth--;
+            if (depth === 0 && startIdx !== -1) {
+              return text.slice(startIdx, i + 1);
+            }
+          }
         }
         return null;
       };
 
-      let parsed: any[] | null = tryParseArray(cleaned);
+      const assembleObjectsIfAny = (text: string): any[] | null => {
+        // Attempt to collect top-level JSON objects and make an array
+        const n = text.length;
+        let inStr = false;
+        let esc = false;
+        let depth = 0;
+        let start = -1;
+        const objs: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const ch = text[i];
+          if (inStr) {
+            if (!esc && ch === '"') inStr = false;
+            esc = ch === '\\' ? !esc : false;
+            continue;
+          }
+          if (ch === '"') { inStr = true; esc = false; continue; }
+          if (ch === '{') {
+            if (depth === 0) start = i;
+            depth++;
+          } else if (ch === '}') {
+            depth--;
+            if (depth === 0 && start !== -1) {
+              objs.push(text.slice(start, i + 1));
+              start = -1;
+            }
+          }
+        }
+        if (!objs.length) return null;
+        try {
+          const parsed = objs.map(o => JSON.parse(stripTrailingCommas(normalizeJsonLike(o))));
+          return parsed;
+        } catch { return null; }
+      };
+
+      const tryParseArray = (text: string, expectedLen: number): any[] | null => {
+        const norm = stripTrailingCommas(normalizeJsonLike(text.trim()))
+          // remove code fences if any slipped through
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```\s*$/, '');
+        // Fast path: strict JSON
+        try {
+          const j = JSON.parse(norm);
+          if (Array.isArray(j)) return j;
+          if (j && Array.isArray((j as any).results)) return (j as any).results;
+          if (j && Array.isArray((j as any).items)) return (j as any).items;
+        } catch {}
+        // Balanced array slice
+        const slice = findBalancedArraySlice(norm);
+        if (slice) {
+          try {
+            const j = JSON.parse(stripTrailingCommas(slice));
+            if (Array.isArray(j)) return j;
+          } catch {}
+        }
+        // Assemble from objects if present and length matches or at least >0
+        const objs = assembleObjectsIfAny(norm);
+        if (objs && (objs.length === expectedLen || objs.length > 0)) return objs;
+        return null;
+      };
+
+  let parsed: any[] | null = tryParseArray(cleaned, expectedCount);
       if (!parsed) {
         // If parsing fails, first try to reduce load by splitting the batch before falling back to singles
         if (requests.length > 1 && attempt <= 3) {
@@ -545,7 +622,7 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
       deployment: this.deploymentName,
       messages,
       max_tokens: options?.maxTokens || 500,
-      temperature: options?.temperature || 0.1
+  temperature: options?.temperature ?? 0
     };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 2, baseBackoffMs: 300 });
@@ -620,7 +697,7 @@ ${JSON.stringify(transactionData, null, 2)}`;
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 2000,
-        temperature: 0.2
+  temperature: 0
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
@@ -705,7 +782,7 @@ ${JSON.stringify(transactionData, null, 2)}`;
           { role: 'user', content: prompt }
         ],
         max_tokens: maxTokens,
-        temperature: 0.1
+  temperature: 0
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
@@ -836,7 +913,7 @@ Extract the account information following the security guidelines.`;
           { role: 'user', content: userPrompt }
         ],
         max_tokens: 500,
-        temperature: 0.1
+  temperature: 0
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 350 });
