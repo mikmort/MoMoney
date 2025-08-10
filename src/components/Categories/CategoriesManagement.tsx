@@ -87,6 +87,13 @@ const CategoriesContainer = styled.div`
     }
   }
 
+  /* Ensure Actions column cells are vertically centered */
+  .ag-cell:last-child {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
   /* Match the actions cell styling from transactions */
   .actions-cell button {
     outline: none !important;
