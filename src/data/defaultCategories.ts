@@ -214,7 +214,8 @@ export const defaultCategories: Category[] = [
     icon: '❓',
     subcategories: [
       { id: 'uncategorized-misc', name: 'Miscellaneous', description: 'Uncategorized expenses' },
-      { id: 'uncategorized-pending', name: 'Pending Review', description: 'Transactions needing manual review' }
+  { id: 'uncategorized-pending', name: 'Pending Review', description: 'Transactions needing manual review' },
+  { id: 'uncategorized-cash-withdrawal', name: 'Cash Withdrawal', description: 'ATM or cash withdrawal expenses', keywords: ['cash withdrawal', 'atm withdrawal', 'atm', 'withdrawal', 'cash'] }
     ]
   },
 
