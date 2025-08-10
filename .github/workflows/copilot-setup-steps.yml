@@ -50,7 +50,7 @@ jobs:
       - name: Warm build cache
         run: |
           echo "Warming build caches..."
-          CI=false npm run build
+          npm run build
           echo "Build cache warmed successfully"
 
       - name: Warm test cache

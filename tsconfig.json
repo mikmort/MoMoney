@@ -20,6 +20,8 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "downlevelIteration": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./tsconfig.tsbuildinfo",
     "types": [
       "jest",
       "node"
@@ -27,5 +29,10 @@
   },
   "include": [
     "src"
+  ],
+  "exclude": [
+    "node_modules",
+    "build",
+    "tsconfig.tsbuildinfo"
   ]
 }
