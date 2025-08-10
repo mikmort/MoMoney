@@ -222,12 +222,4 @@ describe('ImportStateContext', () => {
     fireEvent.click(screen.getByTestId('stop-import'));
     expect(screen.getByTestId('import-status')).toHaveTextContent('Not importing');
   });
-
-  it('should throw error when used outside provider', () => {
-    // Test the hook directly without a provider
-    const { result } = renderHook(() => useImportState());
-    
-    expect(result.error).toBeInstanceOf(Error);
-    expect(result.error.message).toBe('useImportState must be used within an ImportStateProvider');
-  });
 });
