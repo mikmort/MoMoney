@@ -5,6 +5,7 @@ import { Transaction } from '../../types';
 import { TransferMatch } from '../../services/transferMatchingService';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
 import { dataService } from '../../services/dataService';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 const TransferMatchesContainer = styled.div`
   .stats-bar {
@@ -291,6 +292,21 @@ export const TransferMatchesPage: React.FC = () => {
     getUnmatchedTransfers
   } = useTransferMatching();
 
+  const AmountText: React.FC<{ tx: Transaction }> = ({ tx }) => {
+    const [text, setText] = useState<string>('');
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        await currencyDisplayService.initialize();
+        const info = await currencyDisplayService.formatTransactionAmount(tx);
+        const s = info.displayAmount + (info.approxConvertedDisplay ? ` ${info.approxConvertedDisplay}` : '');
+        if (mounted) setText(s);
+      })();
+      return () => { mounted = false; };
+    }, [tx]);
+    return <>{text}</>;
+  };
+
   const loadData = useCallback(async () => {
     try {
       const allTransactions = await dataService.getAllTransactions();
@@ -389,12 +405,7 @@ export const TransferMatchesPage: React.FC = () => {
     return 'low';
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
+  // Deprecated local formatter removed in favor of currencyDisplayService
 
   const validateManualMatch = () => {
     if (!selectedSource || !selectedTarget) return null;
@@ -501,7 +512,7 @@ export const TransferMatchesPage: React.FC = () => {
                   <option value="">Select source transaction...</option>
                   {availableForManualMatch.map(tx => (
                     <option key={tx.id} value={tx.id}>
-                      {tx.description} - {tx.account} - {formatCurrency(tx.amount)} ({tx.date.toLocaleDateString()})
+                      {tx.description} - {tx.account} - <AmountText tx={tx} /> ({tx.date.toLocaleDateString()})
                     </option>
                   ))}
                 </select>
@@ -519,7 +530,7 @@ export const TransferMatchesPage: React.FC = () => {
                     .filter(tx => tx.id !== selectedSource && tx.account !== transactions.find(t => t.id === selectedSource)?.account)
                     .map(tx => (
                       <option key={tx.id} value={tx.id}>
-                        {tx.description} - {tx.account} - {formatCurrency(tx.amount)} ({tx.date.toLocaleDateString()})
+                        {tx.description} - {tx.account} - <AmountText tx={tx} /> ({tx.date.toLocaleDateString()})
                       </option>
                     ))}
                 </select>
@@ -569,7 +580,7 @@ export const TransferMatchesPage: React.FC = () => {
                           <div className="description">{sourceTx.description}</div>
                           <div className="meta">
                             <div><strong>Account:</strong> {sourceTx.account}</div>
-                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}>{formatCurrency(sourceTx.amount)}</span></div>
+                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={sourceTx} /></span></div>
                             <div><strong>Date:</strong> {sourceTx.date.toLocaleDateString()}</div>
                           </div>
                         </div>
@@ -580,7 +591,7 @@ export const TransferMatchesPage: React.FC = () => {
                           <div className="description">{targetTx.description}</div>
                           <div className="meta">
                             <div><strong>Account:</strong> {targetTx.account}</div>
-                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}>{formatCurrency(targetTx.amount)}</span></div>
+                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={targetTx} /></span></div>
                             <div><strong>Date:</strong> {targetTx.date.toLocaleDateString()}</div>
                           </div>
                         </div>
@@ -636,7 +647,7 @@ export const TransferMatchesPage: React.FC = () => {
                           <div className="description">{sourceTx.description}</div>
                           <div className="meta">
                             <div><strong>Account:</strong> {sourceTx.account}</div>
-                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}>{formatCurrency(sourceTx.amount)}</span></div>
+                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={sourceTx} /></span></div>
                             <div><strong>Date:</strong> {sourceTx.date.toLocaleDateString()}</div>
                           </div>
                         </div>
@@ -647,7 +658,7 @@ export const TransferMatchesPage: React.FC = () => {
                           <div className="description">{targetTx.description}</div>
                           <div className="meta">
                             <div><strong>Account:</strong> {targetTx.account}</div>
-                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}>{formatCurrency(targetTx.amount)}</span></div>
+                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={targetTx} /></span></div>
                             <div><strong>Date:</strong> {targetTx.date.toLocaleDateString()}</div>
                           </div>
                         </div>

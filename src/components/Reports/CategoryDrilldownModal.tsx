@@ -3,7 +3,20 @@ import styled from 'styled-components';
 import { Line } from 'react-chartjs-2';
 import { Card } from '../../styles/globalStyles';
 import { reportsService, CategoryDeepDive, DateRange } from '../../services/reportsService';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { Modal } from '../shared/Modal';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, PointElement, LineElement } from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement
+);
 
 const StatsGrid = styled.div`
   display: grid;
@@ -99,10 +112,14 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     loadCategoryData();
   }, [categoryName, dateRange]);
 
+  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
+  useEffect(() => {
+    (async () => setDefaultCurrency(await currencyDisplayService.getDefaultCurrency()))();
+  }, []);
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD'
+      currency: defaultCurrency
     }).format(amount);
   };
 

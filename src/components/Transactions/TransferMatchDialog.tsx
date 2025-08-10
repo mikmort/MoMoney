@@ -4,6 +4,7 @@ import { Button } from '../../styles/globalStyles';
 import { Transaction } from '../../types';
 import { TransferMatch } from '../../services/transferMatchingService';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 const ModalOverlay = styled.div`
   position: fixed;
@@ -262,6 +263,48 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     manuallyMatchTransfers
   } = useTransferMatching();
 
+  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
+
+  useEffect(() => {
+    (async () => {
+      await currencyDisplayService.initialize();
+      const dc = await currencyDisplayService.getDefaultCurrency();
+      setDefaultCurrency(dc);
+    })();
+  }, []);
+
+  const AmountText: React.FC<{ tx: Transaction }> = ({ tx }) => {
+    const [text, setText] = useState<string>('');
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        const info = await currencyDisplayService.formatTransactionAmount(tx);
+        const s = info.displayAmount + (info.approxConvertedDisplay ? ` ${info.approxConvertedDisplay}` : '');
+        if (mounted) setText(s);
+      })();
+      return () => { mounted = false; };
+    }, [tx]);
+    return <>{text}</>;
+  };
+
+  const AmountDifference: React.FC<{ a: Transaction; b: Transaction }> = ({ a, b }) => {
+    const [text, setText] = useState<string>('');
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        const [ac, bc] = await Promise.all([
+          currencyDisplayService.convertTransactionAmount(a),
+          currencyDisplayService.convertTransactionAmount(b)
+        ]);
+        const diff = Math.abs(Math.abs(ac.amount) - Math.abs(bc.amount));
+        const formatted = await currencyDisplayService.formatAmount(diff, defaultCurrency);
+        if (mounted) setText(formatted);
+      })();
+      return () => { mounted = false; };
+    }, [a, b, defaultCurrency]);
+    return <>{text ? ` • ≈ ${text} difference` : ''}</>;
+  };
+
   const loadMatches = useCallback(async () => {
     if (!transaction) return;
 
@@ -342,12 +385,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     return 'low';
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
+  // Deprecated local formatter removed in favor of currencyDisplayService
 
   const validateManualMatch = () => {
     if (!transaction || !selectedTransactionForManualMatch) return null;
@@ -386,7 +424,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
         <TransactionInfo $amount={transaction.amount}>
           <div className="transaction-description">{transaction.description}</div>
           <div className="transaction-details">
-            <div><strong>Amount:</strong> <span className="amount">{formatCurrency(transaction.amount)}</span></div>
+            <div><strong>Amount:</strong> <span className="amount"><AmountText tx={transaction} /></span></div>
             <div><strong>Account:</strong> {transaction.account}</div>
             <div><strong>Date:</strong> {transaction.date.toLocaleDateString()}</div>
             <div><strong>Type:</strong> Transfer</div>
@@ -425,12 +463,12 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
                     <div className="matched-transaction" >
                       <div className="description">{matchedTx.description}</div>
                       <div className="account">{matchedTx.account}</div>
-                      <div className={`amount ${matchedTx.amount > 0 ? 'positive' : 'negative'}`}>{formatCurrency(matchedTx.amount)}</div>
+                      <div className={`amount ${matchedTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={matchedTx} /></div>
                       <div className="date">{matchedTx.date.toLocaleDateString()}</div>
                     </div>
                     <div className="match-details">
                       {match.reasoning} • {match.dateDifference} days apart
-                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} difference`}
+                      <AmountDifference a={transaction} b={matchedTx} />
                     </div>
                     <div className="match-actions">
                       <Button
@@ -478,12 +516,12 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
                     <div className="matched-transaction" >
                       <div className="description">{matchedTx.description}</div>
                       <div className="account">{matchedTx.account}</div>
-                      <div className={`amount ${matchedTx.amount > 0 ? 'positive' : 'negative'}`}>{formatCurrency(matchedTx.amount)}</div>
+                      <div className={`amount ${matchedTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={matchedTx} /></div>
                       <div className="date">{matchedTx.date.toLocaleDateString()}</div>
                     </div>
                     <div className="match-details">
                       {match.reasoning} • {match.dateDifference} days apart
-                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} difference`}
+                      <AmountDifference a={transaction} b={matchedTx} />
                     </div>
                     <div className="match-actions">
                       <Button
@@ -513,7 +551,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
                   <option value="">Select a transaction to match with...</option>
                   {availableTransactionsForManualMatch.map(tx => (
                     <option key={tx.id} value={tx.id}>
-                      {tx.description} - {tx.account} - {formatCurrency(tx.amount)} - {tx.date.toLocaleDateString()}
+                      {tx.description} - {tx.account} - <AmountText tx={tx} /> - {tx.date.toLocaleDateString()}
                     </option>
                   ))}
                 </select>
@@ -529,9 +567,9 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
             {validation && (
               <div className={`amount-validation ${validation.isValid ? 'valid' : 'invalid'}`}>
                 {validation.isValid ? (
-                  <span>✅ Amounts match within tolerance (${validation.amountDiff.toFixed(2)} difference)</span>
+                  <span>✅ Amounts match within tolerance</span>
                 ) : (
-                  <span>⚠️ Amount difference is significant (${validation.amountDiff.toFixed(2)}). This may not be a transfer match.</span>
+                  <span>⚠️ Amount difference is significant. This may not be a transfer match.</span>
                 )}
               </div>
             )}

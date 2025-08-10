@@ -14,6 +14,7 @@ import {
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
 import CategoryDrilldownModal from './CategoryDrilldownModal';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 const ReportsContainer = styled.div`
   .date-range-selector {
@@ -261,10 +262,16 @@ const Reports: React.FC = () => {
     loadReportsData();
   }, [dateRangeType, customDateRange, getCurrentDateRange]);
 
+  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
+  useEffect(() => {
+    (async () => {
+      setDefaultCurrency(await currencyDisplayService.getDefaultCurrency());
+    })();
+  }, []);
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD'
+      currency: defaultCurrency
     }).format(amount);
   };
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { CollapsedTransfer, Transaction, TransferDisplayOptions } from '../../types';
 import { CollapsedTransferRow } from './CollapsedTransferRow';
 import { Card, Button, FlexBox } from '../../styles/globalStyles';
@@ -145,6 +146,27 @@ export const TransferList: React.FC<TransferListProps> = ({
 
   const unmatchedTransfers = allTransfers.filter(tx => !tx.reimbursementId);
 
+  // React cell renderer for amounts using currencyDisplayService
+  const AmountCell: React.FC<any> = (props) => {
+    const tx = props.data as Transaction;
+    const [display, setDisplay] = React.useState<string>('');
+    React.useEffect(() => {
+      let mounted = true;
+      (async () => {
+        try {
+          const info = await currencyDisplayService.formatTransactionAmount(tx as any);
+          const text = info.displayAmount + (info.approxConvertedDisplay ? ` ${info.approxConvertedDisplay}` : '');
+          if (mounted) setDisplay(text);
+        } catch (e) {
+          if (mounted) setDisplay('');
+        }
+      })();
+      return () => { mounted = false; };
+    }, [tx]);
+    const color = tx.amount >= 0 ? '#28a745' : '#dc3545';
+    return <span style={{ fontWeight: 600, color, display: 'inline-block', width: '100%', textAlign: 'right' }}>{display}</span>;
+  };
+
   const transferColumnDefs: ColDef<Transaction>[] = [
     {
       headerName: 'Date',
@@ -171,30 +193,18 @@ export const TransferList: React.FC<TransferListProps> = ({
     {
       headerName: 'Amount',
       field: 'amount',
-      width: 120,
-      cellStyle: (params) => ({
-        textAlign: 'right',
-        fontWeight: '600',
-        color: params.value >= 0 ? '#28a745' : '#dc3545'
-      }),
-      valueFormatter: (params) => {
-        return new Intl.NumberFormat('en-US', {
-          style: 'currency',
-          currency: 'USD'
-        }).format(params.value);
-      }
+      width: 200,
+      cellRenderer: AmountCell
     },
     {
       headerName: 'Match Status',
       field: 'reimbursementId',
       width: 120,
-      cellRenderer: (params: any) => {
-        if (params.value) {
-          return '<span style="color: #28a745; font-weight: 500;">✓ Matched</span>';
-        } else {
-          return '<span style="color: #ffc107; font-weight: 500;">⚠ Unmatched</span>';
-        }
-      }
+      cellRenderer: (params: any) => (
+        <span style={{ fontWeight: 500, color: params.value ? '#28a745' : '#ffc107' }}>
+          {params.value ? '✓ Matched' : '⚠ Unmatched'}
+        </span>
+      )
     }
   ];
 

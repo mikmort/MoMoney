@@ -1,9 +1,12 @@
 import { Transaction, DashboardStats } from '../types';
 import { dataService } from './dataService';
+import { currencyDisplayService } from './currencyDisplayService';
 
 class DashboardService {
   async getDashboardStats(): Promise<DashboardStats> {
-    const transactions = await dataService.getAllTransactions();
+  const transactions = await dataService.getAllTransactions();
+  // Convert all transactions to user's default currency for aggregations
+  const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
     
     if (transactions.length === 0) {
       return {
@@ -26,7 +29,7 @@ class DashboardService {
     // Calculate monthly trends (last 12 months)
     const monthlyData: { [monthKey: string]: { income: number; expenses: number } } = {};
     
-    transactions.forEach(transaction => {
+  converted.forEach(transaction => {
       // Skip transfer transactions in financial calculations
       if (transaction.type === 'transfer') {
         return;
@@ -71,7 +74,7 @@ class DashboardService {
       }));
     
     // Get monthly trend for last 12 months
-    const monthlyTrend = Object.entries(monthlyData)
+  const monthlyTrend = Object.entries(monthlyData)
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(-12) // Last 12 months
       .map(([monthKey, data]) => {
@@ -90,7 +93,7 @@ class DashboardService {
       totalIncome,
       totalExpenses,
       netIncome: totalIncome - totalExpenses,
-      transactionCount: transactions.filter(t => t.type !== 'transfer').length, // Exclude transfers from count
+  transactionCount: converted.filter(t => t.type !== 'transfer').length, // Exclude transfers from count
       topCategories,
       monthlyTrend
     };

@@ -163,9 +163,9 @@ const Dashboard: React.FC = () => {
         // Format the main stats
         if (stats) {
           const [totalIncomeFormatted, totalExpensesFormatted, netIncomeFormatted] = await Promise.all([
-            currencyDisplayService.formatAmount(stats.totalIncome),
-            currencyDisplayService.formatAmount(stats.totalExpenses),
-            currencyDisplayService.formatAmount(stats.netIncome)
+            currencyDisplayService.formatAmount(stats.totalIncome, currency),
+            currencyDisplayService.formatAmount(stats.totalExpenses, currency),
+            currencyDisplayService.formatAmount(stats.netIncome, currency)
           ]);
           
           setFormattedStats({
@@ -313,7 +313,6 @@ const Dashboard: React.FC = () => {
                       beginAtZero: true,
                       ticks: {
                         callback: function(value) {
-                          // Use the user's default currency symbol
                           const symbol = defaultCurrency === 'EUR' ? '€' : 
                                         defaultCurrency === 'GBP' ? '£' : 
                                         defaultCurrency === 'JPY' ? '¥' : '$';

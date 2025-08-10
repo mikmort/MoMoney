@@ -234,10 +234,14 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   );
 
   const ActionsRenderer: React.FC<any> = (params) => (
-    <div style={{ display: 'flex', gap: '4px' }}>
+    <div style={{ display: 'flex', gap: '4px', alignItems: 'center', height: '100%' }}>
       <button
         className="edit-account-btn"
         data-id={params.data.id}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleEditAccount(params.data.id);
+        }}
         style={{ 
           padding: '4px 8px', 
           border: '1px solid #ddd', 
@@ -252,6 +256,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       <button
         className="delete-account-btn"
         data-id={params.data.id}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleDeleteAccount(params.data.id);
+        }}
         style={{ 
           padding: '4px 8px', 
           border: '1px solid #dc3545', 
@@ -305,20 +313,13 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     {
       headerName: 'Actions',
       width: 140,
-      cellRenderer: ActionsRenderer
+      cellRenderer: ActionsRenderer,
+      cellStyle: { display: 'flex', alignItems: 'center' }
     }
   ];
 
-  const onGridReady = (params: any) => {
-    params.api.addEventListener('cellClicked', (event: any) => {
-      if (event.event.target.classList.contains('edit-account-btn')) {
-        const accountId = event.event.target.dataset.id;
-        handleEditAccount(accountId);
-      } else if (event.event.target.classList.contains('delete-account-btn')) {
-        const accountId = event.event.target.dataset.id;
-        handleDeleteAccount(accountId);
-      }
-    });
+  const onGridReady = (_params: any) => {
+    // No-op; actions are bound directly on buttons to avoid event delegation issues
   };
 
   return (

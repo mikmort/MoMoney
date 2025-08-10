@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { CollapsedTransfer } from '../../types';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 const CollapsedTransferRowWrapper = styled.div<{ isExpanded: boolean }>`
   background-color: #f8f9fa;
@@ -190,11 +191,15 @@ export const CollapsedTransferRow: React.FC<CollapsedTransferRowProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
+  const TransactionAmount: React.FC<{ amount: number; tx: { amount: number; originalCurrency?: string } & any }>= ({ amount, tx }) => {
+    const [text, setText] = React.useState('');
+    React.useEffect(() => {
+      (async () => {
+        const info = await currencyDisplayService.formatTransactionAmount(tx as any);
+        setText(info.displayAmount + (info.approxConvertedDisplay ? ` ${info.approxConvertedDisplay}` : ''));
+      })();
+    }, [amount, tx]);
+    return <>{text}</>;
   };
 
   const formatDate = (date: Date) => {
@@ -230,7 +235,7 @@ export const CollapsedTransferRow: React.FC<CollapsedTransferRowProps> = ({
             <span>{transfer.targetAccount}</span>
           </div>
         </div>
-        <div className="amount">{formatAmount(transfer.amount)}</div>
+  <div className="amount"><TransactionAmount amount={transfer.amount} tx={transfer as any} /></div>
         <div className="confidence">{getConfidenceLabel(transfer.confidence)}</div>
         <div className="expand-icon">▶</div>
       </div>
@@ -243,7 +248,7 @@ export const CollapsedTransferRow: React.FC<CollapsedTransferRowProps> = ({
               <div className="desc">{transfer.sourceTransaction.description}</div>
               <div className="account">{transfer.sourceTransaction.account}</div>
               <div className={`amount negative`}>
-                {formatAmount(transfer.sourceTransaction.amount)}
+                <TransactionAmount amount={transfer.sourceTransaction.amount} tx={transfer.sourceTransaction as any} />
               </div>
               <div className="confidence">
                 {Math.round((transfer.sourceTransaction.confidence || 0) * 100)}%
@@ -253,7 +258,7 @@ export const CollapsedTransferRow: React.FC<CollapsedTransferRowProps> = ({
               <div className="desc">{transfer.targetTransaction.description}</div>
               <div className="account">{transfer.targetTransaction.account}</div>
               <div className={`amount positive`}>
-                {formatAmount(transfer.targetTransaction.amount)}
+                <TransactionAmount amount={transfer.targetTransaction.amount} tx={transfer.targetTransaction as any} />
               </div>
               <div className="confidence">
                 {Math.round((transfer.targetTransaction.confidence || 0) * 100)}%
@@ -270,10 +275,10 @@ export const CollapsedTransferRow: React.FC<CollapsedTransferRowProps> = ({
               <div className="label">Match Confidence</div>
               <div className="value">{getConfidenceLabel(transfer.confidence)}</div>
             </div>
-            {transfer.amountDifference && transfer.amountDifference > 0 && (
+      {transfer.amountDifference && transfer.amountDifference > 0 && (
               <div className="info-item">
                 <div className="label">Amount Difference</div>
-                <div className="value">{formatAmount(transfer.amountDifference)}</div>
+        <div className="value"><TransactionAmount amount={transfer.amountDifference} tx={{ amount: transfer.amountDifference, originalCurrency: transfer.sourceTransaction.originalCurrency }} /></div>
               </div>
             )}
             {transfer.exchangeRate && (
