@@ -11,15 +11,16 @@ import LoginPage from './components/Auth/LoginPage';
 import { GlobalStyles, lightTheme } from './styles/globalStyles';
 
 // Lazy load heavy components to reduce initial bundle size
-const Dashboard = lazy(() => import('./components/Dashboard/Dashboard'));
-const Transactions = lazy(() => import('./components/Transactions/Transactions'));
-const Rules = lazy(() => import('./components/Rules/Rules'));
-const Budgets = lazy(() => import('./components/Budgets/Budgets'));
-const Reports = lazy(() => import('./components/Reports/Reports'));
-const Settings = lazy(() => import('./components/Settings/Settings'));
-const CategoriesManagement = lazy(() => import('./components/Categories/CategoriesManagement'));
-const TransferMatchesPage = lazy(() => import('./components/Transactions/TransferMatchesPage').then(module => ({ default: module.TransferMatchesPage })));
-const Accounts = lazy(() => import('./components/Accounts/Accounts'));
+import { lazyWithRetry } from './utils/lazyWithRetry';
+const Dashboard = lazyWithRetry(() => import('./components/Dashboard/Dashboard'));
+const Transactions = lazyWithRetry(() => import('./components/Transactions/Transactions'));
+const Rules = lazyWithRetry(() => import('./components/Rules/Rules'));
+const Budgets = lazyWithRetry(() => import('./components/Budgets/Budgets'));
+const Reports = lazyWithRetry(() => import('./components/Reports/Reports'));
+const Settings = lazyWithRetry(() => import('./components/Settings/Settings'));
+const CategoriesManagement = lazyWithRetry(() => import('./components/Categories/CategoriesManagement'));
+const TransferMatchesPage = lazyWithRetry(() => import('./components/Transactions/TransferMatchesPage').then(module => ({ default: module.TransferMatchesPage })));
+const Accounts = lazyWithRetry(() => import('./components/Accounts/Accounts'));
 
 // Initialize MSAL instance
 const msalInstance = new PublicClientApplication(msalConfig);
