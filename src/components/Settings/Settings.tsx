@@ -5,7 +5,6 @@ import { defaultConfig } from '../../config/appConfig';
 import { dataService } from '../../services/dataService';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { simplifiedImportExportService } from '../../services/simplifiedImportExportService';
-import { AccountsManagement } from './AccountsManagement';
 import { UserPreferences } from '../../types';
 
 const DangerZone = styled.div`
@@ -313,10 +312,6 @@ const Settings: React.FC = () => {
             </SaveButton>
           </PreferencesForm>
         )}
-      </Card>
-
-      <Card>
-        <AccountsManagement />
       </Card>
 
       <Card>
