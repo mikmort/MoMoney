@@ -1,5 +1,5 @@
-import React, { Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense } from 'react';
+import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
 import { MsalProvider, AuthenticatedTemplate, UnauthenticatedTemplate } from '@azure/msal-react';
 import { PublicClientApplication } from '@azure/msal-browser';
 import { msalConfig } from './config/authConfig';
@@ -39,50 +39,55 @@ const LoadingFallback: React.FC = () => (
   </div>
 );
 
-// Main app content with Suspense boundaries
-const AppContent: React.FC = () => (
+// Root layout for Data Router with Suspense + Outlet
+const RootLayout: React.FC = () => (
   <div style={{ display: 'flex', minHeight: '100vh' }}>
     <Navigation />
     <main style={{ flex: 1, padding: '20px', backgroundColor: '#f5f5f5' }}>
       <Suspense fallback={<LoadingFallback />}>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/transactions" element={<Transactions />} />
-          <Route path="/rules" element={<Rules />} />
-          <Route path="/accounts" element={<Accounts />} />
-          <Route path="/transfer-matches" element={<TransferMatchesPage />} />
-          <Route path="/categories" element={<CategoriesManagement />} />
-          <Route path="/budgets" element={<Budgets />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <Outlet />
       </Suspense>
     </main>
   </div>
 );
 
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <RootLayout />,
+    children: [
+      { index: true, element: <Dashboard /> },
+      { path: 'transactions', element: <Transactions /> },
+      { path: 'rules', element: <Rules /> },
+      { path: 'accounts', element: <Accounts /> },
+      { path: 'transfer-matches', element: <TransferMatchesPage /> },
+      { path: 'categories', element: <CategoriesManagement /> },
+      { path: 'budgets', element: <Budgets /> },
+      { path: 'reports', element: <Reports /> },
+      { path: 'settings', element: <Settings /> },
+      { path: '*', element: <Navigate to="/" replace /> },
+    ],
+  },
+]);
+
 const App: React.FC = () => {
   return (
     <ThemeProvider theme={lightTheme}>
       <GlobalStyles />
-      <Router>
-        {skipAuthentication ? (
-          // Development mode - bypass authentication
-          <AppContent />
-        ) : (
-          // Production mode - use MSAL
-          <MsalProvider instance={msalInstance}>
-            <AuthenticatedTemplate>
-              <AppContent />
-            </AuthenticatedTemplate>
-            
-            <UnauthenticatedTemplate>
-              <LoginPage />
-            </UnauthenticatedTemplate>
-          </MsalProvider>
-        )}
-      </Router>
+      {skipAuthentication ? (
+        // Development mode - bypass authentication
+  <RouterProvider router={router} future={{ v7_startTransition: true }} />
+      ) : (
+        // Production mode - use MSAL
+        <MsalProvider instance={msalInstance}>
+          <AuthenticatedTemplate>
+            <RouterProvider router={router} future={{ v7_startTransition: true }} />
+          </AuthenticatedTemplate>
+          <UnauthenticatedTemplate>
+            <LoginPage />
+          </UnauthenticatedTemplate>
+        </MsalProvider>
+      )}
     </ThemeProvider>
   );
 };
