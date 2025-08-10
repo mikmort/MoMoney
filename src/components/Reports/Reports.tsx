@@ -1,18 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { 
-  Chart as ChartJS, 
-  CategoryScale, 
-  LinearScale, 
-  BarElement, 
-  Title, 
-  Tooltip, 
-  Legend,
-  ArcElement,
-  PointElement,
-  LineElement,
-  TimeScale
-} from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
 import { PageHeader, Card, Grid, Badge } from '../../styles/globalStyles';
@@ -25,22 +12,9 @@ import {
   BurnRateAnalysis,
   DateRange 
 } from '../../services/reportsService';
+import { StatsCard } from '../shared/StatsCard';
 import CategoryDrilldownModal from './CategoryDrilldownModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
-
-// Register Chart.js components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
-  PointElement,
-  LineElement,
-  TimeScale
-);
 
 const ReportsContainer = styled.div`
   .date-range-selector {
@@ -62,41 +36,6 @@ const ReportsContainer = styled.div`
       gap: 10px;
       align-items: center;
     }
-  }
-`;
-
-const StatsCard = styled(Card)`
-  text-align: center;
-  
-  .amount {
-    font-size: 1.8rem;
-    font-weight: 600;
-    margin: 8px 0;
-    
-    &.positive {
-      color: #4caf50;
-    }
-    
-    &.negative {
-      color: #f44336;
-    }
-    
-    &.neutral {
-      color: #2196f3;
-    }
-  }
-  
-  .label {
-    color: #666;
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  
-  .percentage {
-    font-size: 0.8rem;
-    color: #888;
-    margin-top: 4px;
   }
 `;
 
