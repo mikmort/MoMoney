@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 import styled from 'styled-components';
 import { Transaction } from '../../types';
 import { Card } from '../../styles/globalStyles';
@@ -243,10 +244,14 @@ export const TransactionAnalytics: React.FC<TransactionAnalyticsProps> = ({ tran
     };
   }, [transactions]);
   
+  const [defaultCurrency, setDefaultCurrency] = React.useState<string>('USD');
+  React.useEffect(() => {
+    (async () => setDefaultCurrency(await currencyDisplayService.getDefaultCurrency()))();
+  }, []);
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD'
+      currency: defaultCurrency
     }).format(amount);
   };
   

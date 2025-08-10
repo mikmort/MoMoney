@@ -1,6 +1,7 @@
 import { Transaction } from '../types';
 import { userPreferencesService } from './userPreferencesService';
 import { currencyExchangeService } from './currencyExchangeService';
+import { accountManagementService } from './accountManagementService';
 
 class CurrencyDisplayService {
   private defaultCurrency: string = 'USD';
@@ -25,6 +26,23 @@ class CurrencyDisplayService {
     }
   }
 
+  // Resolve the most likely currency for a transaction when originalCurrency is missing
+  private resolveTransactionCurrency(transaction: Transaction): string {
+    // Priority: explicit originalCurrency -> account currency -> default currency
+    if (transaction.originalCurrency) return transaction.originalCurrency;
+
+    // Try to infer from the linked account (by id or name)
+    try {
+      const accounts = accountManagementService.getAccounts();
+      const acc = accounts.find(a => a.id === transaction.account || a.name === transaction.account);
+      if (acc?.currency) return acc.currency;
+    } catch {
+      // ignore
+    }
+
+    return this.defaultCurrency;
+  }
+
   /**
    * Convert a transaction amount to the user's default currency for display
    */
@@ -37,7 +55,8 @@ class CurrencyDisplayService {
   }> {
     await this.ensureInitialized();
 
-    const transactionCurrency = transaction.originalCurrency || 'USD';
+  // Use the original currency if present, otherwise infer from account, otherwise default currency
+  const transactionCurrency = this.resolveTransactionCurrency(transaction);
     
     // If already in the default currency, no conversion needed
     if (transactionCurrency === this.defaultCurrency) {
@@ -126,26 +145,40 @@ class CurrencyDisplayService {
     displayAmount: string;
     tooltip?: string;
     isConverted: boolean;
+    approxConvertedDisplay?: string; // e.g., (≈ -$217.80 USD)
   }> {
+    const defaultCurrencyCode = await this.getDefaultCurrency();
     const conversionResult = await this.convertTransactionAmount(transaction);
-    const displayAmount = await this.formatAmount(conversionResult.amount);
-    
+
+    // Always show the ORIGINAL amount/currency as the primary display
+    const originalAmount = conversionResult.originalAmount ?? transaction.amount;
+    const originalCurrency = conversionResult.originalCurrency 
+      ?? transaction.originalCurrency 
+      ?? this.resolveTransactionCurrency(transaction);
+    const displayAmount = await this.formatAmount(originalAmount, originalCurrency);
+
+    // If no conversion happened (either already in default currency or conversion failed), return primary only
     if (!conversionResult.isConverted) {
+      // If the original currency differs from default but we couldn't convert, still show original without approx
+      if (originalCurrency !== defaultCurrencyCode) {
+        return { displayAmount, isConverted: false };
+      }
+      // Original equals default
       return { displayAmount, isConverted: false };
     }
 
-    // Create tooltip showing original amount and exchange rate
-    const originalFormatted = await this.formatAmount(
-      conversionResult.originalAmount!,
-      conversionResult.originalCurrency
-    );
-    
+    // We did convert for display purposes — build tooltip and approx text
+    const originalFormatted = await this.formatAmount(originalAmount, originalCurrency);
     const tooltip = `Original: ${originalFormatted} (Rate: ${conversionResult.exchangeRate?.toFixed(4) || 'N/A'})`;
+
+    const approx = await this.formatAmount(conversionResult.amount, defaultCurrencyCode);
+    const approxConvertedDisplay = `≈ ${approx} ${defaultCurrencyCode}`;
 
     return {
       displayAmount,
       tooltip,
-      isConverted: true
+      isConverted: true,
+      approxConvertedDisplay
     };
   }
 
@@ -200,7 +233,7 @@ class CurrencyDisplayService {
     const byCurrency = new Map<string, Transaction[]>();
     
     for (const transaction of transactions) {
-      const currency = transaction.originalCurrency || 'USD';
+  const currency = this.resolveTransactionCurrency(transaction);
       if (!byCurrency.has(currency)) {
         byCurrency.set(currency, []);
       }

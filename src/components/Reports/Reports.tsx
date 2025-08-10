@@ -26,6 +26,7 @@ import {
   DateRange 
 } from '../../services/reportsService';
 import CategoryDrilldownModal from './CategoryDrilldownModal';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 // Register Chart.js components
 ChartJS.register(
@@ -322,10 +323,16 @@ const Reports: React.FC = () => {
     loadReportsData();
   }, [dateRangeType, customDateRange, getCurrentDateRange]);
 
+  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
+  useEffect(() => {
+    (async () => {
+      setDefaultCurrency(await currencyDisplayService.getDefaultCurrency());
+    })();
+  }, []);
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD'
+      currency: defaultCurrency
     }).format(amount);
   };
 

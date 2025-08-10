@@ -580,6 +580,7 @@ const AmountCellRenderer = (params: any) => {
     displayAmount: string;
     tooltip?: string;
     isConverted: boolean;
+    approxConvertedDisplay?: string;
   }>({ displayAmount: '$0.00', isConverted: false });
   
   const amount = params.value;
@@ -598,14 +599,25 @@ const AmountCellRenderer = (params: any) => {
         setDisplayInfo(result);
       } catch (error) {
         console.error('Error formatting currency:', error);
-        // Fallback to basic USD formatting
-        setDisplayInfo({
-          displayAmount: new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD'
-          }).format(amount),
-          isConverted: false
-        });
+        // Fallback to basic formatting using default currency when available
+        try {
+          const fallbackCurrency = await currencyDisplayService.getDefaultCurrency();
+          setDisplayInfo({
+            displayAmount: new Intl.NumberFormat('en-US', {
+              style: 'currency',
+              currency: fallbackCurrency || 'USD'
+            }).format(amount),
+            isConverted: false
+          });
+        } catch {
+          setDisplayInfo({
+            displayAmount: new Intl.NumberFormat('en-US', {
+              style: 'currency',
+              currency: 'USD'
+            }).format(amount),
+            isConverted: false
+          });
+        }
       }
     };
     
@@ -624,17 +636,17 @@ const AmountCellRenderer = (params: any) => {
       }}
     >
       {displayInfo.displayAmount}
-      {displayInfo.isConverted && (
+      {displayInfo.isConverted && displayInfo.approxConvertedDisplay && (
         <span 
           style={{ 
-            marginLeft: '4px', 
-            fontSize: '10px',
+            marginLeft: '6px', 
+            fontSize: '0.85em',
             color: '#666',
-            fontWeight: 'normal'
+            fontWeight: 500
           }}
           title={displayInfo.tooltip}
         >
-          🔄
+          ({displayInfo.approxConvertedDisplay})
         </span>
       )}
       {isAnomaly && (
@@ -649,6 +661,57 @@ const AmountCellRenderer = (params: any) => {
           title={`Anomaly detected: ${anomalyType} amount (${anomalyScore} std dev from average)`}
         >
           {anomalyType === 'high' ? '🔺' : '🔻'}
+        </span>
+      )}
+    </span>
+  );
+};
+
+// Inline amount display for anomaly panel using currencyDisplayService
+const AnomalyAmount: React.FC<{ tx: Transaction }> = ({ tx }) => {
+  const [displayInfo, setDisplayInfo] = useState<{
+    displayAmount: string;
+    approxConvertedDisplay?: string;
+    tooltip?: string;
+    isConverted: boolean;
+  }>({ displayAmount: '$0.00', isConverted: false });
+
+  React.useEffect(() => {
+    const run = async () => {
+      try {
+        await currencyDisplayService.initialize();
+        const result = await currencyDisplayService.formatTransactionAmount(tx);
+        setDisplayInfo(result);
+      } catch (e) {
+        try {
+          const fallbackCurrency = await currencyDisplayService.getDefaultCurrency();
+          setDisplayInfo({
+            displayAmount: new Intl.NumberFormat('en-US', {
+              style: 'currency',
+              currency: fallbackCurrency || 'USD'
+            }).format(tx.amount),
+            isConverted: false
+          });
+        } catch {
+          setDisplayInfo({
+            displayAmount: new Intl.NumberFormat('en-US', {
+              style: 'currency',
+              currency: 'USD'
+            }).format(tx.amount),
+            isConverted: false
+          });
+        }
+      }
+    };
+    run();
+  }, [tx]);
+
+  return (
+    <span title={displayInfo.tooltip} style={{ cursor: displayInfo.tooltip ? 'help' : 'default' }}>
+      {displayInfo.displayAmount}
+      {displayInfo.isConverted && displayInfo.approxConvertedDisplay && (
+        <span style={{ marginLeft: 6, color: '#666', fontSize: '0.9em' }}>
+          ({displayInfo.approxConvertedDisplay})
         </span>
       )}
     </span>
@@ -886,6 +949,19 @@ const Transactions: React.FC = () => {
     account: '',
     findText: '',
     replaceText: ''
+  });
+
+  // Aggregated totals in default currency
+  const [stats, setStats] = useState<{ totalIncome: number; totalExpenses: number; netAmount: number; count: number }>({
+    totalIncome: 0,
+    totalExpenses: 0,
+    netAmount: 0,
+    count: 0
+  });
+  const [formattedStats, setFormattedStats] = useState<{ totalIncome: string; totalExpenses: string; netAmount: string }>({
+    totalIncome: '$0.00',
+    totalExpenses: '$0.00',
+    netAmount: '$0.00'
   });
 
   // Category rules manager state removed - now handled by dedicated Rules page
@@ -1936,29 +2012,74 @@ const Transactions: React.FC = () => {
     return transactions.filter(tx => tx.reimbursed).length;
   };
 
-  const calculateStats = () => {
-    const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
-    
-    // Exclude transfer transactions from financial calculations
-    const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer');
-    
-    const totalIncome = nonTransferTransactions
-      .filter((t: Transaction) => t.type === 'income')
-      .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
-    
-    const totalExpenses = nonTransferTransactions
-      .filter((t: Transaction) => t.type === 'expense')
-      .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount), 0);
+  // Calculate stats in default currency using conversion batch
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
+        const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer');
 
-    return {
-      totalIncome,
-      totalExpenses,
-      netAmount: totalIncome - totalExpenses,
-      count: nonTransferTransactions.length
+        await currencyDisplayService.initialize();
+        const converted = await currencyDisplayService.convertTransactionsBatch(nonTransferTransactions);
+
+        const totalIncome = converted
+          .filter((t: Transaction) => t.type === 'income')
+          .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
+
+        const totalExpenses = converted
+          .filter((t: Transaction) => t.type === 'expense')
+          .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount), 0);
+
+        setStats({
+          totalIncome,
+          totalExpenses,
+          netAmount: totalIncome - totalExpenses,
+          count: converted.length
+        });
+      } catch (e) {
+        console.error('Failed to compute totals with currency conversion:', e);
+        // Fallback: compute without conversion
+        const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
+        const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer');
+        const totalIncome = nonTransferTransactions
+          .filter((t: Transaction) => t.type === 'income')
+          .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
+        const totalExpenses = nonTransferTransactions
+          .filter((t: Transaction) => t.type === 'expense')
+          .reduce((sum: number, t: Transaction) => sum + Math.abs(t.amount), 0);
+        setStats({
+          totalIncome,
+          totalExpenses,
+          netAmount: totalIncome - totalExpenses,
+          count: nonTransferTransactions.length
+        });
+      }
     };
-  };
+    run();
+  }, [filteredTransactions, showReimbursedTransactions, filterNonReimbursed]);
 
-  const stats = calculateStats();
+  // Format stats for display using default currency
+  useEffect(() => {
+    const run = async () => {
+      try {
+        await currencyDisplayService.initialize();
+        const income = await currencyDisplayService.formatAmount(stats.totalIncome);
+        const expenses = await currencyDisplayService.formatAmount(stats.totalExpenses);
+        const net = await currencyDisplayService.formatAmount(stats.netAmount);
+        setFormattedStats({ totalIncome: income, totalExpenses: expenses, netAmount: net });
+      } catch {
+        try {
+          const code = await currencyDisplayService.getDefaultCurrency();
+          const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: code || 'USD' }).format(n);
+          setFormattedStats({ totalIncome: fmt(stats.totalIncome), totalExpenses: fmt(stats.totalExpenses), netAmount: fmt(stats.netAmount) });
+        } catch {
+          const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+          setFormattedStats({ totalIncome: fmt(stats.totalIncome), totalExpenses: fmt(stats.totalExpenses), netAmount: fmt(stats.netAmount) });
+        }
+      }
+    };
+    run();
+  }, [stats]);
 
   // Actions cell renderer component
   const ActionsCellRenderer = React.useCallback((params: any) => {
@@ -2569,7 +2690,7 @@ const Transactions: React.FC = () => {
               <div key={`${anomaly.transaction.id}-${index}`} className="anomaly-item">
                 <div className="anomaly-info">
                   <div className="transaction-details">
-                    {anomaly.transaction.description} - ${Math.abs(anomaly.transaction.amount).toFixed(2)}
+                    {anomaly.transaction.description} - <AnomalyAmount tx={anomaly.transaction} />
                     <span style={{ color: '#666', fontWeight: 'normal', marginLeft: '8px' }}>
                       ({anomaly.transaction.date.toLocaleDateString()})
                     </span>
@@ -2840,16 +2961,16 @@ const Transactions: React.FC = () => {
       <StatsBar>
         <div className="stat">
           <div className="label">Total Income</div>
-          <div className="value positive">{formatCurrencySync(stats.totalIncome)}</div>
+          <div className="value positive">{formattedStats.totalIncome}</div>
         </div>
         <div className="stat">
           <div className="label">Total Expenses</div>
-          <div className="value negative">{formatCurrencySync(stats.totalExpenses)}</div>
+          <div className="value negative">{formattedStats.totalExpenses}</div>
         </div>
         <div className="stat">
           <div className="label">Net Amount</div>
           <div className={`value ${stats.netAmount >= 0 ? 'positive' : 'negative'}`}>
-            {formatCurrencySync(stats.netAmount)}
+            {formattedStats.netAmount}
           </div>
         </div>
         <div className="stat">

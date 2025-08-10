@@ -14,6 +14,7 @@ import {
 import { Line } from 'react-chartjs-2';
 import { Card } from '../../styles/globalStyles';
 import { reportsService, CategoryDeepDive, DateRange } from '../../services/reportsService';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 ChartJS.register(
   CategoryScale,
@@ -173,10 +174,14 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     loadCategoryData();
   }, [categoryName, dateRange]);
 
+  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
+  useEffect(() => {
+    (async () => setDefaultCurrency(await currencyDisplayService.getDefaultCurrency()))();
+  }, []);
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD'
+      currency: defaultCurrency
     }).format(amount);
   };
 

@@ -1,5 +1,6 @@
 import { Transaction } from '../types';
 import { dataService } from './dataService';
+import { currencyDisplayService } from './currencyDisplayService';
 
 export interface SpendingByCategory {
   categoryName: string;
@@ -66,18 +67,20 @@ export interface DateRange {
 
 class ReportsService {
   async getSpendingByCategory(dateRange?: DateRange): Promise<SpendingByCategory[]> {
-    const transactions = await this.getTransactionsInRange(dateRange);
-    const expenseTransactions = transactions.filter(t => t.type === 'expense' || t.amount < 0);
+  const transactions = await this.getTransactionsInRange(dateRange);
+  const expenseTransactions = transactions.filter(t => t.type === 'expense' || t.amount < 0);
     
     if (expenseTransactions.length === 0) {
       return [];
     }
 
-    const totalSpending = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  // Convert all expenses to default currency for aggregation
+  const convertedExpenses = await currencyDisplayService.convertTransactionsBatch(expenseTransactions);
+  const totalSpending = convertedExpenses.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const categoryTotals: { [category: string]: Transaction[] } = {};
     
     // Group transactions by category
-    expenseTransactions.forEach(transaction => {
+  convertedExpenses.forEach(transaction => {
       const category = transaction.category;
       if (!categoryTotals[category]) {
         categoryTotals[category] = [];
@@ -105,11 +108,12 @@ class ReportsService {
   }
 
   async getMonthlySpendingTrends(dateRange?: DateRange): Promise<MonthlySpendingTrend[]> {
-    const transactions = await this.getTransactionsInRange(dateRange);
-    const monthlyData: { [monthKey: string]: Transaction[] } = {};
+  const transactions = await this.getTransactionsInRange(dateRange);
+  const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
+  const monthlyData: { [monthKey: string]: Transaction[] } = {};
 
     // Group transactions by month
-    transactions.forEach(transaction => {
+  converted.forEach(transaction => {
       const monthKey = transaction.date.toISOString().slice(0, 7); // YYYY-MM
       if (!monthlyData[monthKey]) {
         monthlyData[monthKey] = [];
@@ -146,13 +150,14 @@ class ReportsService {
   }
 
   async getIncomeExpenseAnalysis(dateRange?: DateRange): Promise<IncomeExpenseAnalysis> {
-    const transactions = await this.getTransactionsInRange(dateRange);
+  const transactions = await this.getTransactionsInRange(dateRange);
+  const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
     
-    const totalIncome = transactions
+  const totalIncome = converted
       .filter(t => t.type === 'income' || t.amount > 0)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
     
-    const totalExpenses = transactions
+  const totalExpenses = converted
       .filter(t => t.type === 'expense' || t.amount < 0)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
@@ -172,10 +177,11 @@ class ReportsService {
   }
 
   async getCategoryDeepDive(categoryName: string, dateRange?: DateRange): Promise<CategoryDeepDive | null> {
-    const transactions = await this.getTransactionsInRange(dateRange);
-    const categoryTransactions = transactions
+  const transactions = await this.getTransactionsInRange(dateRange);
+  const categoryTransactionsRaw = transactions
       .filter(t => t.category === categoryName && (t.type === 'expense' || t.amount < 0))
       .sort((a, b) => b.date.getTime() - a.date.getTime());
+  const categoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactionsRaw);
 
     if (categoryTransactions.length === 0) {
       return null;
@@ -194,8 +200,8 @@ class ReportsService {
     const recentTransactions = categoryTransactions.slice(0, 5);
     
     // Calculate monthly trend for this category
-    const monthlyTotals: { [monthKey: string]: number } = {};
-    categoryTransactions.forEach(transaction => {
+  const monthlyTotals: { [monthKey: string]: number } = {};
+  categoryTransactions.forEach(transaction => {
       const monthKey = transaction.date.toISOString().slice(0, 7);
       monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + Math.abs(transaction.amount);
     });
@@ -221,8 +227,9 @@ class ReportsService {
   }
 
   async getBurnRateAnalysis(dateRange?: DateRange): Promise<BurnRateAnalysis> {
-    const allTransactions = await this.getTransactionsInRange(dateRange);
-    const expenseTransactions = allTransactions.filter(t => t.type === 'expense' || t.amount < 0);
+  const allTransactions = await this.getTransactionsInRange(dateRange);
+  const convertedAll = await currencyDisplayService.convertTransactionsBatch(allTransactions);
+  const expenseTransactions = convertedAll.filter(t => t.type === 'expense' || t.amount < 0);
     
     if (expenseTransactions.length === 0) {
       return {
@@ -237,7 +244,7 @@ class ReportsService {
     }
 
     // Calculate daily burn rate
-    const totalSpending = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const totalSpending = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const earliestDate = new Date(Math.min(...expenseTransactions.map(t => t.date.getTime())));
     const latestDate = new Date(Math.max(...expenseTransactions.map(t => t.date.getTime())));
     const daysDiff = Math.max(1, Math.ceil((latestDate.getTime() - earliestDate.getTime()) / (1000 * 60 * 60 * 24)));
@@ -259,7 +266,7 @@ class ReportsService {
     const projectedMonthlySpending = daysPassed > 0 ? (currentMonthExpenses / daysPassed) * daysInMonth : monthlyBurnRate;
 
     // Get income for balance projection
-    const currentMonthIncome = allTransactions
+  const currentMonthIncome = convertedAll
       .filter(t => (t.type === 'income' || t.amount > 0) && t.date >= currentMonthStart && t.date <= now)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 

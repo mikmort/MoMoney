@@ -168,12 +168,16 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         // Show account selection dialog
         setPendingFile(file);
         setShowAccountSelection(true);
+        // Clear the input so selecting the same file again triggers onChange
+        if (fileInputRef.current) fileInputRef.current.value = '';
       }
     } catch (error) {
       console.error('Account detection failed:', error);
       // Fallback to showing account selection
       setPendingFile(file);
       setShowAccountSelection(true);
+      // Clear the input so selecting the same file again triggers onChange
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -238,6 +242,9 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           errors: [errorMessage],
         });
       }
+    } finally {
+      // Ensure input is cleared after processing completes or fails
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -269,6 +276,8 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     setShowAccountSelection(false);
     setPendingFile(null);
     setAccountDetectionResult(null);
+    // Allow choosing the same file again after cancel
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleStopImport = () => {
@@ -289,6 +298,8 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     } else {
       console.log('⚠️ Cannot stop import: no active import found');
     }
+    // Clear input to allow re-selecting the same file
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleImportDuplicates = async () => {
@@ -341,8 +352,14 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     }
   };
 
-  const handleButtonClick = () => {
-    fileInputRef.current?.click();
+  const handleButtonClick = (e: React.MouseEvent) => {
+    // Prevent bubbling to the drop zone which also has an onClick handler
+    e.stopPropagation();
+    // Always reset the input value before opening the dialog so selecting the same file fires onChange
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
