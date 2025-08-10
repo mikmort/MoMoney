@@ -9,12 +9,12 @@ import { Button, Card, PageHeader, FlexBox } from '../../styles/globalStyles';
 const RulesContainer = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 `;
 
 const RuleCard = styled(Card)`
   position: relative;
-  padding: 12px 16px;
+  padding: 8px 12px;
   
   /* Override default Card padding for more compact display */
   & > * {
@@ -26,15 +26,15 @@ const RuleHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-  padding: 4px 0;
+  margin-bottom: 6px;
+  padding: 2px 0;
   cursor: pointer;
+  transition: background-color 0.2s ease;
   
   &:hover {
     background-color: #f8f9fa;
     border-radius: 4px;
-    margin: -4px;
-    padding: 8px;
+    padding: 2px 6px;
   }
 `;
 
@@ -54,8 +54,8 @@ const ExpandIcon = styled.span<{ $isExpanded: boolean }>`
 `;
 
 const RuleSectionHeader = styled.div`
-  margin: 25px 0 15px 0;
-  padding-bottom: 8px;
+  margin: 20px 0 12px 0;
+  padding-bottom: 6px;
   border-bottom: 2px solid #e0e0e0;
 `;
 
