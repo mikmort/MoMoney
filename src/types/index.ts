@@ -56,6 +56,8 @@ export interface Transaction {
   // Transfer matching support
   transferId?: string; // ID of the matched transfer (for linking paired transfers)
   isTransferPrimary?: boolean; // True for the primary row in a collapsed transfer pair
+  // File attachment support
+  attachedFile?: AttachedFile; // Reference to uploaded receipt/document
 }
 
 export interface Account {
@@ -363,4 +365,15 @@ export interface TransferDisplayOptions {
   showTransfers: boolean;
   collapseMatched: boolean;
   showFees: boolean;
+}
+
+// File attachment interfaces for receipts and documents
+export interface AttachedFile {
+  id: string;
+  filename: string;
+  fileType: 'pdf' | 'image';
+  mimeType: string;
+  fileSize: number;
+  uploadDate: Date;
+  thumbnail?: string; // Base64 encoded thumbnail for images
 }

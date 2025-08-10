@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Transaction, UserPreferences } from '../types';
+import { Transaction, UserPreferences, AttachedFile } from '../types';
 
 // History entry interface for transaction versioning
 export interface TransactionHistoryEntry {
@@ -10,7 +10,10 @@ export interface TransactionHistoryEntry {
   note?: string;
 }
 
-// User preferences storage interface
+// File storage interface for receipts and documents
+export interface StoredFile extends AttachedFile {
+  data: ArrayBuffer; // The actual file binary data
+}
 export interface StoredUserPreferences extends UserPreferences {
   id: string; // Always 'default' for single-user app
   lastModified: Date;
@@ -22,6 +25,7 @@ export class MoMoneyDB extends Dexie {
   transactions!: Table<Transaction>;
   transactionHistory!: Table<TransactionHistoryEntry>;
   userPreferences!: Table<StoredUserPreferences>;
+  attachedFiles!: Table<StoredFile>;
 
   constructor() {
     super('MoMoneyDB');
@@ -37,6 +41,14 @@ export class MoMoneyDB extends Dexie {
       transactions: 'id, date, amount, category, subcategory, account, type, addedDate, lastModifiedDate, isVerified, vendor, isAnomaly',
       transactionHistory: 'id, transactionId, timestamp',
       userPreferences: 'id, lastModified'
+    });
+
+    // Version 3: Add attached files table for receipt uploads
+    this.version(3).stores({
+      transactions: 'id, date, amount, category, subcategory, account, type, addedDate, lastModifiedDate, isVerified, vendor, isAnomaly',
+      transactionHistory: 'id, transactionId, timestamp',
+      userPreferences: 'id, lastModified',
+      attachedFiles: 'id, filename, fileType, uploadDate'
     });
 
     // Hooks for data handling

@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { StatementFile, Transaction, FileSchemaMapping, FileImportProgress, Category, Subcategory, AISchemaMappingRequest, AISchemaMappingResponse, AIClassificationRequest, AIClassificationResponse, DuplicateDetectionResult } from '../types';
-import { accountManagementService, AccountDetectionRequest } from './accountManagementService';
+import { StatementFile, Transaction, FileSchemaMapping, FileImportProgress, Category, Subcategory, AISchemaMappingRequest, AISchemaMappingResponse, AIClassificationRequest, AIClassificationResponse, DuplicateDetectionResult, AttachedFile } from '../types';
+import { accountManagementService, AccountDetectionRequest, AccountDetectionResponse } from './accountManagementService';
 import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
 import { rulesService } from './rulesService';
@@ -1216,6 +1216,298 @@ Return ONLY a clean JSON response:
     }
 
     return undefined;
+  }
+
+  /**
+   * Process individual receipt files (PDF/image) and extract transaction data
+   */
+  async processReceiptFile(file: File, accountId?: string): Promise<{
+    transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[];
+    attachedFile?: AttachedFile;
+    needsAccountSelection: boolean;
+    accountDetectionResult?: AccountDetectionResponse;
+  }> {
+    console.log(`📄 Processing receipt file: ${file.name} (${file.type})`);
+    
+    let attachedFile: AttachedFile | undefined;
+    
+    try {
+      // Store the file first
+      const { fileStorageService } = await import('./fileStorageService');
+      attachedFile = await fileStorageService.storeFile(file);
+      console.log(`📁 File stored with ID: ${attachedFile.id}`);
+      
+      // Extract text content from the receipt
+      const textContent = await this.extractReceiptText(file);
+      console.log(`📝 Extracted text (${textContent.length} characters):`, textContent.substring(0, 200) + '...');
+      
+      if (!textContent.trim()) {
+        throw new Error('No text content could be extracted from the receipt');
+      }
+      
+      // Use AI to parse transaction data from the receipt text
+      const transactionData = await this.parseReceiptWithAI(textContent, file.name);
+      console.log(`💡 AI parsed transaction data:`, transactionData);
+      
+      if (!transactionData.transactions || transactionData.transactions.length === 0) {
+        throw new Error('No transaction data could be extracted from the receipt');
+      }
+      
+      // If account is provided, use it directly
+      if (accountId) {
+        const processedTransactions = transactionData.transactions.map(tx => ({
+          ...tx,
+          account: accountManagementService.getAccount(accountId)?.name || 'Unknown Account',
+          attachedFile: attachedFile
+        }));
+        
+        return {
+          transactions: processedTransactions,
+          attachedFile,
+          needsAccountSelection: false
+        };
+      }
+      
+      // Otherwise, try to detect account from receipt content
+      try {
+        const detectionResult = await accountManagementService.detectAccountFromFile({
+          fileName: file.name,
+          fileContent: textContent
+        });
+        
+        if (detectionResult.confidence > 0.7 && detectionResult.detectedAccountId) {
+          // High confidence detection - auto-assign
+          const processedTransactions = transactionData.transactions.map(tx => ({
+            ...tx,
+            account: accountManagementService.getAccount(detectionResult.detectedAccountId!)?.name || 'Unknown Account',
+            attachedFile: attachedFile
+          }));
+          
+          return {
+            transactions: processedTransactions,
+            attachedFile,
+            needsAccountSelection: false,
+            accountDetectionResult: detectionResult
+          };
+        } else {
+          // Lower confidence - need user selection
+          const processedTransactions = transactionData.transactions.map(tx => ({
+            ...tx,
+            attachedFile: attachedFile
+          }));
+          
+          return {
+            transactions: processedTransactions,
+            attachedFile,
+            needsAccountSelection: true,
+            accountDetectionResult: detectionResult
+          };
+        }
+      } catch (detectionError) {
+        console.warn('Account detection failed for receipt:', detectionError);
+        // Fallback to manual selection
+        const processedTransactions = transactionData.transactions.map(tx => ({
+          ...tx,
+          attachedFile: attachedFile
+        }));
+        
+        return {
+          transactions: processedTransactions,
+          attachedFile,
+          needsAccountSelection: true
+        };
+      }
+    } catch (error) {
+      console.error('Error processing receipt file:', error);
+      
+      // If we stored a file but processing failed, clean it up
+      if (attachedFile) {
+        try {
+          const { fileStorageService } = await import('./fileStorageService');
+          await fileStorageService.deleteFile(attachedFile.id);
+        } catch (cleanupError) {
+          console.warn('Failed to cleanup stored file:', cleanupError);
+        }
+      }
+      
+      throw error;
+    }
+  }
+  
+  /**
+   * Extract text content from receipt files (PDF or image)
+   */
+  private async extractReceiptText(file: File): Promise<string> {
+    const fileType = this.getFileType(file.name);
+    
+    switch (fileType) {
+      case 'pdf':
+        return this.extractPDFText(file);
+      case 'image':
+        return this.extractImageText(file);
+      default:
+        throw new Error(`Unsupported file type for receipt: ${fileType}`);
+    }
+  }
+  
+  /**
+   * Extract text from PDF files (placeholder - would need server-side processing)
+   */
+  private async extractPDFText(file: File): Promise<string> {
+    // PDF parsing in browser requires server-side processing or different approach
+    console.warn('PDF text extraction not available in browser - using placeholder');
+    
+    // Create a simple description based on file metadata
+    const sizeKB = Math.round(file.size / 1024);
+    const uploadDate = new Date().toISOString().split('T')[0];
+    
+    return `PDF Receipt: ${file.name}
+Size: ${sizeKB}KB  
+Upload date: ${uploadDate}
+Note: PDF text extraction requires server-side processing. Please manually enter transaction details or upload as image.`;
+  }
+  
+  /**
+   * Extract text from image files (placeholder - would need OCR service)
+   */
+  private async extractImageText(file: File): Promise<string> {
+    // For now, return a placeholder message
+    // In production, this would integrate with an OCR service like Azure Computer Vision
+    console.warn('Image OCR not implemented yet - using placeholder text extraction');
+    
+    // Create a simple description based on file metadata
+    const sizeKB = Math.round(file.size / 1024);
+    const uploadDate = new Date().toISOString().split('T')[0];
+    
+    return `Receipt image: ${file.name}
+Size: ${sizeKB}KB
+Upload date: ${uploadDate}
+Note: OCR text extraction not yet implemented. Please manually enter transaction details.`;
+  }
+  
+  /**
+   * Use AI to parse structured transaction data from receipt text
+   */
+  private async parseReceiptWithAI(receiptText: string, filename: string): Promise<{
+    transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate' | 'attachedFile'>[];
+    confidence: number;
+    reasoning: string;
+  }> {
+    try {
+      const prompt = `Parse this receipt text and extract transaction information. Return ONLY a clean JSON response.
+
+Receipt text:
+${receiptText}
+
+Extract the following information:
+- Date of transaction
+- Merchant/vendor name
+- Total amount (as negative for expense)
+- Individual line items if clearly itemized
+- Payment method if mentioned
+- Any tax amounts
+
+Return JSON format:
+{
+  "transactions": [
+    {
+      "date": "YYYY-MM-DD",
+      "description": "Merchant name or description",
+      "amount": -XX.XX,
+      "notes": "Additional details from receipt",
+      "vendor": "Merchant name",
+      "category": "Suggested category",
+      "type": "expense"
+    }
+  ],
+  "confidence": 0.85,
+  "reasoning": "Explanation of parsing decisions"
+}
+
+If multiple items are clearly itemized with separate prices, create separate transactions. If it's one total receipt, create one transaction.`;
+
+      const response = await azureOpenAIService.makeRequest(prompt);
+      const cleanedResponse = this.cleanAIResponse(response);
+      const aiResult = JSON.parse(cleanedResponse);
+      
+      // Validate and process the AI response
+      if (!aiResult.transactions || !Array.isArray(aiResult.transactions)) {
+        throw new Error('Invalid AI response: missing transactions array');
+      }
+      
+      // Process and validate each transaction
+      const processedTransactions = aiResult.transactions.map((tx: any, index: number) => {
+        // Parse date
+        let date: Date;
+        try {
+          date = new Date(tx.date);
+          if (isNaN(date.getTime())) {
+            throw new Error('Invalid date');
+          }
+        } catch {
+          // Fallback to today's date
+          date = new Date();
+          console.warn(`Invalid date in transaction ${index}, using today's date`);
+        }
+        
+        // Ensure amount is a number and negative for expenses
+        let amount = parseFloat(tx.amount);
+        if (isNaN(amount)) {
+          throw new Error(`Invalid amount in transaction ${index}`);
+        }
+        
+        // Ensure expenses are negative
+        if (tx.type === 'expense' && amount > 0) {
+          amount = -amount;
+        }
+        
+        return {
+          date,
+          description: String(tx.description || `Receipt from ${filename}`),
+          amount,
+          notes: String(tx.notes || ''),
+          vendor: String(tx.vendor || ''),
+          category: String(tx.category || 'Uncategorized'),
+          type: (tx.type || 'expense') as 'income' | 'expense' | 'transfer',
+          account: 'Unknown Account', // Will be set by caller
+          confidence: 0.8, // AI parsing confidence
+          reasoning: `AI parsed from receipt: ${filename}`,
+          isVerified: false,
+          originalText: receiptText.substring(0, 500) // Store excerpt of original text
+        };
+      });
+      
+      return {
+        transactions: processedTransactions,
+        confidence: aiResult.confidence || 0.8,
+        reasoning: aiResult.reasoning || `Parsed ${processedTransactions.length} transaction(s) from receipt`
+      };
+      
+    } catch (error) {
+      console.error('AI receipt parsing failed:', error);
+      
+      // Fallback: create a basic transaction from filename and current date
+      const fallbackTransaction = {
+        date: new Date(),
+        description: `Receipt: ${filename}`,
+        amount: -0.01, // Placeholder amount
+        notes: 'AI parsing failed - please update manually',
+        vendor: '',
+        category: 'Uncategorized',
+        type: 'expense' as const,
+        account: 'Unknown Account',
+        confidence: 0.1,
+        reasoning: 'Fallback transaction due to AI parsing failure',
+        isVerified: false,
+        originalText: receiptText.substring(0, 500)
+      };
+      
+      return {
+        transactions: [fallbackTransaction],
+        confidence: 0.1,
+        reasoning: 'AI parsing failed, created placeholder transaction'
+      };
+    }
   }
 }
 

@@ -4,7 +4,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, CollapsedTransfer, TransferDisplayOptions } from '../../types';
+import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, CollapsedTransfer, TransferDisplayOptions, AttachedFile } from '../../types';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
@@ -20,6 +20,8 @@ import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { TransactionSplitManager } from '../shared/TransactionSplitManager';
 import { TransferList } from './TransferList';
+import { FilePreview } from '../shared/FilePreview';
+import { ReceiptUpload } from '../shared/ReceiptUpload';
 import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
@@ -841,6 +843,9 @@ const Transactions: React.FC = () => {
   const [showConfidencePopup, setShowConfidencePopup] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
+  // File preview state
+  const [previewFile, setPreviewFile] = useState<AttachedFile | null>(null);
+
   // Category edit confirmation dialog state
   const [showCategoryEditDialog, setShowCategoryEditDialog] = useState(false);
   const [categoryEditData, setCategoryEditData] = useState<{
@@ -1400,6 +1405,16 @@ const Transactions: React.FC = () => {
       alert('Failed to delete transaction. Please try again.');
     }
   }, [transactions]);
+
+  // Handle receipt upload success
+  const handleReceiptTransactionAdded = useCallback(async (newTransactions: Transaction[]) => {
+    console.log(`📄 Receipt uploaded with ${newTransactions.length} transaction(s), refreshing list`);
+    
+    // Refresh the transactions list
+    const allTransactions = await dataService.getAllTransactions();
+    setTransactions(allTransactions);
+    setFilteredTransactions(allTransactions);
+  }, []);
 
   const startEditTransaction = useCallback((transaction: Transaction) => {
     console.log('Editing transaction:', transaction);
@@ -2203,6 +2218,28 @@ const Transactions: React.FC = () => {
       }
     },
     {
+      headerName: 'File',
+      width: 50,
+      pinned: 'right',
+      cellRenderer: (params: any) => {
+        if (params.data.attachedFile) {
+          return `<span style="cursor: pointer; font-size: 16px;" title="View attached file">📎</span>`;
+        }
+        return '';
+      },
+      editable: false,
+      suppressHeaderMenuButton: true,
+      sortable: false,
+      filter: false,
+      suppressSizeToFit: true,
+      suppressMovable: true,
+      onCellClicked: (params: any) => {
+        if (params.data.attachedFile) {
+          setPreviewFile(params.data.attachedFile);
+        }
+      }
+    },
+    {
       headerName: 'Actions',
       width: 80,
       pinned: 'right',
@@ -2640,6 +2677,12 @@ const Transactions: React.FC = () => {
       {renderTransferMatchingPanel()}
 
       {renderAnomalyResultsPanel()}
+
+      {/* Receipt Upload */}
+      <ReceiptUpload 
+        onTransactionAdded={handleReceiptTransactionAdded}
+        onError={(error) => console.error('Receipt upload error:', error)}
+      />
 
       {/* Bulk Operations Bar */}
       {selectedTransactions.length > 0 && (
@@ -3201,6 +3244,15 @@ const Transactions: React.FC = () => {
         newCategory={categoryEditData?.newCategory || ''}
         newSubcategory={categoryEditData?.newSubcategory}
       />
+
+      {/* File Preview Modal */}
+      {previewFile && (
+        <FilePreview
+          file={previewFile}
+          isOpen={!!previewFile}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
 
       {/* Transfer Match Dialog */}
       <TransferMatchDialog
