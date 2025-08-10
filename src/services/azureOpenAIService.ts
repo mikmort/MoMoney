@@ -46,6 +46,9 @@ interface OpenAIProxyResponse {
     };
   };
   error?: string;
+  // Optional metadata from proxy HTTP response for smarter client backoff
+  status?: number;
+  retryAfterMs?: number;
 }
 
 export class AzureOpenAIService {
@@ -74,8 +77,28 @@ export class AzureOpenAIService {
         body: JSON.stringify(request),
       });
 
+      // Capture Retry-After header (seconds) if present to inform client backoff
+  const retryAfterHeader = (response as any)?.headers?.get ? (response as any).headers.get('retry-after') : undefined;
+      let retryAfterMs: number | undefined;
+      if (retryAfterHeader) {
+        const seconds = parseFloat(retryAfterHeader);
+        if (!Number.isNaN(seconds)) {
+          retryAfterMs = Math.max(0, Math.floor(seconds * 1000));
+        }
+      }
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Try to read any error body for logging context without throwing
+        let msg = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const raw = await response.text();
+          if (raw) {
+            // Avoid leaking full body; keep it compact
+            const snippet = raw.slice(0, 200).replace(/\s+/g, ' ').trim();
+            if (snippet) msg += ` - ${snippet}`;
+          }
+        } catch {}
+        return { success: false, error: msg, status: response.status, retryAfterMs };
       }
 
       const result: OpenAIProxyResponse = await response.json();
@@ -104,9 +127,15 @@ export class AzureOpenAIService {
           const resp = await this.callOpenAIProxy({ ...(request as any), deployment: dep });
           if (!resp.success) {
             const err = String(resp.error || '').toLowerCase();
-            const retriable = err.includes('rate') || err.includes('limit') || err.includes('overload') || err.includes('timeout') || err.includes('5');
+            const status = resp.status;
+            const retriableStatus = status === 429 || (status !== undefined && status >= 500 && status < 600);
+            const retriableText = err.includes('rate') || err.includes('limit') || err.includes('overload') || err.includes('timeout') || err.includes('5');
+            const retriable = retriableStatus || retriableText;
             if (retriable && attempt < attemptsPerDeployment) {
-              const wait = base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 150);
+              // Respect Retry-After when available; otherwise exponential backoff
+              const wait = typeof resp.retryAfterMs === 'number' && resp.retryAfterMs > 0
+                ? resp.retryAfterMs + Math.floor(Math.random() * 200)
+                : base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 200);
               await new Promise(r => setTimeout(r, wait));
               continue;
             }
@@ -292,6 +321,7 @@ Date: ${request.date}`;
 
     // Process in chunks to reduce proxy load and avoid 500s when payloads are large
     const MAX_BATCH = 20;
+    const INTER_CHUNK_DELAY_MS = 250; // gentle pacing to avoid hammering the function
     const chunks: AIClassificationRequest[][] = [];
     for (let i = 0; i < requests.length; i += MAX_BATCH) {
       chunks.push(requests.slice(i, i + MAX_BATCH));
@@ -301,6 +331,8 @@ Date: ${request.date}`;
     for (const chunk of chunks) {
       const chunkResults = await this.classifyTransactionsBatchChunk(chunk);
       results.push(...chunkResults);
+      // Small delay between chunks to help with rate limits on Azure Function
+      await new Promise(r => setTimeout(r, INTER_CHUNK_DELAY_MS));
     }
     return results;
   }
@@ -347,7 +379,7 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
         temperature: 0.1
       };
 
-  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 500 });
       if (!response.success || !response.data) throw new Error(response.error || 'No response from OpenAI proxy');
 
       const responseContent = response.data.choices[0]?.message?.content;
@@ -424,14 +456,28 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
         return this.constrainToCatalog(normalized, categories as any);
       });
     } catch (error: any) {
-      // Retry once on server errors, then fallback to singles for this chunk
-      const isServerError = /HTTP\s*5\d\d/i.test(String(error?.message || ''));
-      if (isServerError && attempt < 3) {
-        const backoffMs = attempt * 300 + Math.floor(Math.random() * 200);
-        await new Promise((r) => setTimeout(r, backoffMs));
-        return this.classifyTransactionsBatchChunk(requests, attempt + 1);
+      // Adaptive handling: backoff and split the batch on server/rate errors
+      const msg = String(error?.message || '').toLowerCase();
+      const is429 = msg.includes('http 429') || msg.includes('rate') || msg.includes('limit');
+      const is5xx = /http\s*5\d\d/.test(msg) || msg.includes('overload');
+      const retriable = is429 || is5xx || msg.includes('timeout') || msg.includes('network');
+
+      // Exponential backoff before retrying or splitting
+      const backoffMs = Math.min(4000, 300 * Math.pow(2, Math.max(0, attempt - 1))) + Math.floor(Math.random() * 250);
+      await new Promise((r) => setTimeout(r, backoffMs));
+
+      // If we have more than one item, split to reduce load and try sequentially
+      if (retriable && requests.length > 1 && attempt <= 5) {
+        const mid = Math.ceil(requests.length / 2);
+        const left = requests.slice(0, mid);
+        const right = requests.slice(mid);
+        const leftResults = await this.classifyTransactionsBatchChunk(left, attempt + 1);
+        const rightResults = await this.classifyTransactionsBatchChunk(right, attempt + 1);
+        return [...leftResults, ...rightResults];
       }
-      console.error('Error in batch classification chunk:', error);
+
+      // Final fallback: per-item classification
+      console.error('Error in batch classification chunk (fallback to singles):', error);
       const singles: AIClassificationResponse[] = [];
       for (const r of requests) {
         try {
@@ -439,6 +485,8 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
         } catch {
           singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Batch chunk failed' });
         }
+        // small gap between singles when recovering from overload
+        await new Promise(res => setTimeout(res, 100));
       }
       return singles;
     }
