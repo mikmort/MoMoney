@@ -835,11 +835,18 @@ Return ONLY a clean JSON response:
               
               // Filter out requests for transactions that are now rule-matched
               const currentRemainingUnmatchedTransactions = remainingUnmatchedTransactions;
-              const stillUnmatchedIndices = newRuleResults.unmatchedTransactions.map(t => {
-                return currentRemainingUnmatchedTransactions.findIndex(remaining => 
-                  remaining.description === t.description && remaining.amount === t.amount && remaining.date.getTime() === t.date.getTime()
+              const stillUnmatchedIndices: number[] = [];
+              
+              for (const transaction of newRuleResults.unmatchedTransactions) {
+                const matchIndex = currentRemainingUnmatchedTransactions.findIndex(remaining => 
+                  remaining.description === transaction.description && 
+                  remaining.amount === transaction.amount && 
+                  remaining.date.getTime() === transaction.date.getTime()
                 );
-              }).filter(idx => idx !== -1);
+                if (matchIndex !== -1) {
+                  stillUnmatchedIndices.push(matchIndex);
+                }
+              }
               
               console.log(`📊 Adjusted batch processing: ${affectedRequests.length} original requests, ${stillUnmatchedIndices.length} still need AI`);
             }
