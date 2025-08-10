@@ -77,3 +77,6 @@ Thumbs.db
 # Sample data files (do not commit real data)
 DanskeKonto-small.csv
 samples/
+
+# TypeScript incremental build info
+tsconfig.tsbuildinfo
