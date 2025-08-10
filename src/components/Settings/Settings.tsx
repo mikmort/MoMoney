@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { PageHeader, Card, Button } from '../../styles/globalStyles';
-import { defaultConfig } from '../../config/appConfig';
 import { dataService } from '../../services/dataService';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { simplifiedImportExportService } from '../../services/simplifiedImportExportService';
+import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { UserPreferences } from '../../types';
 
 const DangerZone = styled.div`
@@ -131,9 +131,13 @@ const Settings: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<'success' | 'error' | null>(null);
+  const [deploymentInfo, setDeploymentInfo] = useState<string | null>(null);
 
   useEffect(() => {
     loadPreferences();
+    loadDeploymentInfo();
   }, []);
 
   const loadPreferences = async () => {
@@ -142,6 +146,41 @@ const Settings: React.FC = () => {
       setPreferences(prefs);
     } catch (error) {
       console.error('Failed to load preferences:', error);
+    }
+  };
+
+  const loadDeploymentInfo = async () => {
+    try {
+      const serviceInfo = await azureOpenAIService.getServiceInfo();
+      setDeploymentInfo(serviceInfo.model);
+    } catch (error) {
+      console.error('Failed to load deployment info:', error);
+      setDeploymentInfo('Unknown');
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setConnectionTestResult(null);
+    
+    try {
+      const isConnected = await azureOpenAIService.testConnection();
+      setConnectionTestResult(isConnected ? 'success' : 'error');
+      
+      // Clear the result after 5 seconds
+      setTimeout(() => {
+        setConnectionTestResult(null);
+      }, 5000);
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      setConnectionTestResult('error');
+      
+      // Clear the result after 5 seconds
+      setTimeout(() => {
+        setConnectionTestResult(null);
+      }, 5000);
+    } finally {
+      setIsTestingConnection(false);
     }
   };
 
@@ -260,15 +299,27 @@ const Settings: React.FC = () => {
         <p>Configure your Azure OpenAI settings for AI-powered transaction classification.</p>
         <div style={{ marginTop: '16px' }}>
           <div style={{ marginBottom: '12px' }}>
-            <strong>Current Endpoint:</strong> {defaultConfig.azure.openai.endpoint}
+            <strong>Deployment:</strong> {deploymentInfo || 'Loading...'}
           </div>
-          <div style={{ marginBottom: '12px' }}>
-            <strong>Deployment:</strong> {defaultConfig.azure.openai.deploymentName}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <Button 
+              variant="outline" 
+              onClick={handleTestConnection}
+              disabled={isTestingConnection}
+            >
+              {isTestingConnection ? 'Testing...' : 'Test Connection'}
+            </Button>
+            {connectionTestResult === 'success' && (
+              <span style={{ color: '#4CAF50', fontWeight: 500 }}>
+                ✅ Connection successful!
+              </span>
+            )}
+            {connectionTestResult === 'error' && (
+              <span style={{ color: '#f44336', fontWeight: 500 }}>
+                ❌ Connection failed. Please check your configuration.
+              </span>
+            )}
           </div>
-          <div style={{ marginBottom: '12px' }}>
-            <strong>API Version:</strong> {defaultConfig.azure.openai.apiVersion}
-          </div>
-          <Button variant="outline">Test Connection</Button>
         </div>
       </Card>
 
