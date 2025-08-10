@@ -96,6 +96,7 @@ const Navigation: React.FC = () => {
     { path: '/', label: 'Dashboard', icon: '📊' },
     { path: '/transactions', label: 'Transactions', icon: '💳' },
     { path: '/rules', label: 'Rules', icon: '📋' },
+    { path: '/accounts', label: 'Accounts', icon: '🏦' },
     { path: '/categories', label: 'Categories', icon: '📁' },
     { path: '/budgets', label: 'Budgets', icon: '🎯' },
     { path: '/reports', label: 'Reports', icon: '📈' },
