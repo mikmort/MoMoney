@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Transaction } from '../types';
 import { 
   transferMatchingService, 
@@ -13,7 +13,7 @@ export const useTransferMatching = () => {
   const [matches, setMatches] = useState<TransferMatch[]>([]);
   const [lastMatchResult, setLastMatchResult] = useState<TransferMatchResponse | null>(null);
 
-  const findTransferMatches = async (request: TransferMatchRequest): Promise<TransferMatchResponse | null> => {
+  const findTransferMatches = useCallback(async (request: TransferMatchRequest): Promise<TransferMatchResponse | null> => {
     setIsLoading(true);
     setError(null);
     
@@ -34,9 +34,9 @@ export const useTransferMatching = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const applyTransferMatches = async (transactions: Transaction[], matchesToApply: TransferMatch[]): Promise<Transaction[]> => {
+  const applyTransferMatches = useCallback(async (transactions: Transaction[], matchesToApply: TransferMatch[]): Promise<Transaction[]> => {
     setIsLoading(true);
     setError(null);
     
@@ -58,17 +58,17 @@ export const useTransferMatching = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const getUnmatchedTransfers = (transactions: Transaction[]): Transaction[] => {
+  const getUnmatchedTransfers = useCallback((transactions: Transaction[]): Transaction[] => {
     return transferMatchingService.getUnmatchedTransfers(transactions);
-  };
+  }, []);
 
-  const countUnmatchedTransfers = (transactions: Transaction[]): number => {
+  const countUnmatchedTransfers = useCallback((transactions: Transaction[]): number => {
     return transferMatchingService.countUnmatchedTransfers(transactions);
-  };
+  }, []);
 
-  const unmatchTransfers = async (transactions: Transaction[], matchId: string): Promise<Transaction[]> => {
+  const unmatchTransfers = useCallback(async (transactions: Transaction[], matchId: string): Promise<Transaction[]> => {
     setIsLoading(true);
     setError(null);
     
@@ -85,13 +85,13 @@ export const useTransferMatching = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const getMatchedTransfers = (transactions: Transaction[]) => {
+  const getMatchedTransfers = useCallback((transactions: Transaction[]) => {
     return transferMatchingService.getMatchedTransfers(transactions);
-  };
+  }, []);
 
-  const manuallyMatchTransfers = async (
+  const manuallyMatchTransfers = useCallback(async (
     transactions: Transaction[], 
     sourceId: string, 
     targetId: string
@@ -116,7 +116,7 @@ export const useTransferMatching = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   return {
     isLoading,
