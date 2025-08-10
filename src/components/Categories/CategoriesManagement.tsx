@@ -5,7 +5,7 @@ import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Category } from '../../types';
 import { defaultCategories } from '../../data/defaultCategories';
-import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
+import { ActionsMenu } from '../shared/ActionsMenu';
 import Papa from 'papaparse';
 import { v4 as uuidv4 } from 'uuid';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -309,20 +309,40 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   // Actions cell renderer component
   const ActionsCellRenderer = (params: any) => {
     if (params.data.type === 'category') {
-      const actions: MenuAction[] = [
-        {
-          icon: '✏️',
-          label: 'Edit Category',
-          onClick: () => handleEditCategory(params.data.id)
-        },
-        {
-          icon: '🗑️',
-          label: 'Delete Category',
-          onClick: () => handleDeleteCategory(params.data.id),
-          variant: 'danger'
-        }
-      ];
-      return <div className="actions-cell"><ActionsMenu menuId={`category-menu-${params.data.id}`} actions={actions} /></div>;
+      return (
+        <div className="actions-cell" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            onClick={() => handleEditCategory(params.data.id)}
+            style={{ 
+              padding: '4px 8px', 
+              border: '1px solid #2196F3', 
+              borderRadius: '4px', 
+              background: '#2196F3', 
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '12px'
+            }}
+            title="Edit Category"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => handleDeleteCategory(params.data.id)}
+            style={{ 
+              padding: '4px 8px', 
+              border: '1px solid #f44336', 
+              borderRadius: '4px', 
+              background: '#f44336', 
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '12px'
+            }}
+            title="Delete Category"
+          >
+            Delete
+          </button>
+        </div>
+      );
     }
     return null;
   };
@@ -392,7 +412,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     },
     {
       headerName: 'Actions',
-      width: 80,
+      width: 140,
       cellRenderer: ActionsCellRenderer
     }
   ];
@@ -733,8 +753,21 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
         <h1>Categories Management</h1>
         <FlexBox gap="12px">
           <Button onClick={handleAddCategory}>Add Category</Button>
-          <Button variant="outline" onClick={handleImportCategories}>Import Categories</Button>
-          <Button variant="outline" onClick={handleExportCategories}>Export Categories</Button>
+          <ActionsMenu
+            menuId="category-management-menu"
+            actions={[
+              {
+                icon: '📥',
+                label: 'Import Categories',
+                onClick: handleImportCategories
+              },
+              {
+                icon: '📤',
+                label: 'Export Categories', 
+                onClick: handleExportCategories
+              }
+            ]}
+          />
         </FlexBox>
       </PageHeader>
 
