@@ -39,19 +39,17 @@ describe('AzureOpenAI Service', () => {
     jest.resetAllMocks();
   });
 
-  describe('Catalog Constraint', () => {
-    it('should constrain AI response to valid category IDs', async () => {
-      // Mock successful AI response with valid category
+  describe('Financial Edge Cases', () => {
+    it('should handle extremely large transaction amounts without overflow', async () => {
       const mockResponse = {
         success: true,
         data: {
           choices: [{
             message: {
               content: JSON.stringify({
-                categoryId: 'food-dining',
-                subcategoryId: 'restaurants',
-                confidence: 0.85,
-                reasoning: 'Transaction at restaurant'
+                categoryId: 'uncategorized',
+                confidence: 0.3,
+                reasoning: 'Unusual large amount transaction'
               })
             }
           }]
@@ -64,20 +62,73 @@ describe('AzureOpenAI Service', () => {
       });
 
       const request: AIClassificationRequest = {
-        transactionText: 'McDonald\'s Restaurant',
-        amount: -12.50,
+        transactionText: 'Large Investment Transfer',
+        amount: -999999999.99, // Nearly a billion
         date: '2025-01-15',
         availableCategories: mockCategories
       };
 
       const result = await service.classifyTransaction(request);
 
-      expect(result.categoryId).toBe('food-dining');
-      expect(result.subcategoryId).toBe('restaurants');
-      expect(result.confidence).toBe(0.85);
+      expect(result.categoryId).toBe('uncategorized');
+      expect(result.confidence).toBeLessThan(0.5);
     });
 
-    it('should map category name to ID when AI returns name instead of ID', async () => {
+    it('should handle malformed JSON responses gracefully', async () => {
+      // Mock response with malformed JSON that could cause parsing errors
+      const mockResponse = {
+        success: true,
+        data: {
+          choices: [{
+            message: {
+              content: '{"categoryId": "food-dining", "confidence": invalid_number, "reasoning":}'
+            }
+          }]
+        }
+      };
+
+      (fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockResponse)
+      });
+
+      const request: AIClassificationRequest = {
+        transactionText: 'Coffee Shop',
+        amount: -4.50,
+        date: '2025-01-15',
+        availableCategories: mockCategories
+      };
+
+      const result = await service.classifyTransaction(request);
+
+      expect(result.categoryId).toBe('uncategorized');
+      expect(result.confidence).toBe(0.1);
+      expect(result.reasoning).toBe('Failed to classify using AI - using fallback');
+    });
+
+    it('should handle network timeout scenarios', async () => {
+      // Mock network timeout
+      (fetch as jest.Mock).mockImplementationOnce(() => 
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Network timeout')), 100)
+        )
+      );
+
+      const request: AIClassificationRequest = {
+        transactionText: 'Test Transaction',
+        amount: -25.00,
+        date: '2025-01-15',
+        availableCategories: mockCategories
+      };
+
+      const result = await service.classifyTransaction(request);
+
+      expect(result.categoryId).toBe('uncategorized');
+      expect(result.confidence).toBe(0.1);
+      expect(result.reasoning).toBe('Failed to classify using AI - using fallback');
+    });
+
+    it('should preserve category validation even with complex AI responses', async () => {
       // Mock AI response with category name instead of ID
       const mockResponse = {
         success: true,

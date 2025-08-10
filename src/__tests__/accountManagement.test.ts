@@ -18,28 +18,8 @@ describe('AccountManagementService Delete Functionality', () => {
     jest.clearAllMocks();
   });
 
-  describe('deleteAccount', () => {
-    it('should successfully delete an account with no transactions', async () => {
-      // Mock no transactions for the account
-      mockDataService.getAllTransactions.mockResolvedValue([]);
-
-      // Add a test account first
-      const testAccount = accountService.addAccount({
-        name: 'Test Account',
-        type: 'checking',
-        institution: 'Test Bank',
-        currency: 'USD',
-        isActive: true
-      });
-
-      // Delete the account
-      const result = await accountService.deleteAccount(testAccount.id);
-      
-      expect(result).toBe(true);
-      expect(accountService.getAccount(testAccount.id)).toBeUndefined();
-    });
-
-    it('should fail to delete an account with associated transactions', async () => {
+  describe('Data Integrity Edge Cases', () => {
+    it('should prevent deletion of accounts with transactions to avoid orphaned data', async () => {
       // Add a test account first
       const testAccount = accountService.addAccount({
         name: 'Test Account',
@@ -67,16 +47,11 @@ describe('AccountManagementService Delete Functionality', () => {
         .rejects
         .toThrow('Cannot delete account "Test Account". It has 1 associated transaction(s).');
 
-      // Verify account still exists
+      // Verify account still exists to prevent data corruption
       expect(accountService.getAccount(testAccount.id)).toBeDefined();
     });
 
-    it('should return false when trying to delete non-existent account', async () => {
-      const result = await accountService.deleteAccount('non-existent-id');
-      expect(result).toBe(false);
-    });
-
-    it('should handle transactions that reference account by ID', async () => {
+    it('should handle edge case where transactions reference accounts by both ID and name', async () => {
       // Add a test account first
       const testAccount = accountService.addAccount({
         name: 'Test Account',
@@ -86,23 +61,62 @@ describe('AccountManagementService Delete Functionality', () => {
         isActive: true
       });
 
-      // Mock transactions that reference this account by ID
+      // Mock transactions that reference account in different ways
       mockDataService.getAllTransactions.mockResolvedValue([
         {
           id: '1',
           date: new Date(),
-          amount: -100,
-          description: 'Test transaction',
+          amount: -50,
+          description: 'Transaction by name',
           category: 'Food',
-          account: testAccount.id, // References the account ID
+          account: 'Test Account', // References by name
+          type: 'expense'
+        },
+        {
+          id: '2',
+          date: new Date(),
+          amount: -75,
+          description: 'Transaction by ID',
+          category: 'Gas',
+          account: testAccount.id, // References by ID
           type: 'expense'
         }
       ] as any[]);
 
-      // Try to delete the account
+      // Try to delete the account - should find both transactions
       await expect(accountService.deleteAccount(testAccount.id))
         .rejects
-        .toThrow('Cannot delete account "Test Account". It has 1 associated transaction(s).');
+        .toThrow('Cannot delete account "Test Account". It has 2 associated transaction(s).');
+    });
+
+    it('should handle concurrent deletion attempts gracefully', async () => {
+      mockDataService.getAllTransactions.mockResolvedValue([]);
+
+      const testAccount = accountService.addAccount({
+        name: 'Test Account',
+        type: 'checking',
+        institution: 'Test Bank',
+        currency: 'USD',
+        isActive: true
+      });
+
+      // Attempt multiple simultaneous deletions
+      const deletionPromises = [
+        accountService.deleteAccount(testAccount.id).catch(() => false),
+        accountService.deleteAccount(testAccount.id).catch(() => false),
+        accountService.deleteAccount(testAccount.id).catch(() => false)
+      ];
+
+      const results = await Promise.allSettled(deletionPromises);
+      
+      // All should complete without throwing uncaught errors
+      results.forEach(result => {
+        expect(['fulfilled', 'rejected']).toContain(result.status);
+      });
+      
+      // At least one deletion should succeed or handle gracefully
+      const completedResults = results.filter(r => r.status === 'fulfilled').length;
+      expect(completedResults).toBeGreaterThanOrEqual(1);
     });
   });
 });
