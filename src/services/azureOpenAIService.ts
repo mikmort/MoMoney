@@ -52,6 +52,7 @@ export class AzureOpenAIService {
   private readonly deploymentName: string;
   private initialized = true; // Always initialized since we don't need client setup
   private readonly fallbackDeployments: string[];
+  private readonly messageCharBudget: number;
 
   constructor() {
     this.deploymentName = defaultConfig.azure.openai.deploymentName || 'gpt-4o';
@@ -62,6 +63,32 @@ export class AzureOpenAIService {
     const merged = [...envFallback, ...defaultAlt].filter((m, idx, arr) => arr.indexOf(m) === idx);
     // Do not include primary in fallbacks
     this.fallbackDeployments = merged.filter(m => m && m !== this.deploymentName);
+  // Per-message content budget (characters) to keep well under the Azure Function limit
+  // Override with REACT_APP_OPENAI_MSG_CHAR_BUDGET if needed
+  const envBudget = parseInt(String(process.env.REACT_APP_OPENAI_MSG_CHAR_BUDGET || ''), 10);
+  this.messageCharBudget = Number.isFinite(envBudget) && envBudget > 0 ? envBudget : 8000;
+  }
+
+  // Build a very compact catalog string like: id1:subA|subB;id2:subC
+  private buildCompactCatalog(categories: Array<{ id: string; name: string; subcategories?: Array<{ id: string; name: string }> }>): string {
+    return categories
+      .map(c => {
+        const subs = (c.subcategories || []).map(s => s.id).join('|');
+        return subs ? `${c.id}:${subs}` : `${c.id}`;
+      })
+      .join(';');
+  }
+
+  // Estimate per-message sizes (catalog and items are sent as separate user messages)
+  private estimateBatchMessageLengths(
+    compactCatalog: string,
+    items: Array<{ index: number; description: string; amount: number; date: string }>
+  ): { catalogLen: number; itemsLen: number; maxLen: number } {
+    const catalogMsg = `CAT:${compactCatalog}`;
+    const itemsMsg = `TX:${JSON.stringify(items)}`;
+    const catalogLen = catalogMsg.length + 120; // buffer for instructions and JSON overhead
+    const itemsLen = itemsMsg.length + 120;
+    return { catalogLen, itemsLen, maxLen: Math.max(catalogLen, itemsLen) };
   }
 
   private async callOpenAIProxy(request: OpenAIProxyRequest): Promise<OpenAIProxyResponse> {
@@ -75,7 +102,16 @@ export class AzureOpenAIService {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Try to include proxy error details in the thrown error to aid debugging
+        let detail = '';
+        try {
+          const text = await response.text();
+          detail = text?.slice(0, 500) || '';
+        } catch {
+          // ignore
+        }
+        const dash = detail ? ` | ${detail}` : '';
+        throw new Error(`HTTP ${response.status}: ${response.statusText}${dash}`);
       }
 
       const result: OpenAIProxyResponse = await response.json();
@@ -187,53 +223,24 @@ export class AzureOpenAIService {
 
   async classifyTransaction(request: AIClassificationRequest): Promise<AIClassificationResponse> {
     const startTime = Date.now();
+  // Sanitize inputs early so they are available in catch paths as well
+  const desc = String(request.transactionText || '').slice(0, 250);
+  const amount = Number.isFinite(request.amount as any) ? (request.amount as number) : 0;
+  const date = String(request.date || '').slice(0, 40);
     try {
       // Build an explicit catalog of allowed categories/subcategories (IDs only) for the model
-      const categoriesCatalog = request.availableCategories
-        .map(c => {
-          const subs = (c.subcategories || [])
-            .map(s => `      { "id": "${s.id}", "name": "${s.name}" }`)
-            .join(',\n');
-          return `  {
-    "id": "${c.id}",
-    "name": "${c.name}",
-    "subcategories": [
-${subs}
-    ]
-  }`;
-        })
-        .join(',\n');
+  const categoriesCatalog = this.buildCompactCatalog(request.availableCategories as any);
 
-      const systemPrompt = `You are a financial transaction classifier. You MUST choose a category and optional subcategory ONLY from the provided catalog. Always return ONLY a JSON object in this exact schema (no extra keys, no prose):
-{
-  "categoryId": "one of the allowed category ids",
-  "subcategoryId": "one of the allowed subcategory ids for the chosen category or null",
-  "confidence": 0.0-1.0,
-  "reasoning": "detailed explanation of your classification decision including key factors considered"
-}
+  const systemPrompt = `Classify one financial transaction. Use ONLY ids from the catalog. Reply with a single JSON object with fields: categoryId, subcategoryId (or null), confidence (0-1), reasoning. If unsure: categoryId="uncategorized", confidence<=0.3.`;
 
-Rules:
-- Use EXACT ids from the catalog below (do not invent or transform ids or names)
-- If unsure, set subcategoryId to null
-- If you cannot determine a category confidently, set categoryId to "uncategorized" and confidence <= 0.3
-- Provide detailed reasoning explaining your classification logic and key terms that influenced the decision`;
-
-      const userPrompt = `Classify this transaction using ONLY the following catalog:
-Allowed Categories Catalog (ids and names):
-[
-${categoriesCatalog}
-]
-
-Transaction:
-Description: ${request.transactionText}
-Amount: $${request.amount}
-Date: ${request.date}`;
+  
 
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
+          { role: 'user', content: `CAT:${categoriesCatalog}` },
+          { role: 'user', content: `TX:{"description":"${desc}","amount":${amount},"date":"${date}"}` }
         ],
         max_tokens: 200,
         temperature: 0.1
@@ -255,7 +262,7 @@ Date: ${request.date}`;
       const parsed = JSON.parse(cleanedResponse);
 
       // Extract key terms from transaction description for transparency
-      const keyTokens = this.extractKeyTokens(request.transactionText);
+  const keyTokens = this.extractKeyTokens(desc);
 
       // Normalize then constrain to provided catalog
       const normalized = {
@@ -292,7 +299,7 @@ Date: ${request.date}`;
         proxyMetadata: {
           model: this.deploymentName,
           processingTime: Date.now() - startTime,
-          keyTokens: this.extractKeyTokens(request.transactionText)
+          keyTokens: this.extractKeyTokens(desc)
         }
       };
     }
@@ -303,18 +310,38 @@ Date: ${request.date}`;
     requests: AIClassificationRequest[]
   ): Promise<AIClassificationResponse[]> {
     if (!requests.length) return [];
+    // Dynamically size chunks to stay under proxy message size limits
+    const categories = requests[0].availableCategories as any;
+  const compactCatalog = this.buildCompactCatalog(categories);
 
-    // Process in chunks to reduce proxy load and avoid 500s when payloads are large
-    const MAX_BATCH = 20;
-    const chunks: AIClassificationRequest[][] = [];
-    for (let i = 0; i < requests.length; i += MAX_BATCH) {
-      chunks.push(requests.slice(i, i + MAX_BATCH));
-    }
+  const results: AIClassificationResponse[] = [];
+  const safeThreshold = this.messageCharBudget; // per-message chars budget (below server limit)
+    let i = 0;
+    while (i < requests.length) {
+      // Start with a reasonable max and shrink until under threshold
+      let size = Math.min(12, requests.length - i);
+      let items: Array<{ index: number; description: string; amount: number; date: string }> = [];
+      while (size > 0) {
+        items = [];
+        for (let j = 0; j < size; j++) {
+          const r = requests[i + j];
+          items.push({
+            index: j,
+            description: String(r.transactionText || '').slice(0, 250),
+            amount: Number.isFinite(r.amount as any) ? (r.amount as number) : 0,
+            date: String(r.date || '').slice(0, 40)
+          });
+        }
+    const { maxLen } = this.estimateBatchMessageLengths(compactCatalog, items);
+    if (maxLen <= safeThreshold) break;
+        size--;
+      }
+      if (size === 0) size = 1; // always make progress
 
-    const results: AIClassificationResponse[] = [];
-    for (const chunk of chunks) {
-      const chunkResults = await this.classifyTransactionsBatchChunk(chunk);
+      const slice = requests.slice(i, i + size);
+      const chunkResults = await this.classifyTransactionsBatchChunk(slice);
       results.push(...chunkResults);
+      i += size;
     }
     return results;
   }
@@ -325,43 +352,31 @@ Date: ${request.date}`;
     attempt = 1
   ): Promise<AIClassificationResponse[]> {
     try {
-      const categories = requests[0].availableCategories;
-      const categoriesCatalog = categories
-        .map(c => {
-          const subs = (c.subcategories || [])
-            .map(s => `      { "id": "${s.id}", "name": "${s.name}" }`)
-            .join(',\n');
-          return `  {
-    "id": "${c.id}",
-    "name": "${c.name}",
-    "subcategories": [
-${subs}
-    ]
-  }`;
-        })
-        .join(',\n');
+  const categories = requests[0].availableCategories;
+  const categoriesCatalog = this.buildCompactCatalog(categories as any);
 
-      const items = requests.map((r, idx) => ({ index: idx, description: r.transactionText, amount: r.amount, date: r.date }));
+      // Sanitize items
+      const items = requests.map((r, idx) => ({
+        index: idx,
+        description: String(r.transactionText || '').slice(0, 250),
+        amount: Number.isFinite(r.amount as any) ? (r.amount as number) : 0,
+        date: String(r.date || '').slice(0, 40)
+      }));
 
-      const systemPrompt = `You are a financial transaction classifier. Classify a list of transactions.
-Return ONLY a JSON array with the EXACT SAME NUMBER OF ITEMS as the input list, in the SAME ORDER.
-Each element must strictly match and you may include an "index" copied from the input to preserve order.
-Fields: { categoryId, subcategoryId (or null), confidence (0-1), reasoning }.
-Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set subcategoryId=null; if uncertain set categoryId="uncategorized" and confidence<=0.3.`;
-
-      const userPrompt = `Allowed Categories Catalog (ids and names):\n[\n${categoriesCatalog}\n]\n\nTransactions (classify in this same order). Include the same "index" in each output object to align results:\n${JSON.stringify(items, null, 2)}`;
+  const systemPrompt = `Classify transactions. Return a JSON array the same length and order as input. Fields per item: categoryId, subcategoryId (or null), confidence (0-1), reasoning. Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
 
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
+          { role: 'user', content: `CAT:${categoriesCatalog}` },
+          { role: 'user', content: `TX:${JSON.stringify(items)}` }
         ],
-        max_tokens: 1000,
+  max_tokens: 900,
         temperature: 0.1
       };
 
-  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 600 });
       if (!response.success || !response.data) throw new Error(response.error || 'No response from OpenAI proxy');
 
       const responseContent = response.data.choices[0]?.message?.content;
@@ -438,20 +453,39 @@ Rules: Use EXACT ids from the catalog; do not invent ids or names; if unsure set
         return this.constrainToCatalog(normalized, categories as any);
       });
     } catch (error: any) {
-      // Retry once on server errors, then fallback to singles for this chunk
-      const isServerError = /HTTP\s*5\d\d/i.test(String(error?.message || ''));
-      if (isServerError && attempt < 3) {
-        const backoffMs = attempt * 300 + Math.floor(Math.random() * 200);
+      // Smarter fallback logic based on error type
+      const msg = String(error?.message || '');
+      const is5xx = /HTTP\s*5\d\d/i.test(msg);
+      const is429 = /HTTP\s*429/i.test(msg) || /too many requests/i.test(msg);
+      const is400 = /HTTP\s*400/i.test(msg) || /bad request/i.test(msg);
+
+      // Backoff a bit on 429
+      if ((is5xx || is429) && attempt < 3) {
+        const backoffMs = 500 * attempt + Math.floor(Math.random() * 400);
         await new Promise((r) => setTimeout(r, backoffMs));
+        // On repeated 429, shrink to singles to reduce payload pressure
+        if (is429 && requests.length > 1) {
+          const results: AIClassificationResponse[] = [];
+          for (const r of requests) {
+            try {
+              results.push(await this.classifyTransaction(r));
+            } catch {
+              results.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Rate-limited fallback' });
+            }
+          }
+          return results;
+        }
         return this.classifyTransactionsBatchChunk(requests, attempt + 1);
       }
+
+      // For 400s (often payload/format issues), fall back to singles for safety
       console.error('Error in batch classification chunk:', error);
       const singles: AIClassificationResponse[] = [];
       for (const r of requests) {
         try {
           singles.push(await this.classifyTransaction(r));
         } catch {
-          singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Batch chunk failed' });
+          singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: is400 ? 'Bad request fallback' : 'Batch chunk failed' });
         }
       }
       return singles;

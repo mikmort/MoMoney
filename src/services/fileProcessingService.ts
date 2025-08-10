@@ -654,21 +654,19 @@ Return ONLY a clean JSON response:
       const transactionBlocks = content.split('<STMTTRN>').slice(1);
 
       for (const block of transactionBlocks) {
+        // Extract raw amount string first, then convert to number to avoid TS type reassignment issues
+        const rawAmount = this.extractOFXValue(block, 'TRNAMT');
+        const numericAmount = rawAmount != null ? parseFloat(rawAmount) : null;
+
         const transaction = {
           transactionId: this.extractOFXValue(block, 'FITID') || `tx_${Date.now()}_${Math.random()}`,
           type: this.extractOFXValue(block, 'TRNTYPE'),
           date: this.extractOFXValue(block, 'DTPOSTED'),
-          amount: this.extractOFXValue(block, 'TRNAMT'),
+          amount: numericAmount,
           description: this.extractOFXValue(block, 'NAME') || this.extractOFXValue(block, 'MEMO'),
           notes: this.extractOFXValue(block, 'MEMO'),
           account: 'Unknown'
         };
-
-        // Keep date as string (as expected by test)
-        // Convert amount to number
-        if (transaction.amount) {
-          (transaction as any).amount = parseFloat(transaction.amount as string);
-        }
 
         transactions.push(transaction);
       }
