@@ -19,6 +19,7 @@ const Reports = lazy(() => import('./components/Reports/Reports'));
 const Settings = lazy(() => import('./components/Settings/Settings'));
 const CategoriesManagement = lazy(() => import('./components/Categories/CategoriesManagement'));
 const TransferMatchesPage = lazy(() => import('./components/Transactions/TransferMatchesPage').then(module => ({ default: module.TransferMatchesPage })));
+const Accounts = lazy(() => import('./components/Accounts/Accounts'));
 
 // Initialize MSAL instance
 const msalInstance = new PublicClientApplication(msalConfig);
@@ -47,6 +48,7 @@ const AppContent: React.FC = () => (
           <Route path="/" element={<Dashboard />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/rules" element={<Rules />} />
+          <Route path="/accounts" element={<Accounts />} />
           <Route path="/transfer-matches" element={<TransferMatchesPage />} />
           <Route path="/categories" element={<CategoriesManagement />} />
           <Route path="/budgets" element={<Budgets />} />
