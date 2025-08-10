@@ -602,6 +602,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       headerName: 'Name',
       field: 'name',
       flex: 1,
+      minWidth: 120,
       cellRenderer: NameRenderer
     },
     {

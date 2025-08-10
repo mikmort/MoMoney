@@ -1,6 +1,6 @@
 import { Transaction, DuplicateDetectionResult, DuplicateTransaction, CategoryRule, DuplicateDetectionConfig } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { db, initializeDB, TransactionHistoryEntry } from './db';
+import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, DBHealthCheck } from './db';
 import { rulesService } from './rulesService';
 import { transferMatchingService } from './transferMatchingService';
 
@@ -8,6 +8,8 @@ class DataService {
   private transactions: Transaction[] = [];
   private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
   private isInitialized = false;
+  private healthCheckResults: DBHealthCheck | null = null;
+  private healthCheckFailures = 0; // Track consecutive health check failures
   
   // In-memory undo/redo stacks for fast operations during active editing
   private undoStacks: { [transactionId: string]: Transaction[] } = {};
@@ -22,11 +24,37 @@ class DataService {
     if (this.isInitialized) return;
     
     try {
+      console.log('[TX] DataService initializing...');
+      
       // Initialize IndexedDB and handle migration
       await initializeDB();
       
       // Load data from IndexedDB
       await this.loadFromDB();
+      
+      // Perform health check after loading data
+      const { needsReset, healthCheck } = await performPostInitHealthCheck();
+      this.healthCheckResults = healthCheck;
+      
+      if (needsReset) {
+        this.healthCheckFailures++;
+        console.error(`[TX] Database health check failed (attempt ${this.healthCheckFailures}/2)`, healthCheck);
+        
+        if (this.healthCheckFailures >= 2) {
+          // Show user prompt for reset
+          this.showCorruptionResetPrompt();
+          return; // Don't continue initialization if we're prompting for reset
+        }
+      } else {
+        this.healthCheckFailures = 0; // Reset failure count on successful check
+        
+        // Log health statistics  
+        const stats = healthCheck.stats;
+        const firstId = this.transactions.length > 0 ? this.transactions[0].id : 'none';
+        const lastId = this.transactions.length > 0 ? this.transactions[this.transactions.length - 1].id : 'none';
+        
+        console.log(`[TX] DB Health: ${stats.totalTransactions} transactions in DB, ${this.transactions.length} in memory, first: ${firstId}, last: ${lastId}`);
+      }
       
       // Initialize with sample data if empty (skip in test environment)
       if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
@@ -34,12 +62,64 @@ class DataService {
       }
       
       this.isInitialized = true;
+      console.log(`[TX] DataService initialized with ${this.transactions.length} transactions`);
     } catch (error) {
-      console.error('Failed to initialize DataService:', error);
+      console.error('[TX] Failed to initialize DataService:', error);
+      this.healthCheckFailures++;
+      
       // Fallback to empty state
       this.transactions = [];
       this.history = {};
       this.isInitialized = true;
+    }
+  }
+
+  private showCorruptionResetPrompt(): void {
+    const message = "Data looks corrupted. Reset?";
+    const shouldReset = window.confirm(`${message}\n\nThis will delete all your data and reset the application.`);
+    
+    if (shouldReset) {
+      this.performEmergencyReset();
+    } else {
+      // User chose not to reset, continue with potentially corrupted data
+      console.warn('[TX] User declined reset, continuing with potentially corrupted data');
+      this.isInitialized = true;
+    }
+  }
+
+  private async performEmergencyReset(): Promise<void> {
+    try {
+      console.log('[TX] Performing emergency reset due to corruption...');
+      
+      // Close database connection
+      await db.close();
+      
+      // Delete the entire database
+      await indexedDB.deleteDatabase('MoMoneyDB');
+      
+      // Clear localStorage
+      const keysToRemove = [
+        'mo-money-accounts',
+        'mo-money-categories',
+        'mo-money-templates', 
+        'mo-money-category-rules',
+        'transactionsPageSize',
+        'APP_DATA_VERSION'
+      ];
+      
+      keysToRemove.forEach(key => {
+        try {
+          localStorage.removeItem(key);
+        } catch (error) {
+          console.warn(`[TX] Failed to clear localStorage key ${key}:`, error);
+        }
+      });
+      
+      alert('Database has been reset due to corruption. The page will reload.');
+      window.location.reload();
+    } catch (error) {
+      console.error('[TX] Emergency reset failed:', error);
+      alert('Failed to reset corrupted database. Please visit /reset-db.html for manual reset.');
     }
   }
 
@@ -520,20 +600,9 @@ class DataService {
         });
       });
       
-      // Auto-match transfers after loading
+      // Defer transfer auto-matching until after first paint
       if (this.transactions.length > 0) {
-        try {
-          const matchedTransactions = await transferMatchingService.autoMatchTransfers(this.transactions);
-          if (matchedTransactions !== this.transactions) {
-            this.transactions = matchedTransactions;
-            // Save the auto-matched results back to DB
-            await this.saveToDB();
-            console.log('✅ Auto-matched transfers and saved to DB');
-          }
-        } catch (error) {
-          console.error('Failed to auto-match transfers:', error);
-          // Continue with original transactions if matching fails
-        }
+        this.deferTransferAutoMatching();
       }
       
       console.log(`Loaded ${this.transactions.length} transactions and ${historyEntries.length} history entries from IndexedDB`);
@@ -546,10 +615,17 @@ class DataService {
 
   private async saveToDB(): Promise<void> {
     try {
-      // Use bulkPut to update existing records or add new ones
-      await db.transactions.bulkPut(this.transactions);
+      // Use robust bulk operation with fallback
+      const results = await db.robustBulkPut(db.transactions, this.transactions);
+      
+      if (results.failed > 0) {
+        console.warn(`[TX] Save operation had issues: ${results.successful} successful, ${results.failed} failed`);
+        results.errors.forEach(error => console.warn(`[TX] ${error}`));
+      } else {
+        console.log(`[TX] Successfully saved ${results.successful} transactions to IndexedDB`);
+      }
     } catch (error) {
-      console.error('Failed to save transactions to IndexedDB:', error);
+      console.error('[TX] Failed to save transactions to IndexedDB:', error);
     }
   }
 
@@ -1088,6 +1164,79 @@ class DataService {
     return restoredTransaction;
   }
   
+  private deferTransferAutoMatching(): void {
+    // Run transfer matching after first paint to avoid blocking initialization
+    requestAnimationFrame(() => {
+      setTimeout(async () => {
+        try {
+          console.log('[TX] Starting deferred transfer auto-matching...');
+          const startTime = Date.now();
+          
+          // Set a timeout for the operation
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Transfer matching timeout')), 10000); // 10 second timeout
+          });
+          
+          const matchingPromise = transferMatchingService.autoMatchTransfers(this.transactions);
+          
+          const matchedTransactions = await Promise.race([matchingPromise, timeoutPromise]) as Transaction[];
+          
+          const duration = Date.now() - startTime;
+          console.log(`[TX] Transfer auto-matching completed in ${duration}ms`);
+          
+          if (matchedTransactions !== this.transactions) {
+            this.transactions = matchedTransactions;
+            // Only save if we finished in reasonable time
+            if (duration < 8000) {
+              await this.saveToDB();
+              console.log('[TX] ✅ Auto-matched transfers and saved to DB');
+            } else {
+              console.warn('[TX] Transfer matching took too long, not saving results');
+            }
+          }
+        } catch (error) {
+          console.error('[TX] Deferred transfer auto-matching failed:', error);
+          // Continue with original transactions if matching fails
+        }
+      }, 100); // Small delay to ensure first paint has occurred
+    });
+  }
+
+  // Get current health status
+  async getHealthStatus(): Promise<DBHealthCheck | null> {
+    return this.healthCheckResults;
+  }
+
+  // Create support bundle for diagnostics
+  async createSupportBundle(): Promise<string> {
+    await this.ensureInitialized();
+    
+    try {
+      const supportBundle = await db.createSupportBundle();
+      return supportBundle;
+    } catch (error) {
+      console.error('[TX] Failed to create support bundle:', error);
+      throw error;
+    }
+  }
+
+  // Get database statistics for logging
+  async getDBStats(): Promise<{ dbCount: number; memoryCount: number; firstId?: string; lastId?: string }> {
+    await this.ensureInitialized();
+    
+    try {
+      const dbCount = await db.transactions.count();
+      const memoryCount = this.transactions.length;
+      const firstId = this.transactions.length > 0 ? this.transactions[0].id : undefined;
+      const lastId = this.transactions.length > 0 ? this.transactions[this.transactions.length - 1].id : undefined;
+      
+      return { dbCount, memoryCount, firstId, lastId };
+    } catch (error) {
+      console.error('[TX] Failed to get DB stats:', error);
+      return { dbCount: -1, memoryCount: this.transactions.length };
+    }
+  }
+
   async getUndoRedoStatus(transactionId: string): Promise<{
     canUndo: boolean;
     canRedo: boolean;

@@ -134,6 +134,7 @@ const Settings: React.FC = () => {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<'success' | 'error' | null>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<string | null>(null);
+  const [isExportingSupport, setIsExportingSupport] = useState(false);
   const [isDeduping, setIsDeduping] = useState(false);
 
   useEffect(() => {
@@ -212,30 +213,55 @@ const Settings: React.FC = () => {
   const handleResetData = async () => {
     setIsResetting(true);
     try {
-      // Clear transactions, history, and preferences (IndexedDB)
-      await dataService.clearAllData();
-  // Also clear accounts and rules stored in localStorage
+      console.log('[RESET] Starting true database reset...');
+      
+      // First close the database connection
+      const { db } = await import('../../services/db');
+      await db.close();
+      console.log('[RESET] Database connection closed');
+      
+      // Delete the entire IndexedDB database (true reset)
+      await indexedDB.deleteDatabase('MoMoneyDB');
+      console.log('[RESET] IndexedDB database deleted completely');
+      
+      // Clear all localStorage keys used by the app
+      const localStorageKeys = [
+        'mo-money-accounts',
+        'mo-money-categories', 
+        'mo-money-templates',
+        'transactionsPageSize',
+        'APP_DATA_VERSION',
+        // Legacy migration keys (safe to remove)
+        'mo-money-transactions',
+        'mo-money-transaction-history',
+        // Rules service key
+        'mo-money-category-rules'
+      ];
+      
+      for (const key of localStorageKeys) {
+        try {
+          localStorage.removeItem(key);
+          console.log(`[RESET] Cleared localStorage key: ${key}`);
+        } catch (error) {
+          console.warn(`[RESET] Failed to clear localStorage key ${key}:`, error);
+        }
+      }
+      
+      // Also clear rules via the service API for consistency
       try {
-        localStorage.removeItem('mo-money-accounts');
-      } catch {}
-      try {
-        // RulesService persists to localStorage under its own key; call its API too for consistency
         const { rulesService } = await import('../../services/rulesService');
         await rulesService.clearAllRules();
-      } catch {}
-
-  // Clear localStorage-backed app preferences and UI state for a clean start
-  try { localStorage.removeItem('transactionsPageSize'); } catch {}
-  try { localStorage.removeItem('mo-money-categories'); } catch {}
-  try { localStorage.removeItem('mo-money-templates'); } catch {}
-  // Legacy/local migration keys (safe to remove)
-  try { localStorage.removeItem('mo-money-transactions'); } catch {}
-  try { localStorage.removeItem('mo-money-transaction-history'); } catch {}
+        console.log('[RESET] Rules cleared via service API');
+      } catch (error) {
+        console.warn('[RESET] Failed to clear rules via service:', error);
+      }
+      
+      console.log('[RESET] Reset complete, reloading application...');
       alert('✅ All data has been successfully reset. The page will reload to reflect the changes.');
       window.location.reload(); // Reload to reset the app state
     } catch (error) {
-      console.error('Failed to reset data:', error);
-      alert('❌ Failed to reset data. Please try again.');
+      console.error('[RESET] Failed to reset data:', error);
+      alert('❌ Failed to reset data. Please try again or use the fallback reset at /reset-db.html');
     } finally {
       setIsResetting(false);
       setShowConfirmDialog(false);
@@ -287,6 +313,33 @@ const Settings: React.FC = () => {
       setIsImporting(false);
       // Clear the file input
       event.target.value = '';
+    }
+  };
+
+  const handleExportSupportBundle = async () => {
+    setIsExportingSupport(true);
+    try {
+      const supportBundle = await dataService.createSupportBundle();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `momoney-support-${timestamp}.json`;
+      
+      // Create and trigger download
+      const blob = new Blob([supportBundle], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      alert('✅ Support bundle exported successfully! This file contains diagnostic information (no sensitive financial data).');
+    } catch (error) {
+      console.error('Failed to export support bundle:', error);
+      alert('❌ Failed to export support bundle. Please try again.');
+    } finally {
+      setIsExportingSupport(false);
     }
   };
 
@@ -360,9 +413,7 @@ const Settings: React.FC = () => {
                   </option>
                 ))}
               </select>
-              <div className="description">
-                All amounts will be displayed in this currency. Foreign transactions will be automatically converted using daily exchange rates.
-              </div>
+
             </div>
             
             <div className="form-group">
@@ -413,7 +464,7 @@ const Settings: React.FC = () => {
             <Button 
               onClick={handleExportData}
               disabled={isExporting}
-              style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white' }}
+              style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white', minWidth: '140px' }}
             >
               {isExporting ? 'Exporting...' : '💾 Export Data'}
             </Button>
@@ -422,7 +473,7 @@ const Settings: React.FC = () => {
               <Button 
                 as="span"
                 disabled={isImporting}
-                style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white' }}
+                style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white', minWidth: '140px' }}
               >
                 {isImporting ? 'Importing...' : '📁 Import Data'}
               </Button>
@@ -446,6 +497,23 @@ const Settings: React.FC = () => {
           
           <div style={{ marginTop: '12px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', fontSize: '14px', color: '#1976d2' }}>
             <strong>💡 Tip:</strong> Regular backups help protect your financial data. Export files are in JSON format and contain all transactions, categories, transaction history, and settings. The format is structured similarly to SQLite database schemas for compatibility.
+          </div>
+          
+          <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
+            <h4>🔧 Support & Diagnostics</h4>
+            <p>Export diagnostic information for troubleshooting (contains no sensitive financial data).</p>
+            
+            <Button 
+              onClick={handleExportSupportBundle}
+              disabled={isExportingSupport}
+              style={{ background: '#9C27B0', borderColor: '#9C27B0', color: 'white' }}
+            >
+              {isExportingSupport ? 'Exporting...' : '📋 Export Support Bundle'}
+            </Button>
+            
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+              Support bundles contain anonymized transaction samples, database health info, and system diagnostics - no sensitive financial data is included.
+            </div>
           </div>
         </div>
 

@@ -373,6 +373,45 @@ export interface TransferDisplayOptions {
   showFees: boolean;
 }
 
+// Receipt processing interfaces
+export interface AttachedFile {
+  id: string;
+  originalName: string;
+  size: number;
+  type: 'pdf' | 'image' | 'other';
+  mimeType: string;
+  data: string; // base64 encoded file data
+  uploadDate: Date;
+  transactionId?: string; // Optional link to transaction
+}
+
+export interface ReceiptProcessingRequest {
+  file: File;
+  accountId?: string;
+}
+
+export interface ReceiptProcessingResponse {
+  attachedFile: AttachedFile;
+  suggestedTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>;
+  extractedData: {
+    date?: Date;
+    amount?: number;
+    vendor?: string;
+    description?: string;
+    category?: string;
+    location?: string;
+    confidence: number;
+    reasoning: string;
+  };
+  duplicates: DuplicateTransaction[];
+  duplicateCheck: {
+    hasDuplicates: boolean;
+    potentialDuplicates: DuplicateTransaction[];
+  };
+  confidence: number;
+  reasoning: string;
+}
+
 // Account statement processing interfaces
 export interface AccountStatementAnalysisRequest {
   fileContent: string;

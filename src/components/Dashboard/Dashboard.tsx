@@ -22,6 +22,17 @@ const ChartCard = styled(Card)`
   h3 {
     margin-bottom: 20px;
     color: #333;
+    
+    &.clickable-heading {
+      cursor: pointer;
+      display: inline-block;
+      transition: color 0.2s;
+      
+      &:hover {
+        color: #2196f3;
+        text-decoration: underline;
+      }
+    }
   }
 `;
 
@@ -375,12 +386,29 @@ const Dashboard: React.FC = () => {
 
       <Grid columns={2} gap="20px">
         <ChartCard>
-          <h3>Spending by Category</h3>
+          <h3 
+            className="clickable-heading"
+            onClick={() => navigate('/transactions')}
+            title="Click to view all transactions or click chart segments to filter by category"
+          >
+            Spending by Category
+          </h3>
           <div className="chart-container">
             {stats && stats.topCategories.length > 0 ? (
               <Doughnut 
                 data={categoryChartData}
-                options={commonDoughnutOptions}
+                options={{
+                  ...commonDoughnutOptions,
+                  onClick: (event, elements) => {
+                    if (elements.length > 0) {
+                      const index = elements[0].index;
+                      const categoryName = stats.topCategories[index]?.categoryName;
+                      if (categoryName) {
+                        navigate(`/transactions?category=${encodeURIComponent(categoryName)}`);
+                      }
+                    }
+                  }
+                }}
               />
             ) : (
               <div style={{ 

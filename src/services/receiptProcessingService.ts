@@ -41,6 +41,7 @@ class ReceiptProcessingService {
         reasoning: extractedData.reasoning,
         attachedFile,
         suggestedTransaction,
+        duplicates: duplicateCheck.potentialDuplicates,
         duplicateCheck
       };
 
