@@ -5,6 +5,7 @@ import { accountManagementService, AccountDetectionRequest } from './accountMana
 import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
 import { rulesService } from './rulesService';
+import { transferDetectionService } from './transferDetectionService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
@@ -771,7 +772,13 @@ Return ONLY a clean JSON response:
 
     console.log(`📊 Found ${validIndices.length} valid rows out of ${prepared.length} prepared rows`);
 
-    // Step 1: Apply category rules first
+    // Step 0: Initialize transfer detection rules if needed (skip in test environment)
+    if (process.env.NODE_ENV !== 'test') {
+      console.log('🔄 Initializing transfer detection rules...');
+      await transferDetectionService.initializeTransferRules();
+    }
+
+    // Step 1: Apply category rules first (now includes transfer detection)
     console.log(`📋 Applying category rules to ${validIndices.length} valid transactions`);
     const validTransactions = validIndices.map(i => prepared[i]).filter(p => p.date && p.description && p.amount !== null);
     const ruleResults = await rulesService.applyRulesToBatch(validTransactions.map(p => ({
@@ -1114,6 +1121,23 @@ Return ONLY a clean JSON response:
     try {
       const dateStr = String(value).trim();
       
+      // Handle OFX format YYYYMMDDHHMMSS
+      const ofxMatch = dateStr.match(/^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?$/);
+      if (ofxMatch) {
+        const [, year, month, day, hour = '00', minute = '00', second = '00'] = ofxMatch;
+        const date = new Date(
+          parseInt(year),
+          parseInt(month) - 1, // Month is 0-indexed in JavaScript
+          parseInt(day),
+          parseInt(hour),
+          parseInt(minute),
+          parseInt(second)
+        );
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+
       // Handle European format DD.MM.YYYY
       const europeanMatch = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
       if (europeanMatch) {
