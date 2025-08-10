@@ -146,6 +146,20 @@ const TransactionsContainer = styled.div`
     border: none !important;
     box-shadow: none !important;
   }
+
+  /* Make sure actions cell is interactive and above row content */
+  .ag-cell.actions-cell {
+    position: relative;
+    z-index: 2; /* above default cell content */
+    pointer-events: auto;
+  }
+
+  /* Increase the hit area for the inline actions menu button inside grid */
+  .ag-cell.actions-cell button {
+    min-width: 28px;
+    min-height: 28px;
+    line-height: 1;
+  }
 `;
 
 const ReimbursementPanel = styled(Card)`

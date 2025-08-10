@@ -6,7 +6,8 @@ import { menuStateManager } from '../../utils/menuStateManager';
 const MenuContainer = styled.div`
   position: relative;
   display: inline-block;
-  z-index: 1000;
+  z-index: 20000; /* sit above grids and headers */
+  pointer-events: auto; /* ensure clicks reach the trigger */
 `;
 
 const MenuButton = styled.button`
@@ -22,8 +23,10 @@ const MenuButton = styled.button`
   justify-content: center;
   color: ${props => props.theme?.primary || '#1976d2'};
   transition: all 0.2s ease;
-  z-index: 1000;
+  z-index: 20001; /* above container */
   position: relative;
+  pointer-events: auto;
+  user-select: none;
   
   &:hover {
     opacity: 0.9;
@@ -115,8 +118,22 @@ const ActionsMenuComponent: React.FC<ActionsMenuProps> = ({ actions, menuId }) =
   const handleMenuClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const newIsOpen = !isOpen;
-    updateState(newIsOpen);
+    // onClick is a no-op (we toggle on mousedown) to avoid double toggles
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Open/close on mousedown so AG Grid or parents don't swallow the click
+    e.preventDefault();
+    e.stopPropagation();
+    const next = !isOpen;
+    // slight deferral to avoid any immediate outside-click handlers
+    setTimeout(() => updateState(next), 0);
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    // Prevent bubbling to grid/cell handlers
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const handleActionClick = (action: MenuAction) => {
@@ -128,11 +145,10 @@ const ActionsMenuComponent: React.FC<ActionsMenuProps> = ({ actions, menuId }) =
     <MenuContainer ref={menuRef}>
       <MenuButton 
         onClick={handleMenuClick}
-        onMouseDown={(e) => {
-          // Only stop propagation for the menu button itself
-          e.stopPropagation();
-        }}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
         type="button"
+        aria-label="Open actions menu"
       >
         ⋯
       </MenuButton>
