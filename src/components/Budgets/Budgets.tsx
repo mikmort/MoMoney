@@ -3,11 +3,10 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import styled from 'styled-components';
 import { PageHeader, Card, Button, FlexBox, Badge } from '../../styles/globalStyles';
-import { Budget, Transaction, Category } from '../../types';
+import { Budget, Category } from '../../types';
 import { budgetService } from '../../services/budgetService';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
-import { v4 as uuidv4 } from 'uuid';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -155,7 +154,6 @@ const BudgetProgressCard = styled.div`
 
 const Budgets: React.FC = () => {
   const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
@@ -191,7 +189,6 @@ const Budgets: React.FC = () => {
       }
       
       setBudgets(budgetData);
-      setTransactions(transactionData);
       setCategories(categoriesData);
 
       // Calculate budget progress
