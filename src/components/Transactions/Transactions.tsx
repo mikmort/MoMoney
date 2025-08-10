@@ -4,7 +4,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, CollapsedTransfer, TransferDisplayOptions } from '../../types';
+import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, CollapsedTransfer, TransferDisplayOptions, DuplicateTransaction } from '../../types';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
@@ -16,6 +16,7 @@ import { AiConfidencePopup } from './AiConfidencePopup';
 import { CategoryEditConfirmDialog } from './CategoryEditConfirmDialog';
 import { ActionsMenu, MenuAction } from '../shared/ActionsMenu';
 import { TransferMatchDialog } from './TransferMatchDialog';
+import { RemoveDuplicatesDialog } from './RemoveDuplicatesDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { TransactionSplitManager } from '../shared/TransactionSplitManager';
@@ -918,6 +919,11 @@ const Transactions: React.FC = () => {
   const [anomalies, setAnomalies] = useState<AnomalyResult[]>([]);
   const [isAnomalyDetectionLoading, setIsAnomalyDetectionLoading] = useState(false);
   const [showAnomalyResults, setShowAnomalyResults] = useState(false);
+  
+  // Remove duplicates state
+  const [showRemoveDuplicatesDialog, setShowRemoveDuplicatesDialog] = useState(false);
+  const [duplicates, setDuplicates] = useState<DuplicateTransaction[]>([]);
+  const [isDuplicateDetectionLoading, setIsDuplicateDetectionLoading] = useState(false);
   
   const [filters, setFilters] = useState({
     category: '',
@@ -2479,6 +2485,62 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleRemoveDuplicates = async () => {
+    try {
+      if (transactions.length === 0) {
+        alert('No transactions to analyze!');
+        return;
+      }
+
+      console.log(`🔍 Starting duplicate detection for ${transactions.length} transactions...`);
+      setIsDuplicateDetectionLoading(true);
+      setShowRemoveDuplicatesDialog(true);
+
+      const duplicatesFound = await dataService.findExistingDuplicates();
+
+      console.log(`✅ Duplicate detection completed. Found ${duplicatesFound.length} duplicates.`);
+      
+      setDuplicates(duplicatesFound);
+      
+    } catch (error) {
+      console.error('Duplicate detection failed:', error);
+      alert('Failed to detect duplicates. Please try again later.');
+      setShowRemoveDuplicatesDialog(false);
+    } finally {
+      setIsDuplicateDetectionLoading(false);
+    }
+  };
+
+  const handleConfirmRemoveDuplicates = async (duplicateIds: string[]) => {
+    try {
+      console.log(`🗑️ Removing ${duplicateIds.length} duplicate transactions...`);
+      
+      const result = await dataService.removeDuplicateTransactions(duplicateIds);
+      
+      if (result.errors.length > 0) {
+        console.warn('Some duplicates could not be removed:', result.errors);
+        alert(`Removed ${result.removed} duplicates, but encountered ${result.errors.length} errors. See console for details.`);
+      } else {
+        console.log(`✅ Successfully removed ${result.removed} duplicate transactions`);
+        alert(`Successfully removed ${result.removed} duplicate transaction${result.removed !== 1 ? 's' : ''}!`);
+      }
+      
+      // Refresh the transactions list
+      const updatedTransactions = await dataService.getAllTransactions();
+      setTransactions(updatedTransactions);
+      setFilteredTransactions(updatedTransactions);
+      
+    } catch (error) {
+      console.error('Failed to remove duplicates:', error);
+      throw error; // Re-throw so the dialog can handle the error
+    }
+  };
+
+  const handleCloseDuplicatesDialog = () => {
+    setShowRemoveDuplicatesDialog(false);
+    setDuplicates([]);
+  };
+
   const handleApplyMatch = async (match: ReimbursementMatch) => {
     const updatedTransactions = await applyMatches(transactions, [match]);
     setTransactions(updatedTransactions);
@@ -2745,6 +2807,11 @@ const Transactions: React.FC = () => {
       icon: '🔍',
       label: isAnomalyDetectionLoading ? 'Searching...' : 'Search for Anomalies',
       onClick: handleSearchAnomalies
+    },
+    {
+      icon: '🗑️',
+      label: isDuplicateDetectionLoading ? 'Searching...' : 'Remove Duplicates',
+      onClick: handleRemoveDuplicates
     }
   ];
 
@@ -3347,6 +3414,15 @@ const Transactions: React.FC = () => {
           setTransactions(updatedTransactions);
           setFilteredTransactions(updatedTransactions);
         }}
+      />
+
+      {/* Remove Duplicates Dialog */}
+      <RemoveDuplicatesDialog
+        isOpen={showRemoveDuplicatesDialog}
+        duplicates={duplicates}
+        isLoading={isDuplicateDetectionLoading}
+        onClose={handleCloseDuplicatesDialog}
+        onRemoveDuplicates={handleConfirmRemoveDuplicates}
       />
     </div>
   );
