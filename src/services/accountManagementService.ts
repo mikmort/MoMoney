@@ -485,6 +485,123 @@ ${userPrompt}`;
     }
   }
 
+  /**
+   * Calculate monthly balance history for an account from today back to the first transaction
+   */
+  async calculateMonthlyBalanceHistory(accountId: string): Promise<Array<{
+    date: Date;
+    formattedDate: string;
+    balance: number;
+  }>> {
+    const account = this.getAccount(accountId);
+    if (!account) return [];
+
+    try {
+      const ds = await getDataService();
+      const allTransactions = await ds.getAllTransactions();
+      
+      // Filter and sort transactions for this account by date (oldest first)
+      const accountTransactions = allTransactions
+        .filter((t: any) => t.account === account.name || t.account === account.id)
+        .map((t: any) => ({ ...t, date: new Date(t.date) }))
+        .sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
+
+      if (accountTransactions.length === 0) {
+        // No transactions, return current balance for today
+        const today = new Date();
+        return [{
+          date: today,
+          formattedDate: this.formatDateLong(today),
+          balance: account.balance || 0
+        }];
+      }
+
+      const firstTransactionDate = accountTransactions[0].date;
+      const today = new Date();
+      const history: Array<{ date: Date; formattedDate: string; balance: number }> = [];
+
+      // Start from the first transaction month and go to current month
+      let currentDate = new Date(firstTransactionDate.getFullYear(), firstTransactionDate.getMonth(), 1);
+      const endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0); // Last day of current month
+
+      // Calculate starting balance (historical balance or 0)
+      let runningBalance = account.historicalBalance || 0;
+      
+      // If we have historical balance, adjust for transactions before that date
+      if (account.historicalBalance !== undefined && account.historicalBalanceDate) {
+        // Start with the historical balance as our baseline
+        runningBalance = account.historicalBalance;
+      } else {
+        // No historical balance, start from 0
+        runningBalance = 0;
+      }
+
+      while (currentDate <= endDate) {
+        // Get last day of this month
+        const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+        const currentYear = currentDate.getFullYear();
+        const currentMonth = currentDate.getMonth();
+        
+        // Get transactions for this month
+        const monthTransactions = accountTransactions.filter((t: any) => {
+          const transactionDate = t.date;
+          return transactionDate.getFullYear() === currentYear &&
+                 transactionDate.getMonth() === currentMonth &&
+                 // If historical balance exists, only include transactions after that date
+                 (!account.historicalBalanceDate || transactionDate > account.historicalBalanceDate);
+        });
+
+        // Add this month's transactions to running balance
+        const monthlyChange = monthTransactions.reduce((sum: number, t: any) => sum + t.amount, 0);
+        runningBalance += monthlyChange;
+
+        // Add entry for end of month
+        history.push({
+          date: monthEnd,
+          formattedDate: this.formatDateLong(monthEnd),
+          balance: runningBalance
+        });
+
+        // Move to next month
+        currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+      }
+
+      // Return in reverse chronological order (newest first)
+      return history.reverse();
+
+    } catch (error) {
+      console.error('Error calculating monthly balance history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Format date in the requested format: "August 7th, 2025"
+   */
+  private formatDateLong(date: Date): string {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+
+    // Add ordinal suffix
+    const getOrdinalSuffix = (num: number): string => {
+      if (num >= 11 && num <= 13) return 'th';
+      switch (num % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+
+    return `${month} ${day}${getOrdinalSuffix(day)}, ${year}`;
+  }
+
   private async readFileContent(file: File): Promise<string> {
     // Deprecated: kept for compatibility. Prefer readStatementText for type-aware extraction.
     return this.readStatementText(file);
