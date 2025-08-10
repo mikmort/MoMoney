@@ -14,17 +14,27 @@ const RulesContainer = styled.div`
 
 const RuleCard = styled(Card)`
   position: relative;
+  padding: 12px 16px;
+  
+  /* Override default Card padding for more compact display */
+  & > * {
+    margin: 0;
+  }
 `;
 
 const RuleHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  padding: 4px 0;
   cursor: pointer;
   
   &:hover {
     background-color: #f8f9fa;
+    border-radius: 4px;
+    margin: -4px;
+    padding: 8px;
   }
 `;
 

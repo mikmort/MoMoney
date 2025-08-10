@@ -360,9 +360,7 @@ const Settings: React.FC = () => {
                   </option>
                 ))}
               </select>
-              <div className="description">
-                All amounts will be displayed in this currency. Foreign transactions will be automatically converted using daily exchange rates.
-              </div>
+
             </div>
             
             <div className="form-group">
@@ -413,7 +411,7 @@ const Settings: React.FC = () => {
             <Button 
               onClick={handleExportData}
               disabled={isExporting}
-              style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white' }}
+              style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white', minWidth: '140px' }}
             >
               {isExporting ? 'Exporting...' : '💾 Export Data'}
             </Button>
@@ -422,7 +420,7 @@ const Settings: React.FC = () => {
               <Button 
                 as="span"
                 disabled={isImporting}
-                style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white' }}
+                style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white', minWidth: '140px' }}
               >
                 {isImporting ? 'Importing...' : '📁 Import Data'}
               </Button>
