@@ -12,6 +12,15 @@ if (typeof globalThis.structuredClone === 'undefined') {
   globalThis.structuredClone = (obj: any) => JSON.parse(JSON.stringify(obj));
 }
 
+// Polyfill TextEncoder and TextDecoder for Jest environment
+if (typeof global.TextEncoder === 'undefined') {
+  global.TextEncoder = require('util').TextEncoder;
+}
+
+if (typeof global.TextDecoder === 'undefined') {
+  global.TextDecoder = require('util').TextDecoder;
+}
+
 // Minimal localStorage/sessionStorage polyfills for Jest (Node) environment
 (() => {
   const makeStorage = () => {
