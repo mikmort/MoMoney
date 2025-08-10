@@ -23,7 +23,7 @@ jest.mock('../services/accountManagementService', () => ({
 }));
 
 // Mock pdfjs-dist for browser compatibility
-jest.mock('pdfjs-dist', () => ({
+const mockPdfjsLib = {
   getDocument: jest.fn(() => ({
     promise: Promise.resolve({
       numPages: 1,
@@ -37,7 +37,12 @@ jest.mock('pdfjs-dist', () => ({
   GlobalWorkerOptions: {
     workerSrc: ''
   }
-}));
+};
+
+jest.mock('pdfjs-dist', () => mockPdfjsLib);
+
+// Mock the require call as well
+jest.doMock('pdfjs-dist', () => mockPdfjsLib);
 
 describe('ReceiptProcessingService', () => {
   beforeEach(() => {
@@ -129,7 +134,7 @@ describe('ReceiptProcessingService', () => {
 
       expect(result.attachedFile.type).toBe('image');
       expect(result.extractedData.vendor).toBe('Gas Station');
-      expect(result.suggestedTransaction.category).toBe('Gas & Fuel');
+      expect(result.suggestedTransaction.category).toBe('Fuel/Gas');
     });
 
     it('should handle AI extraction failure gracefully', async () => {

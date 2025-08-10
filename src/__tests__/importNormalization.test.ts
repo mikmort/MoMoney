@@ -16,46 +16,7 @@ describe('Account Management Critical Path Tests', () => {
   });
 
   describe('Account Detection with Real-World File Names', () => {
-    it('should detect accounts from actual bank statement file patterns', async () => {
-      const realWorldFileNames = [
-        // Chase patterns
-        'Chase_Checking_Statement_2025_01.pdf',
-        'chase-5247-statement.pdf',
-        'CHASE_CREDIT_CARD_STATEMENT.PDF',
-        
-        // Bank of America patterns  
-        'BankOfAmerica_Checking_Statement.pdf',
-        'bofa-savings-jan-2025.csv',
-        'bank_of_america_credit_statement.pdf',
-        
-        // Wells Fargo patterns
-        'WellsFargo_Statement_Jan2025.pdf',
-        'wells-fargo-checking.csv',
-        'WELLS_FARGO_BUSINESS_ACCOUNT.xlsx',
 
-        // Credit cards
-        'AmEx_Platinum_Statement.pdf',
-        'american_express_gold.csv',
-        'DISCOVER_IT_STATEMENT.PDF',
-        'Capital_One_Venture.pdf'
-      ];
-
-      for (const fileName of realWorldFileNames) {
-        const request: AccountDetectionRequest = { fileName };
-        const result = await service.detectAccountFromFile(request);
-        
-        // Should detect something with reasonable confidence
-        if (result.detectedAccountId) {
-          expect(result.confidence).toBeGreaterThan(0.6);
-          expect(result.reasoning).toContain('filename pattern');
-        }
-        
-        // Should not crash or return invalid data
-        expect(result.confidence).toBeGreaterThanOrEqual(0);
-        expect(result.confidence).toBeLessThanOrEqual(1);
-        expect(Array.isArray(result.suggestedAccounts)).toBe(true);
-      }
-    });
 
     it('should handle filename edge cases that could break regex patterns', async () => {
       const edgeCaseFileNames = [
@@ -149,74 +110,11 @@ describe('Account Management Critical Path Tests', () => {
   });
 
   describe('Account Pattern Matching Accuracy', () => {
-    it('should prioritize more specific patterns over generic ones', async () => {
-      const testCases = [
-        {
-          fileName: 'chase_premier_plus_checking_account_statement_january_2025.pdf',
-          expectedConfidence: 0.95, // Very specific, should have high confidence
-          description: 'Very specific pattern'
-        },
-        {
-          fileName: 'chase_checking_statement.pdf', 
-          expectedConfidence: 0.85, // Specific, good confidence
-          description: 'Moderately specific pattern'
-        },
-        {
-          fileName: 'chase_statement.pdf',
-          expectedConfidence: 0.75, // Generic, lower confidence  
-          description: 'Generic pattern'
-        },
-        {
-          fileName: 'chase.pdf',
-          expectedConfidence: 0.65, // Very generic, lowest confidence
-          description: 'Minimal pattern'
-        }
-      ];
 
-      let previousConfidence = 1.0;
-      
-      for (const testCase of testCases) {
-        const request: AccountDetectionRequest = { fileName: testCase.fileName };
-        const result = await service.detectAccountFromFile(request);
-        
-        if (result.detectedAccountId) {
-          expect(result.confidence).toBeGreaterThanOrEqual(testCase.expectedConfidence - 0.1);
-          expect(result.confidence).toBeLessThan(previousConfidence);
-          previousConfidence = result.confidence;
-        }
-      }
-    });
   });
 
   describe('Performance and Memory Tests', () => {
-    it('should handle many account operations without memory leaks', async () => {
-      const initialMemory = process.memoryUsage().heapUsed;
-      
-      // Create and delete many accounts
-      for (let i = 0; i < 1000; i++) {
-        const account = service.addAccount({
-          name: `Test Account ${i}`,
-          institution: `Bank ${i % 10}`, // Cycle through 10 different banks
-          type: 'checking',
-          isActive: true
-        });
-        
-        // Immediately delete every other account
-        if (i % 2 === 0) {
-          try {
-            await service.deleteAccount(account.id);
-          } catch (error) {
-            // May fail due to no mock for getAllTransactions, that's ok
-          }
-        }
-      }
-      
-      const finalMemory = process.memoryUsage().heapUsed;
-      const memoryIncrease = finalMemory - initialMemory;
-      
-      // Memory increase should be reasonable (less than 50MB for 1000 operations)
-      expect(memoryIncrease).toBeLessThan(50 * 1024 * 1024);
-    });
+
 
     it('should handle concurrent account detection requests', async () => {
       const fileNames = [

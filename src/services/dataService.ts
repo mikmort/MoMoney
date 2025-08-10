@@ -334,6 +334,22 @@ class DataService {
   async addTransactions(transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<Transaction[]> {
     await this.ensureInitialized();
     console.log(`DataService: Adding ${transactions.length} transactions`);
+    // Lightweight deduplication: skip any incoming transaction that exactly matches
+    // an existing one by date, amount, description, account, and type.
+    if (this.transactions.length > 0 && transactions.length > 0) {
+      const existingKeys = new Set(
+        this.transactions.map(t => `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`)
+      );
+      const before = transactions.length;
+      transactions = transactions.filter(t => {
+        const key = `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`;
+        return !existingKeys.has(key);
+      });
+      const skipped = before - transactions.length;
+      if (skipped > 0) {
+        console.log(`DataService: Skipped ${skipped} duplicate transaction(s) during bulk add`);
+      }
+    }
     const now = new Date();
     const newTransactions = transactions.map(transaction => ({
       ...transaction,
@@ -349,6 +365,36 @@ class DataService {
     console.log(`DataService: Saved to IndexedDB`);
     
     return newTransactions;
+  }
+
+  // Public utility: scan and remove exact duplicates from existing data
+  async cleanupExactDuplicates(): Promise<{ removed: number; totalBefore: number; totalAfter: number }> {
+    await this.ensureInitialized();
+    const totalBefore = this.transactions.length;
+    const removed = await this.dedupeExistingTransactions();
+    const totalAfter = this.transactions.length;
+    return { removed, totalBefore, totalAfter };
+  }
+
+  // One-time cleanup: remove exact duplicates already persisted in IndexedDB
+  // Uses the same strict key as bulk-add dedup to avoid false positives
+  private async dedupeExistingTransactions(): Promise<number> {
+    // Build a set of seen composite keys and collect duplicate IDs to remove
+    const seen = new Set<string>();
+    const dupIds: string[] = [];
+    for (const t of this.transactions) {
+      const key = `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`;
+      if (seen.has(key)) {
+        dupIds.push(t.id);
+      } else {
+        seen.add(key);
+      }
+    }
+    if (dupIds.length === 0) return 0;
+
+    // Remove duplicates via existing helper to keep memory and DB in sync
+    const removedCount = await this.deleteTransactions(dupIds);
+    return removedCount;
   }
 
   async updateTransaction(id: string, updates: Partial<Transaction>, note?: string): Promise<Transaction | null> {
@@ -798,7 +844,7 @@ class DataService {
 
   async findExistingDuplicates(config?: DuplicateDetectionConfig): Promise<DuplicateTransaction[]> {
     await this.ensureInitialized();
-    
+
     // Default configuration for duplicate detection
     const defaultConfig: DuplicateDetectionConfig = {
       amountTolerance: 0.02, // 2% tolerance
@@ -814,20 +860,13 @@ class DataService {
 
     for (let i = 0; i < this.transactions.length; i++) {
       const transaction = this.transactions[i];
-      
-      if (processedIds.has(transaction.id)) {
-        continue;
-      }
+      if (processedIds.has(transaction.id)) continue;
 
       for (let j = i + 1; j < this.transactions.length; j++) {
         const otherTransaction = this.transactions[j];
-        
-        if (processedIds.has(otherTransaction.id)) {
-          continue;
-        }
+        if (processedIds.has(otherTransaction.id)) continue;
 
         const matchInfo = this.calculateTransactionSimilarity(transaction, otherTransaction, finalConfig);
-        
         if (matchInfo.similarity >= 0.8) { // 80% similarity threshold for duplicates
           duplicates.push({
             existingTransaction: transaction,
@@ -838,7 +877,7 @@ class DataService {
             daysDifference: matchInfo.daysDifference,
             matchType: matchInfo.matchType
           });
-          
+
           // Mark the "newer" transaction (otherTransaction) as processed so it's not compared again
           processedIds.add(otherTransaction.id);
         }

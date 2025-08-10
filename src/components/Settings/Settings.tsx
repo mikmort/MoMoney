@@ -135,6 +135,7 @@ const Settings: React.FC = () => {
   const [connectionTestResult, setConnectionTestResult] = useState<'success' | 'error' | null>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<string | null>(null);
   const [isExportingSupport, setIsExportingSupport] = useState(false);
+  const [isDeduping, setIsDeduping] = useState(false);
 
   useEffect(() => {
     loadPreferences();
@@ -341,6 +342,23 @@ const Settings: React.FC = () => {
       setIsExportingSupport(false);
     }
   };
+
+  const handleScanAndRemoveDuplicates = async () => {
+    setIsDeduping(true);
+    try {
+      const result = await dataService.cleanupExactDuplicates();
+      if (result.removed > 0) {
+        alert(`✅ Removed ${result.removed} exact duplicate transaction(s).\nBefore: ${result.totalBefore}\nAfter: ${result.totalAfter}`);
+      } else {
+        alert('✅ No exact duplicates found.');
+      }
+    } catch (error) {
+      console.error('Failed to cleanup duplicates:', error);
+      alert('❌ Failed to scan/remove duplicates.');
+    } finally {
+      setIsDeduping(false);
+    }
+  };
   return (
     <div>
       <PageHeader>
@@ -499,6 +517,14 @@ const Settings: React.FC = () => {
               Support bundles contain anonymized transaction samples, database health info, and system diagnostics - no sensitive financial data is included.
             </div>
           </div>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <h4>🧹 Data Cleanup</h4>
+          <p>Scan and remove exact duplicate transactions saved in your local database.</p>
+          <Button onClick={handleScanAndRemoveDuplicates} disabled={isDeduping}>
+            {isDeduping ? 'Scanning…' : '🧹 Scan & Remove Exact Duplicates'}
+          </Button>
         </div>
         
         <DangerZone>

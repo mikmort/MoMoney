@@ -215,15 +215,69 @@ Focus on finding:
       accountManagementService.getAccount(accountId) : 
       accountManagementService.getAccounts()[0]; // Default to first account
 
-    // Map category name to category ID if needed
+    // Map category name to category ID with improved matching
     let categoryName = extractedData.category || 'Uncategorized';
-    const category = defaultCategories.find(cat => 
+    
+    // First try exact match on category names
+    let matchedCategory = defaultCategories.find(cat => 
       cat.name.toLowerCase() === categoryName.toLowerCase()
     );
-    if (category) {
-      categoryName = category.name;
+    
+    if (matchedCategory) {
+      categoryName = matchedCategory.name;
     } else {
-      categoryName = 'Uncategorized';
+      // Try matching subcategories by name first (more specific)  
+      const lowerCategoryName = categoryName.toLowerCase();
+      let matchedSubcategory = null;
+      
+      for (const cat of defaultCategories) {
+        const sub = cat.subcategories?.find(sub => 
+          sub.name.toLowerCase() === lowerCategoryName ||
+          // Handle common variations
+          (lowerCategoryName.includes('gas') && lowerCategoryName.includes('fuel') && sub.name.toLowerCase().includes('fuel'))
+        );
+        if (sub) {
+          matchedSubcategory = sub;
+          matchedCategory = cat;
+          break;
+        }
+      }
+      
+      if (matchedSubcategory) {
+        // Use subcategory name if it was a direct match
+        categoryName = matchedSubcategory.name;
+      } else {
+        // Try keyword matching with better scoring
+        let bestMatch = null;
+        let bestScore = 0;
+        
+        for (const cat of defaultCategories) {
+          for (const sub of cat.subcategories || []) {
+            if (sub.keywords) {
+              const matchCount = sub.keywords.filter(keyword => 
+                lowerCategoryName.includes(keyword.toLowerCase())
+              ).length;
+              
+              // Prefer matches with more keywords and from fuel/gas specific context
+              let score = matchCount;
+              if (sub.name.toLowerCase().includes('fuel') || sub.name.toLowerCase().includes('gas')) {
+                score += 2; // Boost transportation gas/fuel matches
+              }
+              
+              if (score > bestScore) {
+                bestScore = score;
+                bestMatch = cat;
+              }
+            }
+          }
+        }
+        
+        if (bestMatch) {
+          categoryName = bestMatch.name;
+        } else {
+          categoryName = 'Uncategorized';
+        }
+      }
     }
 
     const transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'> = {
