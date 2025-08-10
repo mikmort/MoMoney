@@ -7,7 +7,6 @@ import { dataService } from './dataService';
 import { rulesService } from './rulesService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
-import { currencyExchangeService } from './currencyExchangeService';
 import { userPreferencesService } from './userPreferencesService';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -655,21 +654,19 @@ Return ONLY a clean JSON response:
       const transactionBlocks = content.split('<STMTTRN>').slice(1);
 
       for (const block of transactionBlocks) {
+        // Extract raw amount string first, then convert to number to avoid TS type reassignment issues
+        const rawAmount = this.extractOFXValue(block, 'TRNAMT');
+        const numericAmount = rawAmount != null ? parseFloat(rawAmount) : null;
+
         const transaction = {
           transactionId: this.extractOFXValue(block, 'FITID') || `tx_${Date.now()}_${Math.random()}`,
           type: this.extractOFXValue(block, 'TRNTYPE'),
           date: this.extractOFXValue(block, 'DTPOSTED'),
-          amount: this.extractOFXValue(block, 'TRNAMT'),
+          amount: numericAmount,
           description: this.extractOFXValue(block, 'NAME') || this.extractOFXValue(block, 'MEMO'),
           notes: this.extractOFXValue(block, 'MEMO'),
           account: 'Unknown'
         };
-
-        // Keep date as string (as expected by test)
-        // Convert amount to number
-        if (transaction.amount) {
-          transaction.amount = parseFloat(transaction.amount);
-        }
 
         transactions.push(transaction);
       }
