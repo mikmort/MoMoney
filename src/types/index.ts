@@ -112,7 +112,7 @@ export interface StatementFile {
   status: 'pending' | 'processing' | 'completed' | 'error' | 'awaiting-account-selection' | 'awaiting-duplicate-resolution';
   transactionCount?: number;
   errorMessage?: string;
-  fileType: 'pdf' | 'csv' | 'excel' | 'image';
+  fileType: 'pdf' | 'csv' | 'excel' | 'image' | 'ofx';
   detectedAccountId?: string; // AI-detected account
   accountDetectionConfidence?: number; // Confidence in account detection
   accountDetectionReasoning?: string; // Why this account was suggested
