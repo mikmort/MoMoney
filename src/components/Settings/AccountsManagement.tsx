@@ -570,7 +570,8 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
           borderRadius: '4px', 
           background: 'white', 
           cursor: 'pointer',
-          fontSize: '12px'
+          fontSize: '12px',
+          height: '28px'
         }}
       >
         Edit
@@ -589,7 +590,8 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
           background: '#dc3545',
           color: 'white',
           cursor: 'pointer',
-          fontSize: '12px'
+          fontSize: '12px',
+          height: '28px'
         }}
       >
         Delete
@@ -747,7 +749,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             </div>
 
             <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px', whiteSpace: 'nowrap' }}>
                 <input
                   type="checkbox"
                   checked={accountForm.isActive}
