@@ -367,9 +367,7 @@ ${userPrompt}`;
         historicalBalance: analysis.balance,
         historicalBalanceDate: analysis.balanceDate,
         maskedAccountNumber: analysis.maskedAccountNumber,
-  // Set lastSyncDate to the historical balance date so future calculations include
-  // all transactions AFTER this date instead of short-circuiting to "now"
-  lastSyncDate: analysis.balanceDate,
+        lastSyncDate: new Date(),
         isActive: true
       };
 
@@ -618,7 +616,7 @@ ${userPrompt}`;
     }
   }
 
-  private getFileType(filename: string): 'pdf' | 'csv' | 'excel' | 'image' {
+  private getFileType(filename: string): 'pdf' | 'csv' | 'excel' | 'image' | 'ofx' | 'unknown' {
     const extension = filename.toLowerCase().split('.').pop();
     
     switch (extension) {
@@ -629,12 +627,14 @@ ${userPrompt}`;
       case 'xlsx':
       case 'xls':
         return 'excel';
+      case 'ofx':
+        return 'ofx';
       case 'png':
       case 'jpg':
       case 'jpeg':
         return 'image';
       default:
-        return 'csv'; // Default fallback
+        return 'unknown'; // Fallback
     }
   }
 }
