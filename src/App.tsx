@@ -8,6 +8,7 @@ import { skipAuthentication } from './config/devConfig';
 // Lazy-loaded Components for code splitting
 import Navigation from './components/Layout/Navigation';
 import LoginPage from './components/Auth/LoginPage';
+import DatabaseEventHandler from './components/shared/DatabaseEventHandler';
 import { GlobalStyles, lightTheme } from './styles/globalStyles';
 
 // Lazy load heavy components to reduce initial bundle size
@@ -74,6 +75,7 @@ const App: React.FC = () => {
   return (
     <ThemeProvider theme={lightTheme}>
       <GlobalStyles />
+      <DatabaseEventHandler />
       {skipAuthentication ? (
         // Development mode - bypass authentication
   <RouterProvider router={router} future={{ v7_startTransition: true }} />

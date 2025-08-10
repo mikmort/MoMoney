@@ -29,5 +29,35 @@
   },
   "globalHeaders": {
     "content-security-policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https:; img-src 'self' data: https: blob:;"
+  },
+  "mimeTypes": {
+    ".html": "text/html"
+  },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/static/**", "*.{css,scss,js,ts,tsx,png,gif,jpg,svg}"]
+  },
+  "platformErrorOverrides": [
+    {
+      "errorType": "Unauthenticated",
+      "serve": "/login.html"
+    }
+  ],
+  "forwardingGateway": {
+    "requiredHeaders": {
+      "x-azure-fdid": ""
+    }
+  },
+  "trailingSlash": "auto",
+  "responseOverriding": {
+    "/index.html": {
+      "cache-control": "no-store, no-cache, must-revalidate, max-age=0"
+    },
+    "/static/js/*.js": {
+      "cache-control": "public, max-age=31536000, immutable"
+    },
+    "/static/css/*.css": {
+      "cache-control": "public, max-age=31536000, immutable"
+    }
   }
 }
