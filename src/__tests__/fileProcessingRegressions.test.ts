@@ -150,6 +150,69 @@ describe('File Processing Regression Tests', () => {
     });
   });
 
+  describe('OFX File Processing', () => {
+    it('should process OFX files without throwing unsupported file type error', async () => {
+      const ofxContent = `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<STMTRS>
+<BANKTRANLIST>
+<DTSTART>20240101000000
+<DTEND>20240115000000
+
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20240102000000
+<TRNAMT>-25.50
+<FITID>TXN001
+<NAME>Coffee Shop Purchase
+<MEMO>Morning coffee
+</STMTTRN>
+
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20240103000000
+<TRNAMT>2500.00
+<FITID>TXN002
+<NAME>Salary Deposit
+<MEMO>Monthly salary
+</STMTTRN>
+
+</BANKTRANLIST>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>`;
+
+      const blob = new Blob([ofxContent], { type: 'application/vnd.intu.qfx' });
+      const file = new File([blob], 'statement.ofx', { type: 'application/vnd.intu.qfx' });
+
+      // This should NOT throw "Unsupported file type: ofx" error
+      const result = await fileProcessingService.processUploadedFile(file);
+      
+      expect(result.file).toBeDefined();
+      expect(result.file.filename).toBe('statement.ofx');
+      expect(result.file.fileType).toBe('ofx');
+      expect(result.file.status).not.toBe('failed');
+    });
+
+    it('should detect OFX file type correctly', () => {
+      // @ts-ignore - access private method for testing
+      const fileType = fileProcessingService.getFileType('bank_statement.ofx');
+      expect(fileType).toBe('ofx');
+    });
+  });
+
   describe('Account Detection Regression', () => {
     it('should handle account detection with various filename patterns', () => {
       const testCases = [

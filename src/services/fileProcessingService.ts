@@ -690,6 +690,8 @@ Return ONLY a clean JSON response:
         return this.parseCSV(content, mapping);
       case 'excel':
         return this.parseExcel(content, mapping);
+      case 'ofx':
+        return this.parseOFX(content, mapping);
       default:
         throw new Error(`Unsupported file type: ${fileType}`);
     }
