@@ -571,6 +571,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             onGridReady={onGridReady}
             pagination={true}
             paginationPageSize={20}
+            paginationPageSizeSelector={[10, 20, 50, 100]}
             defaultColDef={{
               resizable: true,
               sortable: true

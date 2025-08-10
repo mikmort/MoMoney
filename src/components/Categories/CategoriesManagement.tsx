@@ -772,6 +772,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
               onGridReady={onGridReady}
               pagination={true}
               paginationPageSize={200}
+              paginationPageSizeSelector={[50, 100, 200, 500]}
               defaultColDef={{
                 resizable: true,
                 sortable: true
