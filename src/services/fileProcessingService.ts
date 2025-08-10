@@ -5,6 +5,7 @@ import { accountManagementService, AccountDetectionRequest } from './accountMana
 import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
 import { rulesService } from './rulesService';
+import { transferDetectionService } from './transferDetectionService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
@@ -690,6 +691,8 @@ Return ONLY a clean JSON response:
         return this.parseCSV(content, mapping);
       case 'excel':
         return this.parseExcel(content, mapping);
+      case 'ofx':
+        return this.parseOFX(content, mapping);
       default:
         throw new Error(`Unsupported file type: ${fileType}`);
     }
@@ -769,7 +772,13 @@ Return ONLY a clean JSON response:
 
     console.log(`📊 Found ${validIndices.length} valid rows out of ${prepared.length} prepared rows`);
 
-    // Step 1: Apply category rules first
+    // Step 0: Initialize transfer detection rules if needed (skip in test environment)
+    if (process.env.NODE_ENV !== 'test') {
+      console.log('🔄 Initializing transfer detection rules...');
+      await transferDetectionService.initializeTransferRules();
+    }
+
+    // Step 1: Apply category rules first (now includes transfer detection)
     console.log(`📋 Applying category rules to ${validIndices.length} valid transactions`);
     const validTransactions = validIndices.map(i => prepared[i]).filter(p => p.date && p.description && p.amount !== null);
     const ruleResults = await rulesService.applyRulesToBatch(validTransactions.map(p => ({
@@ -798,6 +807,9 @@ Return ONLY a clean JSON response:
 
     // Step 3: Call AI in batch chunks only for unmatched transactions
     const batchResults: AIClassificationResponse[] = [];
+    let remainingUnmatchedTransactions = [...ruleResults.unmatchedTransactions];
+    let allMatchedTransactions = [...ruleResults.matchedTransactions];
+    
     if (batchRequests.length > 0) {
       const CHUNK = 20; // increased batch size to 20 to speed up processing
       for (let start = 0; start < batchRequests.length; start += CHUNK) {
@@ -805,12 +817,53 @@ Return ONLY a clean JSON response:
           console.log('🛑 Transaction processing cancelled during batch classification');
           throw new Error('Import cancelled by user');
         }
+        
+        // Before processing each batch, check for new rules that might have been created
+        if (start > 0) {
+          console.log(`🔄 Checking for new rules before batch ${Math.floor(start/CHUNK) + 1}...`);
+          const currentRules = await rulesService.getAllRules();
+          const activeRulesCount = currentRules.filter(r => r.isActive).length;
+          console.log(`📋 Current active rules: ${activeRulesCount}`);
+          
+          // Re-apply rules to remaining unmatched transactions to catch any new matches
+          if (remainingUnmatchedTransactions.length > 0) {
+            const newRuleResults = await rulesService.applyRulesToBatch(remainingUnmatchedTransactions);
+            console.log(`📋 Rules re-applied: ${newRuleResults.matchedTransactions.length} newly matched, ${newRuleResults.unmatchedTransactions.length} still unmatched`);
+            
+            if (newRuleResults.matchedTransactions.length > 0) {
+              // Update our tracking variables
+              allMatchedTransactions.push(...newRuleResults.matchedTransactions);
+              remainingUnmatchedTransactions = newRuleResults.unmatchedTransactions;
+              
+              // Update batchRequests to only include still-unmatched transactions
+              const startingBatchIndex = start;
+              const currentBatchEnd = Math.min(start + CHUNK, batchRequests.length);
+              const affectedRequests = batchRequests.slice(startingBatchIndex, currentBatchEnd);
+              
+              // Filter out requests for transactions that are now rule-matched
+              const currentRemainingUnmatchedTransactions = remainingUnmatchedTransactions;
+              const stillUnmatchedIndices = newRuleResults.unmatchedTransactions.map(t => {
+                return currentRemainingUnmatchedTransactions.findIndex(remaining =>
+                  remaining.description === t.description && remaining.amount === t.amount && remaining.date.getTime() === t.date.getTime()
+                );
+              }).filter(idx => idx !== -1);
+              
+              console.log(`📊 Adjusted batch processing: ${affectedRequests.length} original requests, ${stillUnmatchedIndices.length} still need AI`);
+            }
+          }
+        } else {
+          // First batch - just log initial rule count
+          const currentRules = await rulesService.getAllRules();
+          const activeRulesCount = currentRules.filter(r => r.isActive).length;
+          console.log(`📋 Starting batch processing with ${activeRulesCount} active rules`);
+        }
+        
         const slice = batchRequests.slice(start, start + CHUNK);
         try {
           const res = await azureOpenAIService.classifyTransactionsBatch(slice);
           batchResults.push(...res);
           const uncategorizedCount = res.filter(r => (r.categoryId || '').toLowerCase() === 'uncategorized').length;
-          console.log(`📊 AI classification succeeded for batch ${start}-${start + slice.length}, got ${res.length} results (uncategorized: ${uncategorizedCount})`);
+          console.log(`📊 AI classification succeeded for batch ${Math.floor(start/CHUNK) + 1}, got ${res.length} results (uncategorized: ${uncategorizedCount})`);
         } catch (error) {
           console.warn('⚠️ AI classification failed, using default categorization:', error);
           // Create default responses for failed AI classification
@@ -824,19 +877,19 @@ Return ONLY a clean JSON response:
           console.log(`📊 Created ${defaultResponses.length} default responses for failed AI classification`);
         }
         if (onProgress) {
-          const processed = ruleResults.matchedTransactions.length + Math.min(ruleResults.unmatchedTransactions.length, start + slice.length);
+          const processed = allMatchedTransactions.length + Math.min(remainingUnmatchedTransactions.length, start + slice.length);
           onProgress(processed);
         }
       }
     }
 
-    console.log(`📊 Final results: ${ruleResults.matchedTransactions.length} rule-matched + ${batchResults.length} AI-processed = ${ruleResults.matchedTransactions.length + batchResults.length} total`);
+    console.log(`📊 Final results: ${allMatchedTransactions.length} rule-matched + ${batchResults.length} AI-processed = ${allMatchedTransactions.length + batchResults.length} total`);
 
     // Step 4: Combine rule-matched and AI-processed transactions
     const transactions: Transaction[] = [];
 
     // Add rule-matched transactions (already have proper category/subcategory)
-    ruleResults.matchedTransactions.forEach(({ transaction, rule }) => {
+    allMatchedTransactions.forEach(({ transaction, rule }) => {
       transactions.push({
         ...transaction,
         id: uuidv4(),
@@ -852,7 +905,10 @@ Return ONLY a clean JSON response:
     const idToNameSub = new Map<string, { name: string; parentId: string }>();
     categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
 
-    ruleResults.unmatchedTransactions.forEach((transaction, index) => {
+    let autoRulesCreated = 0;
+
+    for (let index = 0; index < remainingUnmatchedTransactions.length; index++) {
+      const transaction = remainingUnmatchedTransactions[index];
       const ai = batchResults[index] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
 
       // Constrain AI result to valid categories
@@ -882,6 +938,28 @@ Return ONLY a clean JSON response:
       const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
       const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
 
+      // Auto-create rule from AI classification if confidence is high enough
+      if (ai.confidence >= 0.8 && 
+          categoryName && 
+          categoryName !== 'Uncategorized' && 
+          categoryName !== 'uncategorized') {
+        
+        try {
+          // Make this synchronous so rules are available for next batch
+          await rulesService.createAutoRuleFromAI(
+            transaction.account,
+            transaction.description,
+            categoryName,
+            subName,
+            ai.confidence
+          );
+          console.log(`📋 Auto-created rule for: ${transaction.description} (${transaction.account}) → ${categoryName}`);
+          autoRulesCreated++;
+        } catch (error) {
+          console.warn('Failed to create auto-rule from AI classification:', error);
+        }
+      }
+
       transactions.push({
         ...transaction,
         category: categoryName,
@@ -892,7 +970,11 @@ Return ONLY a clean JSON response:
         addedDate: new Date(),
         lastModifiedDate: new Date(),
       });
-    });
+    }
+
+    if (autoRulesCreated > 0) {
+      console.log(`📋 Initiated creation of ${autoRulesCreated} auto-rules from high-confidence AI classifications`);
+    }
 
     console.log(`📊 processTransactions completed. Returning ${transactions.length} transactions`);
     return transactions;
@@ -1005,6 +1087,23 @@ Return ONLY a clean JSON response:
     try {
       const dateStr = String(value).trim();
       
+      // Handle OFX format YYYYMMDDHHMMSS
+      const ofxMatch = dateStr.match(/^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?$/);
+      if (ofxMatch) {
+        const [, year, month, day, hour = '00', minute = '00', second = '00'] = ofxMatch;
+        const date = new Date(
+          parseInt(year),
+          parseInt(month) - 1, // Month is 0-indexed in JavaScript
+          parseInt(day),
+          parseInt(hour),
+          parseInt(minute),
+          parseInt(second)
+        );
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+      
       // Handle European format DD.MM.YYYY
       const europeanMatch = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
       if (europeanMatch) {
@@ -1068,7 +1167,22 @@ Return ONLY a clean JSON response:
       const index = parseInt(column);
       return !isNaN(index) ? row[index] : null;
     } else {
-      return row[column];
+      // Handle object case - row is an object with column names as keys
+      // Try the column as a direct key first (e.g., "Date")
+      if (row[column] !== undefined) {
+        return row[column];
+      }
+      
+      // If column is a numeric string, try to match it to object keys by position
+      const index = parseInt(column);
+      if (!isNaN(index)) {
+        const keys = Object.keys(row);
+        if (index < keys.length) {
+          return row[keys[index]];
+        }
+      }
+      
+      return null;
     }
   }
 

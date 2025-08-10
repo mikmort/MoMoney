@@ -5,6 +5,8 @@ import { PublicClientApplication } from '@azure/msal-browser';
 import { msalConfig } from './config/authConfig';
 import { ThemeProvider } from 'styled-components';
 import { skipAuthentication } from './config/devConfig';
+import { ImportStateProvider } from './contexts/ImportStateContext';
+import { NavigationBlocker } from './components/shared/NavigationBlocker';
 // Lazy-loaded Components for code splitting
 import Navigation from './components/Layout/Navigation';
 import LoginPage from './components/Auth/LoginPage';
@@ -46,6 +48,7 @@ const RootLayout: React.FC = () => (
     <Navigation />
     <main style={{ flex: 1, padding: '20px', backgroundColor: '#f5f5f5' }}>
       <Suspense fallback={<LoadingFallback />}>
+        <NavigationBlocker />
         <Outlet />
       </Suspense>
     </main>
@@ -76,20 +79,22 @@ const App: React.FC = () => {
     <ThemeProvider theme={lightTheme}>
       <GlobalStyles />
       <DatabaseEventHandler />
-      {skipAuthentication ? (
-        // Development mode - bypass authentication
-  <RouterProvider router={router} future={{ v7_startTransition: true }} />
-      ) : (
-        // Production mode - use MSAL
-        <MsalProvider instance={msalInstance}>
-          <AuthenticatedTemplate>
-            <RouterProvider router={router} future={{ v7_startTransition: true }} />
-          </AuthenticatedTemplate>
-          <UnauthenticatedTemplate>
-            <LoginPage />
-          </UnauthenticatedTemplate>
-        </MsalProvider>
-      )}
+      <ImportStateProvider>
+        {skipAuthentication ? (
+          // Development mode - bypass authentication
+          <RouterProvider router={router} future={{ v7_startTransition: true }} />
+        ) : (
+          // Production mode - use MSAL
+          <MsalProvider instance={msalInstance}>
+            <AuthenticatedTemplate>
+              <RouterProvider router={router} future={{ v7_startTransition: true }} />
+            </AuthenticatedTemplate>
+            <UnauthenticatedTemplate>
+              <LoginPage />
+            </UnauthenticatedTemplate>
+          </MsalProvider>
+        )}
+      </ImportStateProvider>
     </ThemeProvider>
   );
 };

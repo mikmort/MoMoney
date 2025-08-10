@@ -8,6 +8,7 @@ import { Account, AccountStatementAnalysisResponse } from '../../types';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { accountManagementService } from '../../services/accountManagementService';
+import BalanceHistoryModal from '../Accounts/BalanceHistoryModal';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -168,12 +169,19 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     isActive: true
   });
 
+  // Account creation choice modal
+  const [showAccountCreationChoice, setShowAccountCreationChoice] = useState(false);
+
   // Statement upload functionality
   const [showStatementUpload, setShowStatementUpload] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AccountStatementAnalysisResponse | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // Balance history modal
+  const [showBalanceHistoryModal, setShowBalanceHistoryModal] = useState(false);
+  const [selectedAccountForHistory, setSelectedAccountForHistory] = useState<Account | null>(null);
 
   const sanitizeReasoning = (reason?: string): string => {
     if (!reason) return '';
@@ -223,6 +231,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     }
   };
 
+  // Handle single "Add Account" button click - show choice modal
+  const handleAddAccountClick = () => {
+    setShowAccountCreationChoice(true);
+  };
+
   const handleAddAccount = () => {
     setEditingAccount(null);
     setAccountForm({
@@ -255,11 +268,18 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     }));
   };
 
-  // Statement upload handlers
-  const handleCreateFromStatement = () => {
+  // Handle choice: Create from Statement
+  const handleChoiceCreateFromStatement = () => {
+    setShowAccountCreationChoice(false);
     setShowStatementUpload(true);
     setUploadedFile(null);
     setAnalysisResult(null);
+  };
+
+  // Handle choice: Add Manually  
+  const handleChoiceAddManually = () => {
+    setShowAccountCreationChoice(false);
+    handleAddAccount();
   };
 
   const handleFileUpload = async (file: File) => {
@@ -361,6 +381,17 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     navigate(`/transactions?account=${encodeURIComponent(accountName)}`);
   };
 
+  const handleBalanceClick = (account: Account) => {
+    // Show balance history modal instead of navigating
+    setSelectedAccountForHistory(account);
+    setShowBalanceHistoryModal(true);
+  };
+
+  const handleCloseBalanceHistory = () => {
+    setShowBalanceHistoryModal(false);
+    setSelectedAccountForHistory(null);
+  };
+
   // React cell renderers
   const NameRenderer: React.FC<any> = (params) => {
     const isActive = params.data.isActive;
@@ -452,8 +483,68 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       formatted = `${sign}${symbol}${abs}`;
     }
 
-    const style: React.CSSProperties = { color: currentBalance >= 0 ? '#4caf50' : '#f44336' };
-    return <span style={style}>{formatted}</span>;
+    const style: React.CSSProperties = { 
+      color: currentBalance >= 0 ? '#4caf50' : '#f44336',
+      cursor: 'pointer',
+      textDecoration: 'none'
+    };
+
+    return (
+      <span 
+        style={style}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleBalanceClick(params.data);
+        }}
+        onMouseEnter={(e) => {
+          (e.target as HTMLElement).style.textDecoration = 'underline';
+        }}
+        onMouseLeave={(e) => {
+          (e.target as HTMLElement).style.textDecoration = 'none';
+        }}
+        title={`Click to view balance history for ${params.data.name}`}
+      >
+        {formatted}
+      </span>
+    );
+  };
+
+  const LastUpdatedRenderer: React.FC<any> = (params) => {
+    const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
+    const [isLoading, setIsLoading] = React.useState(true);
+    
+    React.useEffect(() => {
+      const calculateLastUpdated = async () => {
+        setIsLoading(true);
+        try {
+          const date = await accountManagementService.calculateLastUpdatedDate(params.data.id);
+          setLastUpdated(date);
+        } catch (error) {
+          console.error('Error calculating last updated date:', error);
+          setLastUpdated(null);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      calculateLastUpdated();
+    }, [params.data.id]);
+
+    if (isLoading) {
+      return <span style={{ color: '#666', fontStyle: 'italic' }}>Loading...</span>;
+    }
+
+    if (!lastUpdated) {
+      return <span style={{ color: '#999', fontStyle: 'italic' }}>No transactions</span>;
+    }
+
+    const formattedDate = lastUpdated.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+
+    return <span style={{ color: '#666' }}>{formattedDate}</span>;
   };
 
   const StatusRenderer: React.FC<any> = (params) => (
@@ -536,6 +627,12 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       cellRenderer: BalanceRenderer
     },
     {
+      headerName: 'Last Updated',
+      field: 'lastUpdated',
+      width: 140,
+      cellRenderer: LastUpdatedRenderer
+    },
+    {
       headerName: 'Status',
       field: 'isActive',
       width: 100,
@@ -558,8 +655,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h3>Account Management</h3>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <Button onClick={handleCreateFromStatement} variant="outline">Create from Statement</Button>
-          <Button onClick={handleAddAccount}>Add Account</Button>
+          <Button onClick={handleAddAccountClick}>Add Account</Button>
         </div>
       </div>
 
@@ -716,6 +812,69 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                 style={{ backgroundColor: '#dc3545', borderColor: '#dc3545' }}
               >
                 Delete Account
+              </Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* Account Creation Choice Modal */}
+      {showAccountCreationChoice && (
+        <EditModalOverlay onClick={() => setShowAccountCreationChoice(false)}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>Add Account</h2>
+            
+            <p style={{ marginBottom: '24px', color: '#666', lineHeight: '1.5' }}>
+              How would you like to create your new account?
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <Button 
+                onClick={handleChoiceCreateFromStatement}
+                style={{ 
+                  padding: '16px 20px',
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  color: '#333'
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                    📄 Create account by uploading statement
+                  </div>
+                  <div style={{ fontSize: '0.9em', color: '#666' }}>
+                    Upload a bank statement (PDF, CSV, Excel) and let AI extract account details automatically
+                  </div>
+                </div>
+              </Button>
+
+              <Button 
+                onClick={handleChoiceAddManually}
+                style={{ 
+                  padding: '16px 20px',
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  background: '#f8f9fa',
+                  border: '2px solid #e9ecef',
+                  color: '#333'
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                    ✏️ Add Account Manually
+                  </div>
+                  <div style={{ fontSize: '0.9em', color: '#666' }}>
+                    Enter account information manually with a simple form
+                  </div>
+                </div>
+              </Button>
+            </div>
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={() => setShowAccountCreationChoice(false)}>
+                Cancel
               </Button>
             </div>
           </EditModalContent>
@@ -903,6 +1062,15 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             )}
           </EditModalContent>
         </EditModalOverlay>
+      )}
+      
+      {/* Balance History Modal */}
+      {showBalanceHistoryModal && selectedAccountForHistory && (
+        <BalanceHistoryModal
+          account={selectedAccountForHistory}
+          isOpen={showBalanceHistoryModal}
+          onClose={handleCloseBalanceHistory}
+        />
       )}
     </div>
   );

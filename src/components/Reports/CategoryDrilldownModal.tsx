@@ -50,15 +50,24 @@ const ChartContainer = styled.div`
 `;
 
 const TransactionsList = styled.div`
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  
   .transaction-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 0;
+    padding: 12px;
     border-bottom: 1px solid #eee;
     
     &:last-child {
       border-bottom: none;
+    }
+    
+    &:hover {
+      background-color: #f9f9f9;
     }
   }
   
@@ -238,10 +247,10 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
             </>
           )}
 
-          {/* Recent Transactions */}
+          {/* All Transactions */}
           {categoryData.recentTransactions.length > 0 && (
             <Card>
-              <h3>Recent Transactions</h3>
+              <h3>All Transactions ({categoryData.recentTransactions.length})</h3>
               <TransactionsList>
                 {categoryData.recentTransactions.map((transaction, index) => (
                   <div key={index} className="transaction-item">

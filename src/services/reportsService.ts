@@ -196,8 +196,8 @@ class ReportsService {
     const largestTransaction = sortedByAmount[0];
     const smallestTransaction = sortedByAmount[sortedByAmount.length - 1];
     
-    // Get recent transactions (last 5)
-    const recentTransactions = categoryTransactions.slice(0, 5);
+    // Get recent transactions (up to 100 most recent)
+    const recentTransactions = categoryTransactions.slice(0, 100);
     
     // Calculate monthly trend for this category
   const monthlyTotals: { [monthKey: string]: number } = {};

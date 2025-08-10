@@ -4,6 +4,7 @@ import { FileImportProgress, Category, Subcategory, Account, DuplicateDetectionR
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
+import { useImportState } from '../../contexts/ImportStateContext';
 import { AccountSelectionDialog } from './AccountSelectionDialog';
 import { DuplicateTransactionsDialog } from './DuplicateTransactionsDialog';
 import { AccountDetectionResponse } from '../../services/accountManagementService';
@@ -135,6 +136,9 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Get global import state
+  const { setIsImporting: setGlobalImportState } = useImportState();
+
   // Account management hook
   const { accounts, detectAccount, addAccount } = useAccountManagement();
 
@@ -183,6 +187,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
 
   const startFileProcessing = async (file: File, accountId: string) => {
     setIsImporting(true);
+    setGlobalImportState(true, file.name);
     setProgress(null);
     setCurrentFileId(null);
 
@@ -208,6 +213,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         setTimeout(() => {
           setProgress(null);
           setIsImporting(false);
+          setGlobalImportState(false);
           setCurrentFileId(null);
         }, 2000);
       } else if (result.needsDuplicateResolution && result.duplicateDetection) {
@@ -216,8 +222,10 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         setPendingTransactions(result.duplicateDetection.duplicates.map(d => d.newTransaction).concat(result.duplicateDetection.uniqueTransactions));
         setShowDuplicateDialog(true);
         setIsImporting(false);
+        setGlobalImportState(false);
       } else {
         setIsImporting(false);
+        setGlobalImportState(false);
         setCurrentFileId(null);
       }
     } catch (error) {
@@ -225,6 +233,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
       setIsImporting(false);
+      setGlobalImportState(false);
       setCurrentFileId(null);
       
       // Check if this was a cancellation
@@ -285,6 +294,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       console.log(`🛑 User requested to stop import for file: ${currentFileId}`);
       fileProcessingService.cancelImport(currentFileId);
       setIsImporting(false);
+      setGlobalImportState(false);
       setCurrentFileId(null);
       setProgress({
         fileId: currentFileId,
@@ -307,6 +317,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     
     setShowDuplicateDialog(false);
     setIsImporting(true);
+    setGlobalImportState(true, pendingFile?.name);
     
     try {
       await fileProcessingService.resolveDuplicates(currentFileId, true, pendingTransactions, duplicateDetectionResult);
@@ -319,11 +330,13 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       setTimeout(() => {
         setProgress(null);
         setIsImporting(false);
+        setGlobalImportState(false);
         setCurrentFileId(null);
       }, 2000);
     } catch (error) {
       console.error('Failed to import duplicates:', error);
       setIsImporting(false);
+      setGlobalImportState(false);
     }
   };
 
@@ -332,6 +345,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     
     setShowDuplicateDialog(false);
     setIsImporting(true);
+    setGlobalImportState(true, pendingFile?.name);
     
     try {
       await fileProcessingService.resolveDuplicates(currentFileId, false, pendingTransactions, duplicateDetectionResult);
@@ -344,11 +358,13 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       setTimeout(() => {
         setProgress(null);
         setIsImporting(false);
+        setGlobalImportState(false);
         setCurrentFileId(null);
       }, 2000);
     } catch (error) {
       console.error('Failed to ignore duplicates:', error);
       setIsImporting(false);
+      setGlobalImportState(false);
     }
   };
 
