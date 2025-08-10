@@ -85,8 +85,11 @@ class RulesService {
       .filter(rule => rule.isActive)
       .sort((a, b) => a.priority - b.priority);
 
+    console.log(`🔍 Rule evaluation: ${activeRules.length} active rules available for ${transactions.length} transactions`);
+
     const matchedTransactions: Array<{ transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>; rule: CategoryRule }> = [];
     const unmatchedTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [];
+    const ruleMatchCounts = new Map<string, number>();
 
     for (const transaction of transactions) {
       let matched = false;
@@ -102,6 +105,11 @@ class RulesService {
             reasoning: `Matched rule: ${rule.name}`,
           };
           matchedTransactions.push({ transaction: updatedTransaction, rule });
+          
+          // Track rule usage
+          const count = ruleMatchCounts.get(rule.name) || 0;
+          ruleMatchCounts.set(rule.name, count + 1);
+          
           matched = true;
           break; // First matching rule wins (priority order)
         }
@@ -110,6 +118,26 @@ class RulesService {
       if (!matched) {
         unmatchedTransactions.push(transaction);
       }
+    }
+
+    // Enhanced logging of rule effectiveness
+    if (matchedTransactions.length > 0) {
+      console.log(`📊 Rule match breakdown:`);
+      const sortedRuleMatches = Array.from(ruleMatchCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5); // Show top 5 most effective rules
+      
+      sortedRuleMatches.forEach(([ruleName, count]) => {
+        const percentage = Math.round((count / transactions.length) * 100);
+        console.log(`   📋 "${ruleName}": ${count} matches (${percentage}%)`);
+      });
+      
+      if (ruleMatchCounts.size > 5) {
+        const otherRulesCount = Array.from(ruleMatchCounts.values()).slice(5).reduce((sum, count) => sum + count, 0);
+        console.log(`   📋 ${ruleMatchCounts.size - 5} other rules: ${otherRulesCount} matches`);
+      }
+    } else {
+      console.log(`⚠️ No rule matches found - all ${transactions.length} transactions will need AI classification`);
     }
 
     return { matchedTransactions, unmatchedTransactions };

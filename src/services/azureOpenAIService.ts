@@ -327,16 +327,37 @@ Date: ${request.date}`;
       chunks.push(requests.slice(i, i + MAX_BATCH));
     }
 
-  // Visibility: how many items and requests will be made
-  console.log(`📦 Batching ${requests.length} items into ${chunks.length} requests (chunkSize=${MAX_BATCH})`);
+    // Enhanced logging for AI processing visibility
+    console.log(`🤖 AI Classification Starting:`);
+    console.log(`   📤 ${requests.length} transactions require AI categorization`);
+    console.log(`   📦 Batching into ${chunks.length} API requests (chunkSize=${MAX_BATCH})`);
+    console.log(`   ⏱️ Estimated processing time: ~${Math.ceil(chunks.length * 3)} seconds`);
 
     const results: AIClassificationResponse[] = [];
-    for (const chunk of chunks) {
+    
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      console.log(`   ⏳ Processing AI batch ${i + 1}/${chunks.length} (${chunk.length} transactions)...`);
+      
       const chunkResults = await this.classifyTransactionsBatchChunk(chunk);
       results.push(...chunkResults);
+      
+      const categorizedInChunk = chunkResults.filter(r => r.categoryId !== 'uncategorized').length;
+      console.log(`   ✅ Batch ${i + 1} complete: ${categorizedInChunk}/${chunk.length} successfully categorized`);
+      
       // Small delay between chunks to help with rate limits on Azure Function
-      await new Promise(r => setTimeout(r, INTER_CHUNK_DELAY_MS));
+      if (i < chunks.length - 1) {
+        await new Promise(r => setTimeout(r, INTER_CHUNK_DELAY_MS));
+      }
     }
+    
+    // Final AI processing summary
+    const totalCategorized = results.filter(r => r.categoryId !== 'uncategorized').length;
+    const aiSuccessRate = requests.length > 0 ? Math.round((totalCategorized / requests.length) * 100) : 0;
+    console.log(`🎯 AI Processing Summary:`);
+    console.log(`   📊 ${totalCategorized}/${requests.length} transactions successfully categorized (${aiSuccessRate}%)`);
+    console.log(`   🤖 Total OpenAI API calls: ${chunks.length}`);
+    
     return results;
   }
 
