@@ -56,6 +56,10 @@ export interface Transaction {
   // Transfer matching support
   transferId?: string; // ID of the matched transfer (for linking paired transfers)
   isTransferPrimary?: boolean; // True for the primary row in a collapsed transfer pair
+  // Receipt attachment support
+  attachedFileId?: string; // ID of the attached receipt/invoice file
+  attachedFileName?: string; // Name of the attached file for display
+  attachedFileType?: 'pdf' | 'image' | 'other'; // Type of the attached file
 }
 
 export interface Account {
@@ -367,6 +371,45 @@ export interface TransferDisplayOptions {
   showTransfers: boolean;
   collapseMatched: boolean;
   showFees: boolean;
+}
+
+// Receipt processing interfaces
+export interface AttachedFile {
+  id: string;
+  originalName: string;
+  size: number;
+  type: 'pdf' | 'image' | 'other';
+  mimeType: string;
+  data: string; // base64 encoded file data
+  uploadDate: Date;
+  transactionId?: string; // Optional link to transaction
+}
+
+export interface ReceiptProcessingRequest {
+  file: File;
+  accountId?: string;
+}
+
+export interface ReceiptProcessingResponse {
+  attachedFile: AttachedFile;
+  suggestedTransaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>;
+  extractedData: {
+    date?: Date;
+    amount?: number;
+    vendor?: string;
+    description?: string;
+    category?: string;
+    location?: string;
+    confidence: number;
+    reasoning: string;
+  };
+  duplicates: DuplicateTransaction[];
+  duplicateCheck: {
+    hasDuplicates: boolean;
+    potentialDuplicates: DuplicateTransaction[];
+  };
+  confidence: number;
+  reasoning: string;
 }
 
 // Account statement processing interfaces

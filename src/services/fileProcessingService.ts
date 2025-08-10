@@ -7,7 +7,6 @@ import { dataService } from './dataService';
 import { rulesService } from './rulesService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
-import { currencyExchangeService } from './currencyExchangeService';
 import { userPreferencesService } from './userPreferencesService';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -668,7 +667,7 @@ Return ONLY a clean JSON response:
         // Keep date as string (as expected by test)
         // Convert amount to number
         if (transaction.amount) {
-          transaction.amount = parseFloat(transaction.amount);
+          (transaction as any).amount = parseFloat(transaction.amount as string);
         }
 
         transactions.push(transaction);
