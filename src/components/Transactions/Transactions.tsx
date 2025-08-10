@@ -26,6 +26,10 @@ import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
 import { defaultCategories as categoriesCatalog } from '../../data/defaultCategories';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
+import { receiptProcessingService } from '../../services/receiptProcessingService';
+import { FileViewer } from '../shared/FileViewer';
+import { ReceiptImport } from './ReceiptImport';
+import { AttachedFile } from '../../types';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -984,6 +988,13 @@ const Transactions: React.FC = () => {
   // Transfer match dialog state
   const [showTransferMatchDialog, setShowTransferMatchDialog] = useState(false);
   const [selectedTransactionForMatching, setSelectedTransactionForMatching] = useState<Transaction | null>(null);
+
+  // File viewer state
+  const [showFileViewer, setShowFileViewer] = useState(false);
+  const [viewingFile, setViewingFile] = useState<AttachedFile | null>(null);
+  
+  // Receipt import state
+  const [showReceiptImport, setShowReceiptImport] = useState(false);
 
   // Compute a simple diff summary between two transactions
   const summarizeDiff = (a: Transaction, b: Transaction) => {
@@ -2342,6 +2353,52 @@ const Transactions: React.FC = () => {
       }
     },
     {
+      headerName: 'File',
+      width: 50,
+      pinned: 'right',
+      cellRenderer: (params: any) => {
+        const transaction = params.data as Transaction;
+        if (!transaction.attachedFileId) return '';
+        
+        return (
+          <button
+            title={`View ${transaction.attachedFileName || 'attached file'}`}
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                const file = await receiptProcessingService.getAttachedFile(transaction.attachedFileId!);
+                if (file) {
+                  setViewingFile(file);
+                  setShowFileViewer(true);
+                } else {
+                  alert('File not found');
+                }
+              } catch (error) {
+                console.error('Error loading file:', error);
+                alert('Error loading file');
+              }
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '16px',
+              padding: '4px',
+              borderRadius: '3px'
+            }}
+          >
+            📎
+          </button>
+        );
+      },
+      editable: false,
+      suppressHeaderMenuButton: true,
+      sortable: false,
+      filter: false,
+      suppressSizeToFit: true,
+      suppressMovable: true
+    },
+    {
       headerName: 'Actions',
       width: 80,
       pinned: 'right',
@@ -2828,6 +2885,12 @@ const Transactions: React.FC = () => {
           </Button>
           <Button variant="outline">Export</Button>
           <Button>Add Transaction</Button>
+          <Button 
+            variant="outline"
+            onClick={() => setShowReceiptImport(true)}
+          >
+            🧾 Import Receipt
+          </Button>
           <ActionsMenu 
             menuId="transactions-overflow-menu" 
             actions={overflowMenuActions} 
@@ -3424,6 +3487,35 @@ const Transactions: React.FC = () => {
         onClose={handleCloseDuplicatesDialog}
         onRemoveDuplicates={handleConfirmRemoveDuplicates}
       />
+
+      {/* File Viewer */}
+      {showFileViewer && viewingFile && (
+        <FileViewer
+          file={viewingFile}
+          onClose={() => {
+            setShowFileViewer(false);
+            setViewingFile(null);
+          }}
+        />
+      )}
+
+      {/* Receipt Import Modal */}
+      {showReceiptImport && (
+        <EditModalOverlay onClick={() => setShowReceiptImport(false)}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <ReceiptImport
+              onTransactionAdded={(transaction) => {
+                // Add the new transaction to the list
+                const updatedTransactions = [...transactions, transaction];
+                setTransactions(updatedTransactions);
+                setFilteredTransactions(updatedTransactions);
+                setShowReceiptImport(false);
+              }}
+              onCancel={() => setShowReceiptImport(false)}
+            />
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
     </div>
   );
 };
