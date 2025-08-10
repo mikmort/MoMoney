@@ -467,8 +467,68 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       formatted = `${sign}${symbol}${abs}`;
     }
 
-    const style: React.CSSProperties = { color: currentBalance >= 0 ? '#4caf50' : '#f44336' };
-    return <span style={style}>{formatted}</span>;
+    const style: React.CSSProperties = { 
+      color: currentBalance >= 0 ? '#4caf50' : '#f44336',
+      cursor: 'pointer',
+      textDecoration: 'none'
+    };
+
+    return (
+      <span 
+        style={style}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleAccountClick(params.data.name);
+        }}
+        onMouseEnter={(e) => {
+          (e.target as HTMLElement).style.textDecoration = 'underline';
+        }}
+        onMouseLeave={(e) => {
+          (e.target as HTMLElement).style.textDecoration = 'none';
+        }}
+        title={`Click to view transactions for ${params.data.name}`}
+      >
+        {formatted}
+      </span>
+    );
+  };
+
+  const LastUpdatedRenderer: React.FC<any> = (params) => {
+    const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
+    const [isLoading, setIsLoading] = React.useState(true);
+    
+    React.useEffect(() => {
+      const calculateLastUpdated = async () => {
+        setIsLoading(true);
+        try {
+          const date = await accountManagementService.calculateLastUpdatedDate(params.data.id);
+          setLastUpdated(date);
+        } catch (error) {
+          console.error('Error calculating last updated date:', error);
+          setLastUpdated(null);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      calculateLastUpdated();
+    }, [params.data.id]);
+
+    if (isLoading) {
+      return <span style={{ color: '#666', fontStyle: 'italic' }}>Loading...</span>;
+    }
+
+    if (!lastUpdated) {
+      return <span style={{ color: '#999', fontStyle: 'italic' }}>No transactions</span>;
+    }
+
+    const formattedDate = lastUpdated.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+
+    return <span style={{ color: '#666' }}>{formattedDate}</span>;
   };
 
   const StatusRenderer: React.FC<any> = (params) => (
@@ -549,6 +609,12 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       field: 'balance',
       width: 150,
       cellRenderer: BalanceRenderer
+    },
+    {
+      headerName: 'Last Updated',
+      field: 'lastUpdated',
+      width: 140,
+      cellRenderer: LastUpdatedRenderer
     },
     {
       headerName: 'Status',
