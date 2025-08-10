@@ -293,8 +293,13 @@ export const RemoveDuplicatesDialog: React.FC<RemoveDuplicatesDialogProps> = ({
 
         <SelectionControls>
           <Button 
-            variant="secondary" 
+            variant="primary" 
             onClick={handleSelectAll}
+            style={{
+              border: '2px solid #1976d2',
+              outline: '1px solid #2196f3',
+              boxShadow: '0 2px 4px rgba(33, 150, 243, 0.2)'
+            }}
           >
             {selectedDuplicates.size === duplicates.length ? 'Deselect All' : 'Select All'}
           </Button>

@@ -151,7 +151,7 @@ const ActionsMenuComponent: React.FC<ActionsMenuProps> = ({ actions, menuId }) =
             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
             zIndex: 999999,
             minWidth: '150px',
-            maxHeight: '200px',
+            maxHeight: '300px',
             overflowY: 'auto'
           }}
         >
