@@ -1141,7 +1141,22 @@ Return ONLY a clean JSON response:
       const index = parseInt(column);
       return !isNaN(index) ? row[index] : null;
     } else {
-      return row[column];
+      // Handle object case - row is an object with column names as keys
+      // Try the column as a direct key first (e.g., "Date")
+      if (row[column] !== undefined) {
+        return row[column];
+      }
+      
+      // If column is a numeric string, try to match it to object keys by position
+      const index = parseInt(column);
+      if (!isNaN(index)) {
+        const keys = Object.keys(row);
+        if (index < keys.length) {
+          return row[keys[index]];
+        }
+      }
+      
+      return null;
     }
   }
 
