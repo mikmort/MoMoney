@@ -749,6 +749,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             </div>
 
             <div className="form-group">
+              <label>Status</label>
               <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px', whiteSpace: 'nowrap' }}>
                 <input
                   type="checkbox"
