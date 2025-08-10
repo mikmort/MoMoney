@@ -1,83 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { 
-  Chart as ChartJS, 
-  CategoryScale, 
-  LinearScale, 
-  BarElement, 
-  Title, 
-  Tooltip, 
-  Legend,
-  PointElement,
-  LineElement
-} from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { Card } from '../../styles/globalStyles';
 import { reportsService, CategoryDeepDive, DateRange } from '../../services/reportsService';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  PointElement,
-  LineElement
-);
-
-const ModalOverlay = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-  padding: 20px;
-`;
-
-const ModalContent = styled.div`
-  background: white;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 1000px;
-  max-height: 90vh;
-  overflow-y: auto;
-  position: relative;
-`;
-
-const ModalHeader = styled.div`
-  padding: 20px;
-  border-bottom: 1px solid #eee;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  
-  h2 {
-    margin: 0;
-    color: #333;
-  }
-`;
-
-const CloseButton = styled.button`
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  cursor: pointer;
-  color: #666;
-  
-  &:hover {
-    color: #333;
-  }
-`;
-
-const ModalBody = styled.div`
-  padding: 20px;
-`;
+import { Modal } from '../shared/Modal';
 
 const StatsGrid = styled.div`
   display: grid;
@@ -188,45 +114,33 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     }).format(date);
   };
 
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
   if (loading) {
     return (
-      <ModalOverlay onClick={handleOverlayClick}>
-        <ModalContent>
-          <ModalHeader>
-            <h2>Loading Category Details...</h2>
-            <CloseButton onClick={onClose}>&times;</CloseButton>
-          </ModalHeader>
-          <ModalBody>
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              Loading category analysis...
-            </div>
-          </ModalBody>
-        </ModalContent>
-      </ModalOverlay>
+      <Modal 
+        isOpen={true} 
+        onClose={onClose} 
+        title="Loading Category Details..."
+        maxWidth="1000px"
+      >
+        <div style={{ textAlign: 'center', padding: '40px' }}>
+          Loading category analysis...
+        </div>
+      </Modal>
     );
   }
 
   if (!categoryData) {
     return (
-      <ModalOverlay onClick={handleOverlayClick}>
-        <ModalContent>
-          <ModalHeader>
-            <h2>No Data Available</h2>
-            <CloseButton onClick={onClose}>&times;</CloseButton>
-          </ModalHeader>
-          <ModalBody>
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              No data found for category "{categoryName}" in the selected date range.
-            </div>
-          </ModalBody>
-        </ModalContent>
-      </ModalOverlay>
+      <Modal 
+        isOpen={true} 
+        onClose={onClose} 
+        title="No Data Available"
+        maxWidth="1000px"
+      >
+        <div style={{ textAlign: 'center', padding: '40px' }}>
+          No data found for category "{categoryName}" in the selected date range.
+        </div>
+      </Modal>
     );
   }
 
@@ -246,16 +160,15 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
   };
 
   return (
-    <ModalOverlay onClick={handleOverlayClick}>
-      <ModalContent>
-        <ModalHeader>
-          <h2>{categoryName} - Category Drilldown</h2>
-          <CloseButton onClick={onClose}>&times;</CloseButton>
-        </ModalHeader>
-        
-        <ModalBody>
-          {/* Statistics Overview */}
-          <StatsGrid>
+    <Modal 
+      isOpen={true} 
+      onClose={onClose} 
+      title={`${categoryName} - Category Drilldown`}
+      maxWidth="1000px"
+      maxHeight="90vh"
+    >
+      {/* Statistics Overview */}
+      <StatsGrid>
             <StatCard>
               <div className="stat-label">Total Spent</div>
               <div className="stat-value">{formatCurrency(categoryData.totalAmount)}</div>
@@ -327,9 +240,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
               </TransactionsList>
             </Card>
           )}
-        </ModalBody>
-      </ModalContent>
-    </ModalOverlay>
+    </Modal>
   );
 };
 
