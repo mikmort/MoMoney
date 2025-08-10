@@ -1080,6 +1080,23 @@ Return ONLY a clean JSON response:
     try {
       const dateStr = String(value).trim();
       
+      // Handle OFX format YYYYMMDDHHMMSS
+      const ofxMatch = dateStr.match(/^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?$/);
+      if (ofxMatch) {
+        const [, year, month, day, hour = '00', minute = '00', second = '00'] = ofxMatch;
+        const date = new Date(
+          parseInt(year),
+          parseInt(month) - 1, // Month is 0-indexed in JavaScript
+          parseInt(day),
+          parseInt(hour),
+          parseInt(minute),
+          parseInt(second)
+        );
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+      
       // Handle European format DD.MM.YYYY
       const europeanMatch = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
       if (europeanMatch) {
