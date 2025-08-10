@@ -234,7 +234,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   );
 
   const ActionsRenderer: React.FC<any> = (params) => (
-    <div style={{ display: 'flex', gap: '4px' }}>
+    <div style={{ display: 'flex', gap: '4px', alignItems: 'center', height: '100%' }}>
       <button
         className="edit-account-btn"
         data-id={params.data.id}
@@ -313,7 +313,8 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     {
       headerName: 'Actions',
       width: 140,
-      cellRenderer: ActionsRenderer
+      cellRenderer: ActionsRenderer,
+      cellStyle: { display: 'flex', alignItems: 'center' }
     }
   ];
 
