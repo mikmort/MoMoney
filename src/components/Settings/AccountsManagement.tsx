@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
+import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
 import { Account, AccountStatementAnalysisResponse } from '../../types';
@@ -151,6 +152,7 @@ const AnalysisResult = styled.div`
 interface AccountsManagementProps {}
 
 export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
+  const navigate = useNavigate();
   const { accounts, addAccount, updateAccount, deleteAccount, error, refreshAccounts } = useAccountManagement();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -352,12 +354,36 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     return 'low';
   };
 
+  const handleAccountClick = (accountName: string) => {
+    // Navigate to transactions page with account filter
+    navigate(`/transactions?account=${encodeURIComponent(accountName)}`);
+  };
+
   // React cell renderers
   const NameRenderer: React.FC<any> = (params) => {
     const isActive = params.data.isActive;
-    const style: React.CSSProperties = { fontWeight: isActive ? 600 : 400, color: isActive ? '#333' : '#999' };
+    const style: React.CSSProperties = { 
+      fontWeight: isActive ? 600 : 400, 
+      color: isActive ? '#2196f3' : '#999',
+      cursor: 'pointer',
+      textDecoration: 'none'
+    };
+    
     return (
-      <span style={style}>
+      <span 
+        style={style}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleAccountClick(params.value);
+        }}
+        onMouseEnter={(e) => {
+          (e.target as HTMLElement).style.textDecoration = 'underline';
+        }}
+        onMouseLeave={(e) => {
+          (e.target as HTMLElement).style.textDecoration = 'none';
+        }}
+        title={`Click to view transactions for ${params.value}`}
+      >
         {params.value}
         {!isActive ? ' (Inactive)' : ''}
       </span>
@@ -378,25 +404,48 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   };
 
   const BalanceRenderer: React.FC<any> = (params) => {
-    const balance: number | undefined = params.value;
-    if (balance === undefined || balance === null) return null;
+    const [currentBalance, setCurrentBalance] = React.useState<number | null>(null);
+    const [isLoading, setIsLoading] = React.useState(true);
+    
+    React.useEffect(() => {
+      const calculateBalance = async () => {
+        setIsLoading(true);
+        try {
+          const balance = await accountManagementService.calculateCurrentBalance(params.data.id);
+          setCurrentBalance(balance);
+        } catch (error) {
+          console.error('Error calculating balance:', error);
+          setCurrentBalance(params.data.balance || 0);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      calculateBalance();
+    }, [params.data.id, params.data.balance]);
+
+    if (isLoading) {
+      return <span style={{ color: '#666', fontStyle: 'italic' }}>Loading...</span>;
+    }
+
+    if (currentBalance === null || currentBalance === undefined) return null;
 
     const currencyCode: string = params.data?.currency || 'USD';
     let formatted = '';
 
     // Try native Intl currency formatting first
     try {
-      formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(balance);
+      formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode }).format(currentBalance);
     } catch {
       // Fallback for unknown/unsupported currency codes
       const symbol = userPreferencesService.getCurrencySymbol(currencyCode);
-      const abs = Math.abs(balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const sign = balance < 0 ? '-' : '';
+      const abs = Math.abs(currentBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const sign = currentBalance < 0 ? '-' : '';
       // Place symbol before number by default; some currencies append, but keep simple here
       formatted = `${sign}${symbol}${abs}`;
     }
 
-    const style: React.CSSProperties = { color: balance >= 0 ? '#4caf50' : '#f44336' };
+    const style: React.CSSProperties = { color: currentBalance >= 0 ? '#4caf50' : '#f44336' };
     return <span style={style}>{formatted}</span>;
   };
 
@@ -593,12 +642,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             </div>
 
             <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
                 <input
                   type="checkbox"
                   checked={accountForm.isActive}
                   onChange={(e) => handleFormChange('isActive', e.target.checked)}
-                  style={{ marginRight: '8px' }}
                 />
                 Account is active
               </label>
