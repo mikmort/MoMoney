@@ -3,7 +3,7 @@ import styled from 'styled-components';
 import { CollapsedTransfer } from '../../types';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 
-const CollapsedTransferRowWrapper = styled.div<{ isExpanded: boolean }>`
+const CollapsedTransferRowWrapper = styled.div<{ $isExpanded: boolean }>`
   background-color: #f8f9fa;
   border: 1px solid #e9ecef;
   border-radius: 6px;
@@ -66,7 +66,7 @@ const CollapsedTransferRowWrapper = styled.div<{ isExpanded: boolean }>`
       font-size: 0.9rem;
       color: #adb5bd;
       transition: transform 0.2s ease;
-      transform: ${props => props.isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};
+      transform: ${props => props.$isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};
     }
   }
 
@@ -224,7 +224,7 @@ export const CollapsedTransferRow: React.FC<CollapsedTransferRowProps> = ({
   };
 
   return (
-    <CollapsedTransferRowWrapper isExpanded={isExpanded}>
+    <CollapsedTransferRowWrapper $isExpanded={isExpanded}>
       <div className="collapsed-row" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="date">{formatDate(transfer.date)}</div>
         <div className="description">
