@@ -24,6 +24,7 @@ const Settings = lazyWithRetry(() => import('./components/Settings/Settings'));
 const CategoriesManagement = lazyWithRetry(() => import('./components/Categories/CategoriesManagement'));
 const TransferMatchesPage = lazyWithRetry(() => import('./components/Transactions/TransferMatchesPage').then(module => ({ default: module.TransferMatchesPage })));
 const Accounts = lazyWithRetry(() => import('./components/Accounts/Accounts'));
+const ChasePage = lazyWithRetry(() => import('./components/Accounts/ChasePage'));
 
 // Initialize MSAL instance
 const msalInstance = new PublicClientApplication(msalConfig);
@@ -64,6 +65,7 @@ const router = createBrowserRouter([
       { path: 'transactions', element: <Transactions /> },
       { path: 'rules', element: <Rules /> },
       { path: 'accounts', element: <Accounts /> },
+      { path: 'connect-chase', element: <ChasePage /> },
       { path: 'transfer-matches', element: <TransferMatchesPage /> },
       { path: 'categories', element: <CategoriesManagement /> },
       { path: 'budgets', element: <Budgets /> },

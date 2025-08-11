@@ -6,6 +6,7 @@ import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
 import { rulesService } from './rulesService';
 import { transferDetectionService } from './transferDetectionService';
+import { chaseConnectivityService, ChaseAccountInfo } from './chaseConnectivityService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
@@ -33,6 +34,12 @@ export interface FileProcessingResult {
     suggestCurrencyChange?: string;
     message: string;
   };
+  chaseDetection?: {
+    isChase: boolean;
+    accountType: 'checking' | 'savings' | 'credit';
+    confidence: number;
+    accountInfo?: ChaseAccountInfo;
+  };
 }
 
 export class FileProcessingService {
@@ -51,6 +58,79 @@ export class FileProcessingService {
     };
 
     try {
+      // First, check if this is a Chase file and handle it specially
+      let chaseDetection: FileProcessingResult['chaseDetection'] = undefined;
+      
+      if (this.getFileType(file.name) === 'csv') {
+        const content = await this.readFileContent(file);
+        const chaseResult = chaseConnectivityService.detectChaseFormat(content);
+        
+        if (chaseResult.isChase) {
+          console.log(`🏦 Chase file detected: ${file.name}, confidence: ${chaseResult.confidence}%`);
+          
+          // If we don't have an accountId, try to create a new Chase account
+          if (!accountId) {
+            const parseResult = chaseConnectivityService.parseChaseCSV(content, uuidv4());
+            
+            if (parseResult.accountInfo) {
+              // Create a new Chase account
+              const chaseAccount = chaseConnectivityService.createChaseAccount(parseResult.accountInfo);
+              await accountManagementService.addAccount(chaseAccount);
+              accountId = chaseAccount.id;
+              
+              chaseDetection = {
+                isChase: true,
+                accountType: chaseResult.accountType || 'checking',
+                confidence: chaseResult.confidence,
+                accountInfo: parseResult.accountInfo
+              };
+              
+              console.log(`🏦 Created new Chase account: ${chaseAccount.name} (${chaseAccount.id})`);
+            }
+          }
+          
+          // If we still don't have an accountId, we'll proceed with normal detection
+          if (accountId) {
+            statementFile.accountId = accountId;
+            statementFile.status = 'completed';
+            
+            const parseResult = chaseConnectivityService.parseChaseCSV(content, accountId);
+            const transactions = parseResult.transactions;
+            
+            statementFile.transactionCount = transactions.length;
+            
+            // Apply rules to the transactions
+            const processedTransactions = await this.applyRulesToTransactions(transactions);
+            
+            // Check for duplicates
+            const duplicateDetection = await dataService.detectDuplicates(processedTransactions);
+            
+            // Analyze currencies and create prompt if needed
+            const currencyPrompt = await this.analyzeCurrenciesAndCreatePrompt(processedTransactions);
+            
+            if (duplicateDetection.duplicates.length > 0) {
+              return {
+                file: statementFile,
+                needsAccountSelection: false,
+                transactions: processedTransactions,
+                duplicateDetection,
+                needsDuplicateResolution: true,
+                currencyPrompt,
+                chaseDetection
+              };
+            }
+            
+            return {
+              file: statementFile,
+              needsAccountSelection: false,
+              transactions: processedTransactions,
+              currencyPrompt,
+              chaseDetection
+            };
+          }
+        }
+      }
+
       // If accountId is provided, use it directly
       if (accountId) {
         statementFile.accountId = accountId;
@@ -67,7 +147,8 @@ export class FileProcessingService {
           file: statementFile,
           needsAccountSelection: false,
           transactions,
-          currencyPrompt
+          currencyPrompt,
+          chaseDetection
         };
       }
 
@@ -102,7 +183,8 @@ export class FileProcessingService {
           needsAccountSelection: false,
           detectionResult,
           transactions,
-          currencyPrompt
+          currencyPrompt,
+          chaseDetection
         };
       } else {
         // Need user to select account
@@ -111,7 +193,8 @@ export class FileProcessingService {
         return {
           file: statementFile,
           needsAccountSelection: true,
-          detectionResult: detectionResult.confidence >= 0.6 ? detectionResult : undefined // Only show AI result if confidence is medium or higher
+          detectionResult: detectionResult.confidence >= 0.6 ? detectionResult : undefined, // Only show AI result if confidence is medium or higher
+          chaseDetection
         };
       }
 
@@ -124,6 +207,43 @@ export class FileProcessingService {
         file: statementFile,
         needsAccountSelection: true // Let user manually select account
       };
+    }
+  }
+
+  /**
+   * Apply rules to a batch of transactions
+   */
+  private async applyRulesToTransactions(transactions: Transaction[]): Promise<Transaction[]> {
+    console.log(`📋 Applying rules to ${transactions.length} transactions...`);
+    
+    try {
+      const processedTransactions = [];
+      
+      for (const transaction of transactions) {
+        const ruleResult = await rulesService.applyRules(transaction);
+        
+        if (ruleResult.matched && ruleResult.rule) {
+          // Rule matched, update transaction with rule's action
+          const updatedTransaction = {
+            ...transaction,
+            category: ruleResult.rule.action.categoryName,
+            subcategory: ruleResult.rule.action.subcategoryName,
+            type: ruleResult.rule.action.transactionType || transaction.type,
+            confidence: 1.0, // High confidence for rule-based matches
+            reasoning: `Matched rule: ${ruleResult.rule.name}`
+          };
+          processedTransactions.push(updatedTransaction);
+        } else {
+          // No rule matched, keep original
+          processedTransactions.push(transaction);
+        }
+      }
+      
+      console.log(`📋 Applied rules to ${processedTransactions.length} transactions`);
+      return processedTransactions;
+    } catch (error) {
+      console.error('Error applying rules to transactions:', error);
+      return transactions; // Return original transactions if rules fail
     }
   }
 
