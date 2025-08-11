@@ -36,17 +36,34 @@ describe('Currency Display Service', () => {
       { id: 'usd-account', name: 'US Bank', currency: 'USD' }
     ]);
 
-    // Mock currency exchange service to simulate API calls
+    // Mock currency exchange service to simulate stored rates (no hardcoded fallbacks)
     (currencyExchangeService.convertAmount as jest.Mock).mockImplementation(async (amount: number, from: string, to: string) => {
       if (from === to) {
         return { convertedAmount: amount, rate: 1 };
       }
       if (from === 'DKK' && to === 'USD') {
-        // Mock DKK to USD conversion (approximate rate)
-        const rate = 0.145; // 1 DKK ≈ 0.145 USD
+        // Mock DKK to USD conversion from stored rate
+        const rate = 0.145; // 1 DKK ≈ 0.145 USD (from stored rate)
         return { convertedAmount: amount * rate, rate };
       }
-      // For other currencies, return null to simulate no exchange rate found
+      // For other currencies, return null to simulate no stored rate
+      return null;
+    });
+
+    (currencyExchangeService.getExchangeRate as jest.Mock).mockImplementation(async (from: string, to: string) => {
+      if (from === to) {
+        return { fromCurrency: from, toCurrency: to, rate: 1, date: new Date(), source: 'local' };
+      }
+      if (from === 'DKK' && to === 'USD') {
+        return { 
+          fromCurrency: from, 
+          toCurrency: to, 
+          rate: 0.145, 
+          date: new Date(), 
+          source: 'stored-api' // Indicates this came from stored rate
+        };
+      }
+      // For other currencies, return null to simulate no stored rate available
       return null;
     });
   });
