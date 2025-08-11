@@ -1062,6 +1062,7 @@ Return ONLY a clean JSON response:
           ...baseTransaction,
           category: ruleResult.rule.action.categoryName,
           subcategory: ruleResult.rule.action.subcategoryName,
+          type: ruleResult.rule.action.transactionType || baseTransaction.type, // Override type if specified
           confidence: 1.0,
           reasoning: `Matched rule: ${ruleResult.rule.name}`,
         };
