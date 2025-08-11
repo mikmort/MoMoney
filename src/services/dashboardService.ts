@@ -103,6 +103,7 @@ class DashboardService {
     const transactions = await dataService.getAllTransactions();
     
     return transactions
+      .filter(t => t.type !== 'transfer') // Exclude Internal Transfers from recent transactions
       .sort((a, b) => b.date.getTime() - a.date.getTime())
       .slice(0, limit);
   }
