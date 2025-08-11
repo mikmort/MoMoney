@@ -122,7 +122,7 @@ class BudgetService {
   /**
    * Calculate budget progress for a specific budget
    */
-  calculateBudgetProgress(budget: Budget, transactions: Transaction[], categories: Category[]): {
+  calculateBudgetProgress(budget: Budget, transactions: Transaction[], categories: Category[], forMonth?: { year: number; month: number }): {
     budgetId: string;
     categoryName: string;
     budgetAmount: number;
@@ -132,12 +132,15 @@ class BudgetService {
     status: 'safe' | 'warning' | 'danger' | 'exceeded';
     daysInPeriod: number;
     daysRemaining: number;
+    transactions: Transaction[];
   } {
     const category = categories.find(c => c.id === budget.categoryId);
     const categoryName = category?.name || 'Unknown Category';
 
-    // Calculate period dates
-    const { startDate, endDate } = this.getBudgetPeriodDates(budget);
+    // Calculate period dates - if forMonth is provided, override for that specific month
+    const { startDate, endDate } = forMonth 
+      ? this.getBudgetPeriodDatesForMonth(budget, forMonth)
+      : this.getBudgetPeriodDates(budget);
     
     // Filter transactions for this category and period
     // Match by category name rather than ID since transactions store category names
@@ -157,8 +160,10 @@ class BudgetService {
     const percentage = (actualSpent / budget.amount) * 100;
     const remaining = budget.amount - actualSpent;
 
-    // Calculate days
-    const now = new Date();
+    // Calculate days - use current date or the end of the specified month
+    const now = forMonth 
+      ? new Date(forMonth.year, forMonth.month, 1) // Use start of specified month for reference
+      : new Date();
     const daysInPeriod = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
     const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 
@@ -182,6 +187,7 @@ class BudgetService {
       status,
       daysInPeriod,
       daysRemaining,
+      transactions: categoryTransactions,
     };
   }
 
@@ -214,12 +220,59 @@ class BudgetService {
   }
 
   /**
+   * Get budget period start and end dates for a specific month
+   */
+  private getBudgetPeriodDatesForMonth(budget: Budget, forMonth: { year: number; month: number }): { startDate: Date; endDate: Date } {
+    // For monthly budgets, use the specific month requested
+    // For other periods, calculate the period that contains the specified month
+    
+    switch (budget.period) {
+      case 'weekly':
+        // For weekly budgets, find the week that contains the first day of the specified month
+        const monthStart = new Date(forMonth.year, forMonth.month, 1);
+        const dayOfWeek = monthStart.getDay();
+        const startDate = new Date(monthStart.getTime() - (dayOfWeek * 24 * 60 * 60 * 1000));
+        const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return { startDate, endDate };
+        
+      case 'monthly':
+        // Use the specific month
+        return {
+          startDate: new Date(forMonth.year, forMonth.month, 1),
+          endDate: new Date(forMonth.year, forMonth.month + 1, 0) // Last day of the month
+        };
+        
+      case 'quarterly':
+        // Find which quarter the month belongs to
+        const quarterStartMonth = Math.floor(forMonth.month / 3) * 3;
+        return {
+          startDate: new Date(forMonth.year, quarterStartMonth, 1),
+          endDate: new Date(forMonth.year, quarterStartMonth + 3, 0)
+        };
+        
+      case 'yearly':
+        // Use the full year
+        return {
+          startDate: new Date(forMonth.year, 0, 1),
+          endDate: new Date(forMonth.year, 12, 0)
+        };
+        
+      default:
+        // Fallback to monthly
+        return {
+          startDate: new Date(forMonth.year, forMonth.month, 1),
+          endDate: new Date(forMonth.year, forMonth.month + 1, 0)
+        };
+    }
+  }
+
+  /**
    * Get budget progress for all active budgets
    */
-  getBudgetProgressForAll(transactions: Transaction[], categories: Category[]) {
+  getBudgetProgressForAll(transactions: Transaction[], categories: Category[], forMonth?: { year: number; month: number }) {
     const activeBudgets = this.getActiveBudgets();
     return activeBudgets.map(budget => 
-      this.calculateBudgetProgress(budget, transactions, categories)
+      this.calculateBudgetProgress(budget, transactions, categories, forMonth)
     );
   }
 
