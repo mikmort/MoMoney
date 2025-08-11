@@ -433,6 +433,15 @@ export interface AccountStatementAnalysisResponse {
   extractedFields: string[]; // List of fields that were successfully extracted
 }
 
+// Multiple account detection response
+export interface MultipleAccountAnalysisResponse {
+  accounts: AccountStatementAnalysisResponse[];
+  totalAccountsFound: number;
+  confidence: number; // Overall confidence in the multi-account detection
+  reasoning: string; // AI explanation of the multi-account analysis
+  hasMultipleAccounts: boolean; // Convenience flag
+}
+
 // Receipt processing and attached files
 export interface AttachedFile {
   id: string;
