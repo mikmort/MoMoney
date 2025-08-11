@@ -5,6 +5,7 @@ import { dataService } from '../../services/dataService';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { simplifiedImportExportService } from '../../services/simplifiedImportExportService';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
+import { useNotification } from '../../contexts/NotificationContext';
 import { UserPreferences } from '../../types';
 
 const DangerZone = styled.div`
@@ -125,6 +126,7 @@ const SaveButton = styled(Button)`
 `;
 
 const Settings: React.FC = () => {
+  const { showAlert, showConfirmation } = useNotification();
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
@@ -202,10 +204,10 @@ const Settings: React.FC = () => {
     setIsSaving(true);
     try {
       await userPreferencesService.updatePreferences(preferences);
-      alert('✅ Preferences saved successfully!');
+      showAlert('success', 'Preferences saved successfully!');
     } catch (error) {
       console.error('Failed to save preferences:', error);
-      alert('❌ Failed to save preferences. Please try again.');
+      showAlert('error', 'Failed to save preferences. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -267,11 +269,11 @@ const Settings: React.FC = () => {
       }
       
       console.log('[RESET] Reset complete, reloading application...');
-      alert('✅ All data has been successfully reset. The page will reload to reflect the changes.');
-      window.location.reload(); // Reload to reset the app state
+      showAlert('success', 'All data has been successfully reset. The page will reload to reflect the changes.', 'Reset Complete', { autoClose: false });
+      setTimeout(() => window.location.reload(), 3000); // Reload after showing the message
     } catch (error) {
       console.error('[RESET] Failed to reset data:', error);
-      alert('❌ Failed to reset data. Please try again or use the fallback reset at /reset-db.html');
+      showAlert('error', 'Failed to reset data. Please try again or use the fallback reset at /reset-db.html');
     } finally {
       setIsResetting(false);
       setShowConfirmDialog(false);
@@ -285,10 +287,10 @@ const Settings: React.FC = () => {
       const timestamp = new Date().toISOString().split('T')[0];
       const filename = `momoney-backup-${timestamp}.json`;
       simplifiedImportExportService.downloadFile(exportData, filename);
-      alert('✅ Data exported successfully! Your backup file has been downloaded.');
+      showAlert('success', 'Data exported successfully! Your backup file has been downloaded.');
     } catch (error) {
       console.error('Failed to export data:', error);
-      alert('❌ Failed to export data. Please try again.');
+      showAlert('error', 'Failed to export data. Please try again.');
     } finally {
       setIsExporting(false);
     }
@@ -299,7 +301,7 @@ const Settings: React.FC = () => {
     if (!file) return;
 
     if (!file.name.endsWith('.json')) {
-      alert('❌ Please select a valid JSON backup file (.json)');
+      showAlert('error', 'Please select a valid JSON backup file (.json)');
       return;
     }
 
@@ -309,16 +311,20 @@ const Settings: React.FC = () => {
       const importData = JSON.parse(fileText);
       const result = await simplifiedImportExportService.importData(importData);
       
-      alert(`✅ Data imported successfully!\n\n` +
-            `• ${result.transactions} transactions imported\n` +
-            `• ${result.preferences ? 'Preferences imported' : 'No preferences found'}\n` +
-            `• ${result.historyEntries} history entries imported\n\n` +
-            `The page will reload to reflect the changes.`);
+      showAlert('success', 
+        `Data imported successfully!\n\n` +
+        `• ${result.transactions} transactions imported\n` +
+        `• ${result.preferences ? 'Preferences imported' : 'No preferences found'}\n` +
+        `• ${result.historyEntries} history entries imported\n\n` +
+        `The page will reload to reflect the changes.`,
+        'Import Complete',
+        { autoClose: false }
+      );
       
-      window.location.reload();
+      setTimeout(() => window.location.reload(), 4000);
     } catch (error) {
       console.error('Failed to import data:', error);
-      alert('❌ Failed to import data. Please ensure you selected a valid Mo Money backup file and try again.');
+      showAlert('error', 'Failed to import data. Please ensure you selected a valid Mo Money backup file and try again.');
     } finally {
       setIsImporting(false);
       // Clear the file input
@@ -344,10 +350,10 @@ const Settings: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      alert('✅ Support bundle exported successfully! This file contains diagnostic information (no sensitive financial data).');
+      showAlert('success', 'Support bundle exported successfully! This file contains diagnostic information (no sensitive financial data).', 'Export Complete');
     } catch (error) {
       console.error('Failed to export support bundle:', error);
-      alert('❌ Failed to export support bundle. Please try again.');
+      showAlert('error', 'Failed to export support bundle. Please try again.');
     } finally {
       setIsExportingSupport(false);
     }
@@ -358,24 +364,29 @@ const Settings: React.FC = () => {
     try {
       const result = await dataService.cleanupExactDuplicates();
       if (result.removed > 0) {
-        alert(`✅ Removed ${result.removed} exact duplicate transaction(s).\nBefore: ${result.totalBefore}\nAfter: ${result.totalAfter}`);
+        showAlert('success', `Removed ${result.removed} exact duplicate transaction(s).\nBefore: ${result.totalBefore}\nAfter: ${result.totalAfter}`, 'Duplicates Removed');
       } else {
-        alert('✅ No exact duplicates found.');
+        showAlert('info', 'No exact duplicates found.', 'Scan Complete');
       }
     } catch (error) {
       console.error('Failed to cleanup duplicates:', error);
-      alert('❌ Failed to scan/remove duplicates.');
+      showAlert('error', 'Failed to scan/remove duplicates.');
     } finally {
       setIsDeduping(false);
     }
   };
 
   const handleLoadSampleData = async () => {
-    const shouldLoad = window.confirm(
-      '🔄 Load Sample Data?\n\n' +
+    const shouldLoad = await showConfirmation(
+      'Load Sample Data?\n\n' +
       'This will add sample transactions for testing purposes.\n' +
       'Sample data includes transactions across different categories, accounts, and currencies.\n\n' +
-      'Continue?'
+      'Continue?',
+      { 
+        title: 'Load Sample Data',
+        confirmText: 'Load Sample Data',
+        cancelText: 'Cancel'
+      }
     );
     
     if (!shouldLoad) return;
@@ -383,11 +394,11 @@ const Settings: React.FC = () => {
     setIsLoadingSampleData(true);
     try {
       await dataService.loadSampleData();
-      alert('✅ Sample data loaded successfully! The page will refresh to show the sample transactions.');
-      window.location.reload();
+      showAlert('success', 'Sample data loaded successfully! The page will refresh to show the sample transactions.', 'Sample Data Loaded', { autoClose: false });
+      setTimeout(() => window.location.reload(), 3000);
     } catch (error) {
       console.error('Failed to load sample data:', error);
-      alert('❌ Failed to load sample data. Please try again.');
+      showAlert('error', 'Failed to load sample data. Please try again.');
     } finally {
       setIsLoadingSampleData(false);
     }

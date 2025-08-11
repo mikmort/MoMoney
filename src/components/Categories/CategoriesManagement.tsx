@@ -6,6 +6,7 @@ import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Category } from '../../types';
 import { defaultCategories } from '../../data/defaultCategories';
 import { ActionsMenu } from '../shared/ActionsMenu';
+import { useNotification } from '../../contexts/NotificationContext';
 import Papa from 'papaparse';
 import { v4 as uuidv4 } from 'uuid';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -225,6 +226,7 @@ interface CategoriesManagementProps {}
 const CATEGORIES_STORAGE_KEY = 'mo-money-categories';
 
 export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
+  const { showAlert, showConfirmation } = useNotification();
   const [categories, setCategories] = useState<Category[]>([]);
   const [filteredCategories, setFilteredCategories] = useState<Category[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'income' | 'expense'>('all');
@@ -457,7 +459,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   const handleSaveCategory = () => {
     // Validate required fields
     if (!categoryForm.name.trim()) {
-      alert('Category name is required');
+      showAlert('error', 'Category name is required');
       return;
     }
 
@@ -636,7 +638,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
 
   const processImport = () => {
     if (importErrors.length > 0) {
-      alert('Please fix the errors before importing');
+      showAlert('error', 'Please fix the errors before importing');
       return;
     }
 
@@ -712,11 +714,21 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
 
     setCategories(newCategories);
     setShowImportModal(false);
-    alert(`Import completed! ${importCount} categories/subcategories imported.`);
+    showAlert('success', `Import completed! ${importCount} categories/subcategories imported.`, 'Import Successful');
   };
 
-  const handleDeleteCategory = (categoryId: string) => {
-    if (window.confirm('Are you sure you want to delete this category? This action cannot be undone.')) {
+  const handleDeleteCategory = async (categoryId: string) => {
+    const shouldDelete = await showConfirmation(
+      'Are you sure you want to delete this category? This action cannot be undone.',
+      { 
+        title: 'Delete Category',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        danger: true
+      }
+    );
+    
+    if (shouldDelete) {
       const updatedCategories = categories.filter(c => c.id !== categoryId);
       setCategories(updatedCategories);
     }
