@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import { useNavigate } from 'react-router-dom';
@@ -205,10 +205,25 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const [selectedAccountsForCreation, setSelectedAccountsForCreation] = useState<number[]>([]);
   const [showWarningDialog, setShowWarningDialog] = useState(false);
   const [warningMessage, setWarningMessage] = useState<string>('');
+  // State for tracking edited account names
+  const [editedAccountNames, setEditedAccountNames] = useState<{[index: number]: string}>({});
 
   // Balance history modal
   const [showBalanceHistoryModal, setShowBalanceHistoryModal] = useState(false);
   const [selectedAccountForHistory, setSelectedAccountForHistory] = useState<Account | null>(null);
+
+  // Initialize edited account names when multipleAccountsResult changes
+  useEffect(() => {
+    if (multipleAccountsResult) {
+      const initialNames: {[index: number]: string} = {};
+      multipleAccountsResult.accounts.forEach((account, index) => {
+        initialNames[index] = account.accountName || `Account ${index + 1}`;
+      });
+      setEditedAccountNames(initialNames);
+    } else {
+      setEditedAccountNames({});
+    }
+  }, [multipleAccountsResult]);
 
   const sanitizeReasoning = (reason?: string): string => {
     if (!reason) return '';
@@ -437,6 +452,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     setShowWarningDialog(false);
     setShowStatementUpload(false);
     setMultipleAccountsResult(null);
+    setEditedAccountNames({}); // Reset edited names
     setUploadedFile(null);
   };
 
@@ -473,7 +489,8 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     try {
       const result = await accountManagementService.createAccountsFromMultipleAnalysis(
         multipleAccountsResult,
-        selectedAccountsForCreation
+        selectedAccountsForCreation,
+        editedAccountNames // Pass the edited account names
       );
 
       if (result.success && result.createdAccounts) {
@@ -482,6 +499,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         setShowStatementUpload(false);
         setMultipleAccountsResult(null);
         setSelectedAccountsForCreation([]);
+        setEditedAccountNames({}); // Reset edited names
         setUploadedFile(null);
         refreshAccounts();
 
@@ -504,6 +522,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     setShowStatementUpload(false);
     setMultipleAccountsResult(null);
     setSelectedAccountsForCreation([]);
+    setEditedAccountNames({}); // Reset edited names
     setUploadedFile(null);
   };
 
@@ -1303,7 +1322,27 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                     />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                        {account.accountName || `Account ${index + 1}`}
+                        <input
+                          type="text"
+                          value={editedAccountNames[index] || account.accountName || `Account ${index + 1}`}
+                          onChange={(e) => {
+                            setEditedAccountNames(prev => ({
+                              ...prev,
+                              [index]: e.target.value
+                            }));
+                          }}
+                          onClick={(e) => e.stopPropagation()} // Prevent triggering account selection
+                          style={{
+                            width: '100%',
+                            padding: '4px 8px',
+                            border: '1px solid #ddd',
+                            borderRadius: 4,
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            backgroundColor: 'white'
+                          }}
+                          placeholder="Enter account name"
+                        />
                       </div>
                       <div style={{ fontSize: '0.9em', color: '#666', marginBottom: 6 }}>
                         {account.institution && (
@@ -1359,7 +1398,12 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
               </Button>
               <Button 
                 onClick={handleCreateSelectedAccounts}
-                disabled={selectedAccountsForCreation.length === 0}
+                disabled={
+                  selectedAccountsForCreation.length === 0 ||
+                  selectedAccountsForCreation.some(index => 
+                    !editedAccountNames[index] || editedAccountNames[index].trim() === ''
+                  )
+                }
               >
                 Create {selectedAccountsForCreation.length} Account{selectedAccountsForCreation.length !== 1 ? 's' : ''}
               </Button>
