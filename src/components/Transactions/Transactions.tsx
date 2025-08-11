@@ -964,8 +964,10 @@ const Transactions: React.FC = () => {
   const [accountDetectionResult, setAccountDetectionResult] = useState<AccountDetectionResult | undefined>();
 
   // AI Confidence popup state
-  const [showConfidencePopup, setShowConfidencePopup] = useState(false);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [confidencePopupData, setConfidencePopupData] = useState<{
+    isOpen: boolean;
+    transaction: Transaction | null;
+  }>({ isOpen: false, transaction: null });
 
   // Category edit confirmation dialog state
   const [showCategoryEditDialog, setShowCategoryEditDialog] = useState(false);
@@ -1396,8 +1398,7 @@ const Transactions: React.FC = () => {
     const handleInfoClick = (e: React.MouseEvent) => {
       e.stopPropagation();
       const transaction = params.data as Transaction;
-      setSelectedTransaction(transaction);
-      setShowConfidencePopup(true);
+      setConfidencePopupData({ isOpen: true, transaction });
     };
     
     const infoIcon = (
@@ -3240,8 +3241,7 @@ const Transactions: React.FC = () => {
           onViewTransaction={(transactionId: string) => {
             const transaction = transactions.find(t => t.id === transactionId);
             if (transaction) {
-              setSelectedTransaction(transaction);
-              setShowConfidencePopup(true);
+              setConfidencePopupData({ isOpen: true, transaction });
             }
           }}
         />
@@ -3541,15 +3541,15 @@ const Transactions: React.FC = () => {
 
       {/* AI Confidence Popup */}
       <AiConfidencePopup
-        isOpen={showConfidencePopup}
-        onClose={() => setShowConfidencePopup(false)}
-        confidence={selectedTransaction?.confidence || 0}
-        reasoning={selectedTransaction?.reasoning}
-        category={selectedTransaction?.category || ''}
-        subcategory={selectedTransaction?.subcategory}
-        description={selectedTransaction?.description || ''}
-        amount={selectedTransaction?.amount || 0}
-        proxyMetadata={selectedTransaction?.aiProxyMetadata}
+        isOpen={confidencePopupData.isOpen}
+        onClose={() => setConfidencePopupData({ isOpen: false, transaction: null })}
+        confidence={confidencePopupData.transaction?.confidence || 0}
+        reasoning={confidencePopupData.transaction?.reasoning}
+        category={confidencePopupData.transaction?.category || ''}
+        subcategory={confidencePopupData.transaction?.subcategory}
+        description={confidencePopupData.transaction?.description || ''}
+        amount={confidencePopupData.transaction?.amount || 0}
+        proxyMetadata={confidencePopupData.transaction?.aiProxyMetadata}
       />
 
       {/* Category Edit Confirmation Dialog */}
