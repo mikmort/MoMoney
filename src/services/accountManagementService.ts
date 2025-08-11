@@ -500,7 +500,8 @@ ${userPrompt}`;
    */
   async createAccountsFromMultipleAnalysis(
     multipleAccountsResult: MultipleAccountAnalysisResponse,
-    selectedAccountIndices: number[]
+    selectedAccountIndices: number[],
+    customAccountNames?: {[index: number]: string}
   ): Promise<{
     success: boolean;
     createdAccounts?: Account[];
@@ -521,8 +522,13 @@ ${userPrompt}`;
         const accountAnalysis = multipleAccountsResult.accounts[index];
         
         try {
+          // Use custom name if provided, otherwise fall back to analysis or default
+          const accountName = customAccountNames?.[index] || 
+                             accountAnalysis.accountName || 
+                             `Account ${index + 1}`;
+          
           const accountData: Omit<Account, 'id'> = {
-            name: accountAnalysis.accountName || `Account ${index + 1}`,
+            name: accountName,
             type: accountAnalysis.accountType || 'checking',
             institution: accountAnalysis.institution || 'Unknown Institution',
             currency: accountAnalysis.currency || 'USD',
