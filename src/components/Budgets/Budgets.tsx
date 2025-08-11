@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import styled from 'styled-components';
 import { PageHeader, Card, Button, FlexBox, Badge } from '../../styles/globalStyles';
-import { Budget, Category } from '../../types';
+import { Budget, Category, Transaction } from '../../types';
 import { budgetService } from '../../services/budgetService';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
@@ -46,6 +46,127 @@ const BudgetsContainer = styled.div`
   .progress-warning { background-color: #FF9800; }
   .progress-danger { background-color: #F44336; }
   .progress-exceeded { background-color: #D32F2F; }
+`;
+
+const MonthNavigationContainer = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  
+  .month-display {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #333;
+    min-width: 200px;
+    text-align: center;
+  }
+  
+  .nav-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    
+    &:hover {
+      background: #e0e0e0;
+      border-color: #bbb;
+    }
+    
+    &:active {
+      transform: scale(0.95);
+    }
+  }
+`;
+
+const TransactionPopupOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`;
+
+const TransactionPopupContent = styled.div`
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  width: 90%;
+  max-width: 700px;
+  max-height: 80vh;
+  overflow-y: auto;
+
+  h2 {
+    margin: 0 0 20px 0;
+    color: #333;
+    font-size: 1.5rem;
+  }
+  
+  .transaction-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .transaction-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: #f9f9f9;
+    border-radius: 6px;
+    border: 1px solid #eee;
+    
+    .transaction-left {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      
+      .transaction-description {
+        font-weight: 500;
+        color: #333;
+        margin-bottom: 4px;
+      }
+      
+      .transaction-date {
+        font-size: 0.85rem;
+        color: #666;
+      }
+    }
+    
+    .transaction-amount {
+      font-weight: 600;
+      color: #d32f2f;
+      font-size: 1rem;
+    }
+  }
+  
+  .no-transactions {
+    text-align: center;
+    color: #666;
+    font-style: italic;
+    padding: 40px 20px;
+  }
+  
+  .popup-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #eee;
+  }
 `;
 
 const ModalOverlay = styled.div`
@@ -155,7 +276,18 @@ const BudgetProgressCard = styled.div`
     .percentage-text {
       font-weight: 600;
       font-size: 0.9rem;
-      color: #333;
+      color: #1976d2;
+      cursor: pointer;
+      text-decoration: none;
+      border: none;
+      background: none;
+      padding: 0;
+      transition: color 0.2s ease;
+      
+      &:hover {
+        color: #1565c0;
+        text-decoration: underline;
+      }
     }
   }
 `;
@@ -174,11 +306,49 @@ const Budgets: React.FC = () => {
     isActive: true,
   });
   const [budgetProgress, setBudgetProgress] = useState<any[]>([]);
+  
+  // Month navigation state
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+  
+  // Transaction popup state
+  const [showTransactionPopup, setShowTransactionPopup] = useState(false);
+  const [popupTransactions, setPopupTransactions] = useState<Transaction[]>([]);
+  const [popupCategoryName, setPopupCategoryName] = useState('');
 
-  // Load data on component mount
+  // Load data on component mount and when month changes
   useEffect(() => {
+    const loadData = async () => {
+      try {
+        const budgetData = budgetService.getAllBudgets();
+        const transactionData = await dataService.getAllTransactions();
+        
+        // Load categories from localStorage or use defaults
+        let categoriesData = defaultCategories;
+        const savedCategories = localStorage.getItem('mo-money-categories');
+        if (savedCategories) {
+          try {
+            categoriesData = JSON.parse(savedCategories);
+          } catch (error) {
+            console.error('Failed to load categories from localStorage:', error);
+          }
+        }
+        
+        setBudgets(budgetData);
+        setCategories(categoriesData);
+
+        // Calculate budget progress for the selected month
+        const progress = budgetService.getBudgetProgressForAll(transactionData, categoriesData, selectedMonth);
+        setBudgetProgress(progress);
+      } catch (error) {
+        console.error('Failed to load budget data:', error);
+      }
+    };
+    
     loadData();
-  }, []);
+  }, [selectedMonth]);
 
   const loadData = async () => {
     try {
@@ -199,8 +369,8 @@ const Budgets: React.FC = () => {
       setBudgets(budgetData);
       setCategories(categoriesData);
 
-      // Calculate budget progress
-      const progress = budgetService.getBudgetProgressForAll(transactionData, categoriesData);
+      // Calculate budget progress for the selected month
+      const progress = budgetService.getBudgetProgressForAll(transactionData, categoriesData, selectedMonth);
       setBudgetProgress(progress);
     } catch (error) {
       console.error('Failed to load budget data:', error);
@@ -388,6 +558,33 @@ const Budgets: React.FC = () => {
     return categories.filter(c => c.type === 'expense');
   };
 
+  const handlePreviousMonth = () => {
+    setSelectedMonth(prev => {
+      const newMonth = prev.month === 0 ? 11 : prev.month - 1;
+      const newYear = prev.month === 0 ? prev.year - 1 : prev.year;
+      return { year: newYear, month: newMonth };
+    });
+  };
+
+  const handleNextMonth = () => {
+    setSelectedMonth(prev => {
+      const newMonth = prev.month === 11 ? 0 : prev.month + 1;
+      const newYear = prev.month === 11 ? prev.year + 1 : prev.year;
+      return { year: newYear, month: newMonth };
+    });
+  };
+
+  const handleShowTransactions = (progress: any) => {
+    setPopupTransactions(progress.transactions || []);
+    setPopupCategoryName(progress.categoryName);
+    setShowTransactionPopup(true);
+  };
+
+  const formatSelectedMonth = () => {
+    const date = new Date(selectedMonth.year, selectedMonth.month, 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
   const renderProgressBar = (progress: any) => {
     const percentage = Math.min(progress.percentage, 100);
     return (
@@ -407,9 +604,19 @@ const Budgets: React.FC = () => {
       </PageHeader>
 
       {/* Budget Progress Overview */}
-      {budgetProgress.length > 0 && (
+      {budgetProgress && budgetProgress.length > 0 && (
         <Card>
-          <h3>Budget Progress - {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
+          <MonthNavigationContainer>
+            <div className="nav-button" onClick={handlePreviousMonth} title="Previous Month">
+              ←
+            </div>
+            <div className="month-display">
+              Budget Progress - {formatSelectedMonth()}
+            </div>
+            <div className="nav-button" onClick={handleNextMonth} title="Next Month">
+              →
+            </div>
+          </MonthNavigationContainer>
           <BudgetProgressGrid>
             {budgetProgress.map((progress) => (
               <BudgetProgressCard key={progress.budgetId}>
@@ -420,7 +627,13 @@ const Budgets: React.FC = () => {
                 </div>
                 {renderProgressBar(progress)}
                 <div className="progress-info">
-                  <span className="percentage-text">{progress.percentage.toFixed(1)}% used</span>
+                  <button 
+                    className="percentage-text"
+                    onClick={() => handleShowTransactions(progress)}
+                    title="Click to view transactions"
+                  >
+                    {progress.percentage.toFixed(1)}% used
+                  </button>
                   <Badge variant={
                     progress.status === 'safe' ? 'success' :
                     progress.status === 'warning' ? 'warning' :
@@ -562,6 +775,55 @@ const Budgets: React.FC = () => {
             </div>
           </ModalContent>
         </ModalOverlay>
+      )}
+
+      {/* Transaction Popup Modal */}
+      {showTransactionPopup && (
+        <TransactionPopupOverlay onClick={() => setShowTransactionPopup(false)}>
+          <TransactionPopupContent onClick={(e) => e.stopPropagation()}>
+            <h2>Transactions for {popupCategoryName}</h2>
+            <p style={{ color: '#666', marginBottom: '20px', fontSize: '0.9rem' }}>
+              {formatSelectedMonth()} • {popupTransactions.length} transaction{popupTransactions.length !== 1 ? 's' : ''}
+            </p>
+            
+            {popupTransactions.length > 0 ? (
+              <div className="transaction-list">
+                {popupTransactions.map((transaction) => (
+                  <div key={transaction.id} className="transaction-item">
+                    <div className="transaction-left">
+                      <div className="transaction-description">{transaction.description}</div>
+                      <div className="transaction-date">
+                        {transaction.date.toLocaleDateString('en-US', { 
+                          weekday: 'short', 
+                          year: 'numeric', 
+                          month: 'short', 
+                          day: 'numeric' 
+                        })}
+                        {transaction.account && ` • ${transaction.account}`}
+                      </div>
+                    </div>
+                    <div className="transaction-amount">
+                      {new Intl.NumberFormat('en-US', { 
+                        style: 'currency', 
+                        currency: 'USD' 
+                      }).format(Math.abs(transaction.amount))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="no-transactions">
+                No transactions found for this category in {formatSelectedMonth()}.
+              </div>
+            )}
+            
+            <div className="popup-actions">
+              <Button variant="outline" onClick={() => setShowTransactionPopup(false)}>
+                Close
+              </Button>
+            </div>
+          </TransactionPopupContent>
+        </TransactionPopupOverlay>
       )}
     </div>
   );
