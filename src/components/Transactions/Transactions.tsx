@@ -9,6 +9,7 @@ import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
+import { useNotification } from '../../contexts/NotificationContext';
 import { transferMatchingService } from '../../services/transferMatchingService';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
@@ -941,6 +942,7 @@ const AnomalyResultsPanel = styled(Card)`
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
+  const { showAlert } = useNotification();
   const [searchParams] = useSearchParams();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
@@ -1386,7 +1388,7 @@ const Transactions: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ Failed to undo transaction edit:', error);
-      alert('Failed to undo. Please try again.');
+      showAlert('error', 'Failed to undo. Please try again.');
     }
   }, [transactions]);
 
@@ -1409,7 +1411,7 @@ const Transactions: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ Failed to redo transaction edit:', error);
-      alert('Failed to redo. Please try again.');
+      showAlert('error', 'Failed to redo. Please try again.');
     }
   }, [transactions]);
 
@@ -1592,11 +1594,11 @@ const Transactions: React.FC = () => {
         console.log('✅ Transaction deleted successfully');
       } else {
         console.log('❌ Transaction not found or could not be deleted');
-        alert('Failed to delete transaction. It may have already been deleted.');
+        showAlert('warning', 'Failed to delete transaction. It may have already been deleted.');
       }
     } catch (error) {
       console.error('❌ Failed to delete transaction:', error);
-      alert('Failed to delete transaction. Please try again.');
+      showAlert('error', 'Failed to delete transaction. Please try again.');
     }
   }, [transactions]);
 
