@@ -164,8 +164,8 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       const detectionResult = await detectAccount(detectionRequest);
       setAccountDetectionResult(detectionResult);
 
-      // If detection confidence is high enough, proceed directly
-      const CONFIDENCE_THRESHOLD = 0.7;
+      // If detection confidence is very high, proceed directly (95% confidence)
+      const CONFIDENCE_THRESHOLD = 0.95;
       if (detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD) {
         await startFileProcessing(file, detectionResult.detectedAccountId);
       } else {

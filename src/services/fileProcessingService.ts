@@ -85,8 +85,8 @@ export class FileProcessingService {
       statementFile.accountDetectionConfidence = detectionResult.confidence;
       statementFile.accountDetectionReasoning = detectionResult.reasoning;
 
-      // If we have high confidence detection (> 0.9), auto-assign the account
-      if (detectionResult.confidence > 0.9 && detectionResult.detectedAccountId) {
+      // If we have very high confidence detection (>= 0.95), auto-assign the account
+      if (detectionResult.confidence >= 0.95 && detectionResult.detectedAccountId) {
         statementFile.accountId = detectionResult.detectedAccountId;
         statementFile.status = 'completed';
         
