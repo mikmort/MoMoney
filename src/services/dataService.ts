@@ -223,7 +223,7 @@ class DataService {
         category: 'Internal Transfer',
         subcategory: 'Between Accounts',
         amount: 500.00,
-        account: 'Chase Savings',
+        account: 'Primary Savings',
         type: 'transfer',
         confidence: 0.95,
         reasoning: 'Internal transfer identified',
