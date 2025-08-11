@@ -355,33 +355,89 @@ class DataService {
 
   async addTransactions(transactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]): Promise<Transaction[]> {
     await this.ensureInitialized();
-    console.log(`DataService: Adding ${transactions.length} transactions`);
+    console.log(`🔧 DataService.addTransactions START`);
+    console.log(`📊 Input: ${transactions.length} transactions to add`);
+    console.log(`📊 Current database size: ${this.transactions.length} transactions`);
+    
+    if (transactions.length > 0) {
+      console.log('📋 Sample input transactions (first 3):');
+      transactions.slice(0, 3).forEach((tx, idx) => {
+        console.log(`  Input ${idx + 1}:`, {
+          date: tx.date,
+          amount: tx.amount,
+          description: tx.description,
+          account: tx.account,
+          type: tx.type,
+          category: tx.category
+        });
+      });
+    }
+    
     // Lightweight deduplication: skip any incoming transaction that exactly matches
     // an existing one by date, amount, description, account, and type.
     if (this.transactions.length > 0 && transactions.length > 0) {
+      console.log('🔍 Running deduplication check...');
+      
       const existingKeys = new Set(
         this.transactions.map(t => `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`)
       );
+      
+      console.log(`📊 Existing unique keys: ${existingKeys.size}`);
+      console.log('📋 Sample existing keys (first 5):');
+      Array.from(existingKeys).slice(0, 5).forEach((key, idx) => {
+        console.log(`  Existing ${idx + 1}: ${key}`);
+      });
+      
       const before = transactions.length;
+      
+      // Log what we're checking against
+      console.log('🔍 Checking incoming transactions for duplicates...');
+      const incomingKeys = transactions.map(t => `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`);
+      console.log('📋 Sample incoming keys (first 5):');
+      incomingKeys.slice(0, 5).forEach((key, idx) => {
+        console.log(`  Incoming ${idx + 1}: ${key}`);
+      });
+      
       transactions = transactions.filter(t => {
         const key = `${new Date(t.date).getTime()}|${t.amount}|${t.description}|${t.account}|${t.type}`;
-        return !existingKeys.has(key);
+        const isDuplicate = existingKeys.has(key);
+        if (isDuplicate) {
+          console.log(`❌ DUPLICATE FOUND: ${key}`);
+        }
+        return !isDuplicate;
       });
       const skipped = before - transactions.length;
       if (skipped > 0) {
-        console.log(`DataService: Skipped ${skipped} duplicate transaction(s) during bulk add`);
+        console.log(`📊 Skipped ${skipped} duplicate transaction(s) during bulk add`);
       }
+      console.log(`📊 Deduplication results: ${before} -> ${transactions.length} (${skipped} duplicates filtered out)`);
+    } else {
+      console.log('⚡ Skipping deduplication (no existing transactions or no new transactions)');
     }
-    const now = new Date();
-    const newTransactions = transactions.map(transaction => ({
-      ...transaction,
-      id: uuidv4(),
-      addedDate: now,
-      lastModifiedDate: now,
-    }));
     
-    console.log(`DataService: Created ${newTransactions.length} new transaction objects`);
+    const now = new Date();
+    console.log(`📊 Creating ${transactions.length} new transaction objects with IDs...`);
+    
+    const newTransactions = transactions.map((transaction, idx) => {
+      const newTx = {
+        ...transaction,
+        id: uuidv4(),
+        addedDate: now,
+        lastModifiedDate: now,
+      };
+      console.log(`  Created transaction ${idx + 1}: ID=${newTx.id}, Amount=${newTx.amount}, Desc="${newTx.description}"`);
+      return newTx;
+    });
+    
+    console.log(`✅ Created ${newTransactions.length} new transaction objects`);
+    
+    console.log('📊 Adding transactions to in-memory store...');
     this.transactions.push(...newTransactions);
+
+    console.log(`📊 Total transactions now: ${this.transactions.length}`);
+    
+    console.log('💾 Saving to IndexedDB...');
+
     console.log(`DataService: Total transactions now: ${this.transactions.length}`);
     
     // Attempt automatic transfer matching for new transactions
@@ -396,8 +452,12 @@ class DataService {
       }
     }
     
+
     await this.saveToDB();
-    console.log(`DataService: Saved to IndexedDB`);
+    console.log('✅ Saved to IndexedDB successfully');
+    
+    console.log('🎉 DataService.addTransactions COMPLETE');
+    console.log(`📊 Final result: ${newTransactions.length} transactions added`);
     
     return newTransactions;
   }
