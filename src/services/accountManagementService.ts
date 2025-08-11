@@ -36,7 +36,7 @@ export interface AccountDetectionResponse {
 
 export class AccountManagementService {
   private azureOpenAIService: AzureOpenAIService;
-  private accounts: Account[] = [...defaultAccounts];
+  private accounts: Account[] = [];
   private readonly storageKey = 'mo-money-accounts';
 
   constructor() {
@@ -321,6 +321,24 @@ ${userPrompt}`;
     } catch (err) {
       console.error('Failed to save accounts to storage:', err);
     }
+  }
+
+  // Load sample accounts for demonstration purposes
+  loadSampleAccounts(): void {
+    // Add sample accounts if they don't already exist
+    defaultAccounts.forEach(sampleAccount => {
+      const existingAccount = this.accounts.find(account => account.id === sampleAccount.id);
+      if (!existingAccount) {
+        this.accounts.push({ ...sampleAccount });
+      }
+    });
+    this.saveToStorage();
+  }
+
+  // Clear all accounts
+  clearAllAccounts(): void {
+    this.accounts = [];
+    this.saveToStorage();
   }
 
   /**

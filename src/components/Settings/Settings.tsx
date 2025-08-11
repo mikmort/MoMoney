@@ -257,6 +257,15 @@ const Settings: React.FC = () => {
         console.warn('[RESET] Failed to clear rules via service:', error);
       }
       
+      // Clear all accounts via the service API
+      try {
+        const { accountManagementService } = await import('../../services/accountManagementService');
+        accountManagementService.clearAllAccounts();
+        console.log('[RESET] Accounts cleared via service API');
+      } catch (error) {
+        console.warn('[RESET] Failed to clear accounts via service:', error);
+      }
+      
       console.log('[RESET] Reset complete, reloading application...');
       alert('✅ All data has been successfully reset. The page will reload to reflect the changes.');
       window.location.reload(); // Reload to reset the app state

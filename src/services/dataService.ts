@@ -136,6 +136,12 @@ class DataService {
 
   async loadSampleData(): Promise<void> {
     await this.ensureInitialized();
+    
+    // Load sample accounts first
+    const { accountManagementService } = await import('./accountManagementService');
+    accountManagementService.loadSampleAccounts();
+    
+    // Then load sample transactions
     this.initializeSampleData();
   }
 
