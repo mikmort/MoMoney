@@ -280,10 +280,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     setShowEditModal(true);
   };
 
-  const handleSaveAccount = () => {
+  const handleSaveAccount = async () => {
     if (editingAccount) {
       // Update existing account
-      updateAccount(editingAccount.id, accountForm);
+      await updateAccount(editingAccount.id, accountForm);
     } else {
       // Add new account
       addAccount(accountForm);

@@ -61,7 +61,7 @@ export const useAccountManagement = (): UseAccountManagementResult => {
     setError(null);
     
     try {
-      const updatedAccount = accountManagementService.updateAccount(id, updates);
+      const updatedAccount = await accountManagementService.updateAccount(id, updates);
       if (updatedAccount) {
         setAccounts(prev => prev.map(acc => acc.id === id ? updatedAccount : acc));
       }

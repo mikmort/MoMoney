@@ -51,7 +51,7 @@ describe('Account Rename Integration', () => {
     expect(initialTransactions[1].account).toBe('Test Checking Account');
 
     // Rename the account
-    const updatedAccount = accountService.updateAccount(testAccount.id, {
+    const updatedAccount = await accountService.updateAccount(testAccount.id, {
       name: 'Renamed Checking Account'
     });
     expect(updatedAccount).not.toBeNull();
@@ -92,7 +92,7 @@ describe('Account Rename Integration', () => {
     expect(addedTransactions).toHaveLength(1);
 
     // Rename the account
-    accountService.updateAccount(testAccount.id, {
+    await accountService.updateAccount(testAccount.id, {
       name: 'My Renamed Savings'
     });
 
@@ -140,7 +140,7 @@ describe('Account Rename Integration', () => {
     await dataService.addTransactions(transactions);
 
     // Rename the account
-    accountService.updateAccount(testAccount.id, {
+    await accountService.updateAccount(testAccount.id, {
       name: 'Updated Mixed Account'
     });
 
@@ -155,5 +155,48 @@ describe('Account Rename Integration', () => {
     // The transaction that had the account ID should still have the ID
     const idTransaction = transactionsAfterRename.find(t => t.description === 'ATM Deposit');
     expect(idTransaction!.account).toBe(testAccount.id);
+  });
+
+  test('resolveAccountName helper function should work correctly', async () => {
+    // Add test accounts
+    const account1 = accountService.addAccount({
+      name: 'Primary Checking',
+      type: 'checking',
+      institution: 'Bank A',
+      currency: 'USD',
+      isActive: true
+    });
+
+    const account2 = accountService.addAccount({
+      name: 'Savings Account',
+      type: 'savings',
+      institution: 'Bank B',
+      currency: 'USD',
+      isActive: true
+    });
+
+    // Test resolving by name
+    expect(accountService.resolveAccountName('Primary Checking')).toBe('Primary Checking');
+    expect(accountService.resolveAccountName('Savings Account')).toBe('Savings Account');
+
+    // Test resolving by ID
+    expect(accountService.resolveAccountName(account1.id)).toBe('Primary Checking');
+    expect(accountService.resolveAccountName(account2.id)).toBe('Savings Account');
+
+    // Test non-existent account (should return original)
+    expect(accountService.resolveAccountName('Non-existent Account')).toBe('Non-existent Account');
+    expect(accountService.resolveAccountName('fake-id-12345')).toBe('fake-id-12345');
+
+    // Test after rename
+    await accountService.updateAccount(account1.id, {
+      name: 'Renamed Primary Checking'
+    });
+
+    // Should resolve to new name
+    expect(accountService.resolveAccountName(account1.id)).toBe('Renamed Primary Checking');
+    expect(accountService.resolveAccountName('Renamed Primary Checking')).toBe('Renamed Primary Checking');
+
+    // Old name should not resolve anymore (returns as-is since no match)
+    expect(accountService.resolveAccountName('Primary Checking')).toBe('Primary Checking');
   });
 });
