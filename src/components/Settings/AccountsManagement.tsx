@@ -463,18 +463,38 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const BalanceRenderer: React.FC<any> = (params) => {
     const [currentBalance, setCurrentBalance] = React.useState<number | null>(null);
     const [isLoading, setIsLoading] = React.useState(true);
+    const [hasTransactions, setHasTransactions] = React.useState<boolean>(false);
     
     React.useEffect(() => {
       const calculateBalance = async () => {
         setIsLoading(true);
         try {
+          // Check if account has any transactions
+          const ds = await import('../../services/dataService').then(m => m.dataService);
+          const allTransactions = await ds.getAllTransactions();
+          const accountTransactions = allTransactions.filter((t: any) => 
+            t.account === params.data.name || t.account === params.data.id
+          );
+          
+          const hasAnyTransactions = accountTransactions.length > 0;
+          setHasTransactions(hasAnyTransactions);
+          
+          // If no transactions, keep showing loading indefinitely
+          if (!hasAnyTransactions) {
+            setIsLoading(true);
+            return;
+          }
+          
           const balance = await accountManagementService.calculateCurrentBalance(params.data.id);
           setCurrentBalance(balance);
         } catch (error) {
           console.error('Error calculating balance:', error);
           setCurrentBalance(params.data.balance || 0);
         } finally {
-          setIsLoading(false);
+          // Only set loading to false if there are transactions
+          if (hasTransactions) {
+            setIsLoading(false);
+          }
         }
       };
       
@@ -486,7 +506,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       params.data.historicalBalanceDate
     ]);
 
-    if (isLoading) {
+    if (isLoading || !hasTransactions) {
       return <span style={{ color: '#666', fontStyle: 'italic' }}>Loading...</span>;
     }
 
@@ -536,25 +556,45 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const LastUpdatedRenderer: React.FC<any> = (params) => {
     const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
     const [isLoading, setIsLoading] = React.useState(true);
+    const [hasTransactions, setHasTransactions] = React.useState<boolean>(false);
     
     React.useEffect(() => {
       const calculateLastUpdated = async () => {
         setIsLoading(true);
         try {
+          // Check if account has any transactions
+          const ds = await import('../../services/dataService').then(m => m.dataService);
+          const allTransactions = await ds.getAllTransactions();
+          const accountTransactions = allTransactions.filter((t: any) => 
+            t.account === params.data.name || t.account === params.data.id
+          );
+          
+          const hasAnyTransactions = accountTransactions.length > 0;
+          setHasTransactions(hasAnyTransactions);
+          
+          // If no transactions, keep showing loading indefinitely
+          if (!hasAnyTransactions) {
+            setIsLoading(true);
+            return;
+          }
+          
           const date = await accountManagementService.calculateLastUpdatedDate(params.data.id);
           setLastUpdated(date);
         } catch (error) {
           console.error('Error calculating last updated date:', error);
           setLastUpdated(null);
         } finally {
-          setIsLoading(false);
+          // Only set loading to false if there are transactions
+          if (hasTransactions) {
+            setIsLoading(false);
+          }
         }
       };
       
       calculateLastUpdated();
     }, [params.data.id]);
 
-    if (isLoading) {
+    if (isLoading || !hasTransactions) {
       return <span style={{ color: '#666', fontStyle: 'italic' }}>Loading...</span>;
     }
 
