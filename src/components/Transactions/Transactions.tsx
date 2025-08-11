@@ -1137,6 +1137,15 @@ const Transactions: React.FC = () => {
     getMatchedTransfers
   } = useTransferMatching();
 
+  // Helper function to parse category string (e.g., "Food > Restaurants" or "Food")
+  const parseCategoryString = (categoryString: string): { category: string; subcategory?: string } => {
+    if (categoryString.includes(' > ')) {
+      const [category, subcategory] = categoryString.split(' > ');
+      return { category: category.trim(), subcategory: subcategory.trim() };
+    }
+    return { category: categoryString.trim() };
+  };
+
   // Category dropdown cell editor
   const CategoryCellEditor = React.forwardRef<any, any>((props, ref) => {
     const [value, setValue] = useState(props.value || '');
@@ -1157,9 +1166,36 @@ const Transactions: React.FC = () => {
       setValue(newValue);
       props.stopEditing();
       
-      // Update the transaction
-      const updatedTransaction = { ...props.data, category: newValue };
-      handleUpdateTransaction(updatedTransaction);
+      // Parse the new category and subcategory
+      const { category: newCategory, subcategory: newSubcategory } = parseCategoryString(newValue);
+      
+      // Check if category actually changed
+      const originalTransaction = props.data as Transaction;
+      const currentCategory = originalTransaction.category || '';
+      const currentSubcategory = originalTransaction.subcategory || '';
+      const effectiveCurrentCategory = currentSubcategory ? `${currentCategory} > ${currentSubcategory}` : currentCategory;
+      
+      if (effectiveCurrentCategory === newValue) {
+        // No change, don't show dialog
+        return;
+      }
+      
+      // Create updated transaction for the dialog
+      const updatedTransaction = { 
+        ...originalTransaction, 
+        category: newCategory,
+        subcategory: newSubcategory,
+        lastModifiedDate: new Date()
+      };
+      
+      // Show confirmation dialog instead of directly updating
+      setCategoryEditData({
+        transaction: originalTransaction,
+        newCategory,
+        newSubcategory,
+        updatedTransaction
+      });
+      setShowCategoryEditDialog(true);
     };
 
     return (
