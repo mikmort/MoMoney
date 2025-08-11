@@ -1041,8 +1041,12 @@ Return ONLY a clean JSON response:
             const transaction = currentChunk[i];
             const ai = res[i];
             
+            // Check if this transaction requires higher confidence due to ACH DEBIT or withdrawal patterns
+            const needsHighConfidence = this.requiresHigherConfidence(transaction.description);
+            const confidenceThreshold = needsHighConfidence ? 0.9 : 0.8;
+            
             // Auto-create rule from AI classification if confidence is high enough
-            if (ai.confidence >= 0.8 && 
+            if (ai.confidence >= confidenceThreshold && 
                 ai.categoryId && 
                 ai.categoryId !== 'Uncategorized' && 
                 ai.categoryId !== 'uncategorized') {
@@ -1059,10 +1063,12 @@ Return ONLY a clean JSON response:
                   ai.confidence
                 );
                 autoRulesCreatedThisBatch++;
-                console.log(`📋 Auto-created rule from batch ${batchNumber}: ${transaction.description} → ${categoryName}`);
+                console.log(`📋 Auto-created rule from batch ${batchNumber}: ${transaction.description} → ${categoryName} (${needsHighConfidence ? '90%' : '80%'} threshold)`);
               } catch (error) {
                 console.warn('Failed to create auto-rule from AI classification:', error);
               }
+            } else if (needsHighConfidence && ai.confidence < 0.9) {
+              console.log(`📋 Skipping auto-rule creation for ACH DEBIT/withdrawal transaction due to insufficient confidence: ${Math.round(ai.confidence * 100)}% < 90%`);
             }
           }
           
@@ -1168,13 +1174,27 @@ Return ONLY a clean JSON response:
       const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
       const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
 
+      // Special handling for ACH DEBIT and withdrawal transactions - require 90% confidence
+      const needsHighConfidence = this.requiresHigherConfidence(transaction.description);
+      let finalCategoryName = categoryName;
+      let finalSubName = subName;
+      let finalConfidence = ai.confidence;
+
+      if (needsHighConfidence && ai.confidence < 0.9) {
+        // For ACH DEBIT and withdrawal transactions with < 90% confidence, leave uncategorized
+        finalCategoryName = 'Uncategorized';
+        finalSubName = undefined;
+        finalConfidence = ai.confidence; // Keep original confidence for transparency
+        console.log(`⚠️ ACH DEBIT/Withdrawal transaction requires 90% confidence, but AI returned ${Math.round(ai.confidence * 100)}% - leaving uncategorized: "${transaction.description}"`);
+      }
+
       // Note: Auto-rule creation now happens immediately after each batch (above) for better availability
 
       const newTransaction = {
         ...transaction,
-        category: categoryName,
-        subcategory: subName,
-        confidence: ai.confidence,
+        category: finalCategoryName,
+        subcategory: finalSubName,
+        confidence: finalConfidence,
         reasoning: ai.reasoning,
         id: uuidv4(),
         addedDate: new Date(),
@@ -1183,7 +1203,7 @@ Return ONLY a clean JSON response:
       transactions.push(newTransaction);
       
       if (index < 2) {
-        console.log(`  AI-processed ${index + 1}: ID=${newTransaction.id}, Final category: ${categoryName}`);
+        console.log(`  AI-processed ${index + 1}: ID=${newTransaction.id}, Final category: ${finalCategoryName}`);
       }
     }
 
@@ -1198,6 +1218,16 @@ Return ONLY a clean JSON response:
     }
     
     return transactions;
+  }
+
+  /**
+   * Check if a transaction description contains ACH DEBIT or withdrawal patterns
+   * that require higher confidence thresholds for AI categorization
+   */
+  private requiresHigherConfidence(description: string): boolean {
+    const lowerDesc = description.toLowerCase();
+    return lowerDesc.includes('ach debit') || 
+           (lowerDesc.includes('withdrawal') && !lowerDesc.includes('atm withdrawal') && !lowerDesc.includes('cash withdrawal'));
   }
 
   private async processRow(
