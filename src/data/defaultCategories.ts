@@ -183,6 +183,26 @@ export const defaultCategories: Category[] = [
     ]
   },
   {
+    id: 'travel',
+    name: 'Travel',
+    type: 'expense',
+    color: '#8E44AD',
+    icon: '✈️',
+    subcategories: [
+      { id: 'travel-hotels', name: 'Hotels', description: 'Hotel and lodging expenses', keywords: ['hotel', 'motel', 'lodging', 'accommodation', 'inn', 'resort', 'marriott', 'hilton', 'airbnb'] },
+      { id: 'travel-airfare', name: 'Airfare', description: 'Flight tickets and airline fees', keywords: ['airline', 'flight', 'airfare', 'ticket', 'delta', 'united', 'american airlines', 'southwest', 'jetblue', 'alaska airlines'] },
+      { id: 'travel-rental-car', name: 'Rental Car', description: 'Car rental and related fees', keywords: ['rental car', 'car rental', 'hertz', 'enterprise', 'budget', 'avis', 'national', 'alamo'] },
+      { id: 'travel-ground-transport', name: 'Ground Transportation', description: 'Local transportation while traveling', keywords: ['taxi', 'uber', 'lyft', 'train', 'bus', 'metro', 'shuttle', 'rideshare'] },
+      { id: 'travel-meals', name: 'Travel Meals', description: 'Dining expenses while traveling', keywords: ['meal', 'restaurant', 'dining', 'food', 'travel meal', 'airport food'] },
+      { id: 'travel-activities', name: 'Activities & Entertainment', description: 'Tourist activities and entertainment', keywords: ['attraction', 'tour', 'museum', 'activity', 'entertainment', 'sightseeing', 'excursion'] },
+      { id: 'travel-parking', name: 'Parking & Tolls', description: 'Parking fees and road tolls during travel', keywords: ['parking', 'toll', 'airport parking', 'garage', 'meter', 'toll road'] },
+      { id: 'travel-insurance', name: 'Travel Insurance', description: 'Travel insurance and protection plans', keywords: ['travel insurance', 'trip insurance', 'travel protection'] },
+      { id: 'travel-documents', name: 'Travel Documents', description: 'Visas, passports, and travel documents', keywords: ['visa', 'passport', 'travel document', 'embassy', 'consulate'] },
+      { id: 'travel-baggage', name: 'Baggage Fees', description: 'Airline baggage and extra fees', keywords: ['baggage', 'luggage', 'checked bag', 'carry on', 'excess baggage'] },
+      { id: 'travel-misc', name: 'Miscellaneous', description: 'Other travel-related expenses', keywords: ['travel', 'trip', 'vacation', 'business travel'] }
+    ]
+  },
+  {
     id: 'penalties-fines',
     name: 'Penalties & Fines',
     type: 'expense',
