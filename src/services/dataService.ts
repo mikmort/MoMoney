@@ -60,10 +60,10 @@ class DataService {
         txLog(`[TX] DB Health: ${stats.totalTransactions} transactions in DB, ${this.transactions.length} in memory, first: ${firstId}, last: ${lastId}`);
       }
       
-      // Initialize with sample data if empty (skip in test environment)
-      if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
-        this.initializeSampleData();
-      }
+      // Sample data is now loaded manually via Settings instead of automatically
+      // if (this.transactions.length === 0 && process.env.NODE_ENV !== 'test') {
+      //   this.initializeSampleData();
+      // }
       
       this.isInitialized = true;
       txLog(`[TX] DataService initialized with ${this.transactions.length} transactions`);
@@ -132,6 +132,11 @@ class DataService {
     if (!this.isInitialized) {
       await this.initialize();
     }
+  }
+
+  async loadSampleData(): Promise<void> {
+    await this.ensureInitialized();
+    this.initializeSampleData();
   }
 
   private initializeSampleData(): void {

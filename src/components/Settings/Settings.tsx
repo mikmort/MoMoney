@@ -136,6 +136,7 @@ const Settings: React.FC = () => {
   const [deploymentInfo, setDeploymentInfo] = useState<string | null>(null);
   const [isExportingSupport, setIsExportingSupport] = useState(false);
   const [isDeduping, setIsDeduping] = useState(false);
+  const [isLoadingSampleData, setIsLoadingSampleData] = useState(false);
 
   useEffect(() => {
     loadPreferences();
@@ -359,6 +360,29 @@ const Settings: React.FC = () => {
       setIsDeduping(false);
     }
   };
+
+  const handleLoadSampleData = async () => {
+    const shouldLoad = window.confirm(
+      '🔄 Load Sample Data?\n\n' +
+      'This will add sample transactions for testing purposes.\n' +
+      'Sample data includes transactions across different categories, accounts, and currencies.\n\n' +
+      'Continue?'
+    );
+    
+    if (!shouldLoad) return;
+    
+    setIsLoadingSampleData(true);
+    try {
+      await dataService.loadSampleData();
+      alert('✅ Sample data loaded successfully! The page will refresh to show the sample transactions.');
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to load sample data:', error);
+      alert('❌ Failed to load sample data. Please try again.');
+    } finally {
+      setIsLoadingSampleData(false);
+    }
+  };
   return (
     <div>
       <PageHeader>
@@ -514,6 +538,21 @@ const Settings: React.FC = () => {
             <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
               Support bundles contain anonymized transaction samples, database health info, and system diagnostics - no sensitive financial data is included.
             </div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <h4>📊 Sample Data</h4>
+          <p>Load sample transactions for testing and demonstration purposes.</p>
+          <Button 
+            onClick={handleLoadSampleData} 
+            disabled={isLoadingSampleData}
+            style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white' }}
+          >
+            {isLoadingSampleData ? 'Loading...' : '📊 Load Sample Data'}
+          </Button>
+          <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+            Adds sample transactions with various categories, accounts, and currencies for testing.
           </div>
         </div>
 
