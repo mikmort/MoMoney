@@ -604,6 +604,15 @@ Return ONLY a clean JSON response:
       const lines = content.split('\n').slice(0, 10);
       return lines.join('\n');
     }
+    if (fileType === 'ofx') {
+      // For OFX files, provide more context by including transaction blocks
+      // Find the first few transaction blocks for better AI analysis
+      const transactionStart = content.indexOf('<BANKTRANLIST>');
+      if (transactionStart !== -1) {
+        const fromTransactions = content.substring(transactionStart);
+        return fromTransactions.substring(0, 3000); // Show more OFX structure
+      }
+    }
     return content.substring(0, 2000);
   }
 
@@ -651,30 +660,109 @@ Return ONLY a clean JSON response:
   // OFX parsing methods for testing
   private async parseOFX(content: string, mapping: FileSchemaMapping): Promise<any[]> {
     try {
+      console.log('🔍 Starting OFX parsing, content length:', content.length);
+      
+      if (!content || content.trim().length === 0) {
+        console.warn('⚠️ OFX file is empty');
+        return [];
+      }
+
       const transactions = [];
-      const transactionBlocks = content.split('<STMTTRN>').slice(1);
+      
+      // Try different OFX transaction formats
+      let transactionBlocks: string[] = [];
+      
+      // 1. Standard banking transactions (BANKTRANLIST/STMTTRN)
+      const bankingBlocks = content.split('<STMTTRN>').slice(1);
+      if (bankingBlocks.length > 0) {
+        console.log('📊 Found', bankingBlocks.length, 'banking transaction blocks (STMTTRN)');
+        transactionBlocks = transactionBlocks.concat(bankingBlocks);
+      }
+      
+      // 2. Investment transactions (INVTRANLIST/INVTRAN) - if no banking transactions found
+      if (transactionBlocks.length === 0) {
+        const invBlocks = content.split('<INVTRAN>').slice(1);
+        if (invBlocks.length > 0) {
+          console.log('📊 Found', invBlocks.length, 'investment transaction blocks (INVTRAN)');
+          transactionBlocks = invBlocks;
+        }
+      }
+      
+      if (transactionBlocks.length === 0) {
+        console.warn('⚠️ No recognized OFX transaction blocks found. Expected <STMTTRN> or <INVTRAN>');
+        console.log('📄 File content preview:', content.substring(0, 500));
+        return [];
+      }
+
+      let parsedCount = 0;
+      let skippedCount = 0;
 
       for (const block of transactionBlocks) {
         // Extract raw amount string first, then convert to number to avoid TS type reassignment issues
-        const rawAmount = this.extractOFXValue(block, 'TRNAMT');
-        const numericAmount = rawAmount != null ? parseFloat(rawAmount) : null;
+        const rawAmount = this.extractOFXValue(block, 'TRNAMT') || this.extractOFXValue(block, 'TOTAL');
+        let numericAmount = rawAmount != null ? parseFloat(rawAmount) : null;
+        
+        // Handle invalid amounts
+        if (rawAmount && (isNaN(numericAmount!) || numericAmount === null)) {
+          console.warn('⚠️ Invalid amount format:', rawAmount);
+          skippedCount++;
+          continue;
+        }
 
         const transaction = {
-          transactionId: this.extractOFXValue(block, 'FITID') || `tx_${Date.now()}_${Math.random()}`,
-          type: this.extractOFXValue(block, 'TRNTYPE'),
-          date: this.extractOFXValue(block, 'DTPOSTED'),
+          transactionId: this.extractOFXValue(block, 'FITID') || this.extractOFXValue(block, 'INVTRANID') || `tx_${Date.now()}_${Math.random()}`,
+          type: this.extractOFXValue(block, 'TRNTYPE') || this.extractOFXValue(block, 'INVTRANTYPE'),
+          date: this.extractOFXValue(block, 'DTPOSTED') || this.extractOFXValue(block, 'DTTRADE'),
           amount: numericAmount,
-          description: this.extractOFXValue(block, 'NAME') || this.extractOFXValue(block, 'MEMO'),
+          description: this.extractOFXValue(block, 'NAME') || this.extractOFXValue(block, 'MEMO') || this.extractOFXValue(block, 'DESC'),
           notes: this.extractOFXValue(block, 'MEMO'),
           account: 'Unknown'
         };
 
+        // Validate required fields - but be more lenient
+        const hasValidAmount = transaction.amount !== null && !isNaN(transaction.amount);
+        const hasDate = transaction.date && transaction.date.trim().length > 0;
+        const hasDescription = transaction.description && transaction.description.trim().length > 0;
+        
+        if (!hasValidAmount) {
+          console.warn('⚠️ Skipping transaction with invalid amount:', {
+            id: transaction.transactionId,
+            rawAmount,
+            numericAmount
+          });
+          skippedCount++;
+          continue;
+        }
+        
+        if (!hasDate) {
+          console.warn('⚠️ Skipping transaction without date:', {
+            id: transaction.transactionId,
+            date: transaction.date
+          });
+          skippedCount++;
+          continue;
+        }
+        
+        if (!hasDescription) {
+          // Use a fallback description instead of skipping
+          transaction.description = `Transaction ${transaction.transactionId || 'Unknown'}`;
+          console.log('💡 Using fallback description for transaction:', transaction.transactionId);
+        }
+
         transactions.push(transaction);
+        parsedCount++;
+      }
+
+      console.log(`✅ OFX parsing completed: ${parsedCount} transactions parsed, ${skippedCount} skipped`);
+      
+      if (parsedCount === 0 && skippedCount > 0) {
+        console.warn('⚠️ All transactions were skipped due to validation issues. Check OFX file format.');
       }
 
       return transactions;
     } catch (error) {
-      console.warn('OFX parsing failed:', error);
+      console.error('💥 OFX parsing failed with error:', error);
+      console.error('📄 Content that failed:', content.substring(0, 500));
       return [];
     }
   }
