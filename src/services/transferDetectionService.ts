@@ -8,7 +8,7 @@ import { rulesService } from './rulesService';
 class TransferDetectionService {
   private readonly transferKeywords = [
     // ACH and electronic transfers
-    'ach transfer', 'ach credit', 'ach debit', 'ach payment',
+    'ach transfer', 'ach credit', 'ach payment',
     'electronic transfer', 'wire transfer', 'bank transfer',
     
     // Internal transfers
@@ -19,8 +19,8 @@ class TransferDetectionService {
     'automatic payment', 'auto payment', 'autopay',
     'online transfer', 'mobile transfer', 'zelle',
     
-    // ATM and withdrawal patterns
-    'atm withdrawal', 'cash withdrawal', 'withdrawal',
+    // ATM and deposit patterns (excluding generic 'withdrawal')
+    'atm withdrawal', 'cash withdrawal',
     'atm deposit', 'cash deposit', 'deposit',
     
     // Specific transfer patterns
