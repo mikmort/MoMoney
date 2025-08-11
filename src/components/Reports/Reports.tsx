@@ -482,6 +482,7 @@ const Reports: React.FC = () => {
           <div className="chart-container">
             {spendingByCategory.length > 0 ? (
               <Doughnut 
+                key={`category-chart-${spendingByCategory.length}`} // Ensure unique key for chart re-rendering
                 data={categoryChartData}
                 options={{
                   responsive: true,
@@ -524,6 +525,7 @@ const Reports: React.FC = () => {
           <div className="chart-container">
             {monthlyTrends.length > 0 ? (
               <Bar 
+                key={`trends-chart-${monthlyTrends.length}`} // Ensure unique key for chart re-rendering
                 data={trendsChartData}
                 options={{
                   responsive: true,
@@ -568,6 +570,7 @@ const Reports: React.FC = () => {
           <div className="chart-container">
             {monthlyTrends.length > 0 ? (
               <Bar 
+                key={`net-income-chart-${monthlyTrends.length}`} // Ensure unique key for chart re-rendering
                 data={netIncomeChartData}
                 options={{
                   responsive: true,

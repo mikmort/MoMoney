@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+// Initialize Chart.js components early in the application lifecycle
+import './utils/chartConfig';
 
 // Suppress ResizeObserver loop completed with undelivered notifications warnings
 // This is a common issue with AgGrid and other components that dynamically resize
