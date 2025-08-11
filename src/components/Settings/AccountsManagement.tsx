@@ -503,7 +503,9 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       params.data.id,
       params.data.balance,
       params.data.historicalBalance,
-      params.data.historicalBalanceDate
+      params.data.historicalBalanceDate,
+      params.data.name,
+      hasTransactions
     ]);
 
     if (isLoading || !hasTransactions) {
@@ -592,7 +594,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       };
       
       calculateLastUpdated();
-    }, [params.data.id]);
+    }, [params.data.id, params.data.name, hasTransactions]);
 
     if (isLoading || !hasTransactions) {
       return <span style={{ color: '#666', fontStyle: 'italic' }}>Loading...</span>;
