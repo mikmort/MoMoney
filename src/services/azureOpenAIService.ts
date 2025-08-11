@@ -1,5 +1,5 @@
 import { defaultConfig } from '../config/appConfig';
-import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult, AccountStatementAnalysisRequest, AccountStatementAnalysisResponse } from '../types';
+import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult, AccountStatementAnalysisRequest, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../types';
 
 // OpenAI Proxy configuration
 // Allow overriding the proxy URL via environment variable for production or remote Azure Function usage.
@@ -1008,6 +1008,157 @@ Extract the account information following the security guidelines.`;
 
     // No sufficient digits to safely represent; omit instead of logging raw input
     return undefined;
+  }
+
+  /**
+   * Detect multiple accounts from a bank statement using AI
+   */
+  async detectMultipleAccountsFromStatement(request: AccountStatementAnalysisRequest): Promise<MultipleAccountAnalysisResponse> {
+    const startTime = Date.now();
+    
+    try {
+      // Assess readability/quality of provided content to tailor prompt behavior
+      const raw = (request.fileContent || '').slice(0, 4000);
+      const filterPrintable = (s: string) => {
+        let out = '';
+        for (let i = 0; i < s.length; i++) {
+          const code = s.charCodeAt(i);
+          if ((code >= 0x20 && code <= 0x7e) || code === 0x09 || code === 0x0a || code === 0x0d) {
+            out += s[i];
+          }
+        }
+        return out;
+      };
+      const printable = filterPrintable(raw);
+      const lettersDigits = (printable.match(/[A-Za-z0-9]/g) || []).length;
+      const qualityRatio = printable.length > 0 ? lettersDigits / printable.length : 0;
+      const lowReadable = printable.length < 200 || qualityRatio < 0.35;
+
+      const contentPreview = (lowReadable ? printable : raw).slice(0, 3000);
+
+      const systemPrompt = `You are a financial document analyzer that detects multiple bank accounts in a single statement or document.
+Analyze the provided document and identify ALL distinct bank accounts present. Return ONLY a JSON object with this exact schema:
+
+{
+  "accounts": [
+    {
+      "accountName": "name of the account or null",
+      "institution": "name of the bank/financial institution or null", 
+      "accountType": "checking|savings|credit|investment|cash or null",
+      "currency": "currency code (USD, EUR, etc.) or null",
+      "balance": number or null,
+      "balanceDate": "YYYY-MM-DD date string or null",
+      "maskedAccountNumber": "Ending in XXX format or null",
+      "confidence": 0.0-1.0,
+      "reasoning": "detailed explanation of extraction for this account",
+      "extractedFields": ["list of fields successfully extracted for this account"]
+    }
+  ],
+  "totalAccountsFound": number,
+  "confidence": 0.0-1.0,
+  "reasoning": "overall explanation of multi-account detection",
+  "hasMultipleAccounts": true/false
+}
+
+CRITICAL SECURITY RULES:
+- NEVER include full account numbers in any field
+- For maskedAccountNumber, use format "Ending in XXX" where XXX is only the last 3 digits
+- If you see a full account number, extract only the last 3 digits
+- If no account number is visible, set maskedAccountNumber to null
+
+DETECTION GUIDELINES:
+- Look for multiple account sections, different account names, or multiple balances
+- Each account should have distinct identifying information (name, number, balance, etc.)
+- Common patterns: "Account 1:", "Account 2:", different account types in same statement
+- Joint accounts, family accounts, or business statements often contain multiple accounts
+- If only ONE account is detected, set hasMultipleAccounts to false and include just that account
+- Be conservative - only count as separate accounts if there's clear evidence of distinct accounts
+- Set overall confidence based on clarity of multi-account detection`;
+
+      const userPrompt = `Document to analyze for multiple accounts:
+File name: ${request.fileName}
+File type: ${request.fileType}
+
+${lowReadable ? 'Note: Minimal readable text was available from this file in the browser. Use the filename and any readable snippets below. Avoid saying the file is encrypted/corrupted; instead mention insufficient readable text if applicable.\n\n' : ''}
+Content (filtered preview up to 3000 chars):
+${contentPreview}
+
+Detect all accounts in this statement following the security guidelines. If you find evidence of multiple distinct accounts, include all of them. If only one account is present, return that single account with hasMultipleAccounts: false.`;
+
+      const proxyRequest: OpenAIProxyRequest = {
+        deployment: this.deploymentName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 800,
+        temperature: 0.1
+      };
+
+      const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 350 });
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'No response from OpenAI proxy');
+      }
+
+      const responseContent = response.data.choices[0]?.message?.content;
+      if (!responseContent) {
+        throw new Error('No response content from OpenAI proxy');
+      }
+
+      const cleanedResponse = this.cleanAIResponse(responseContent);
+      const parsed = JSON.parse(cleanedResponse);
+
+      // Validate and sanitize the response
+      const accounts: AccountStatementAnalysisResponse[] = Array.isArray(parsed.accounts) 
+        ? parsed.accounts.map((account: any) => ({
+            accountName: this.sanitizeString(account.accountName),
+            institution: this.sanitizeString(account.institution),
+            accountType: this.validateAccountType(account.accountType),
+            currency: this.sanitizeCurrency(account.currency),
+            balance: this.sanitizeNumber(account.balance),
+            balanceDate: this.sanitizeDate(account.balanceDate),
+            maskedAccountNumber: this.validateMaskedAccountNumber(account.maskedAccountNumber),
+            confidence: Math.min(Math.max(account.confidence || 0, 0), 1),
+            reasoning: this.sanitizeReasoning(account.reasoning || '', lowReadable),
+            extractedFields: Array.isArray(account.extractedFields) ? account.extractedFields : []
+          }))
+        : [];
+
+      const result: MultipleAccountAnalysisResponse = {
+        accounts,
+        totalAccountsFound: Math.max(parsed.totalAccountsFound || accounts.length, accounts.length),
+        confidence: Math.min(Math.max(parsed.confidence || 0, 0), 1),
+        reasoning: this.sanitizeReasoning(parsed.reasoning || 'Multiple account detection completed', lowReadable),
+        hasMultipleAccounts: Boolean(parsed.hasMultipleAccounts && accounts.length > 1)
+      };
+
+      console.log(`🏦 Multiple account detection completed in ${Date.now() - startTime}ms, found ${result.totalAccountsFound} accounts`);
+      return result;
+
+    } catch (error) {
+      console.error('Error detecting multiple accounts from statement:', error);
+      
+      // Fallback to single account detection
+      try {
+        const singleAccountResult = await this.extractAccountInfoFromStatement(request);
+        return {
+          accounts: [singleAccountResult],
+          totalAccountsFound: 1,
+          confidence: singleAccountResult.confidence,
+          reasoning: 'Multiple account detection failed, fell back to single account: ' + singleAccountResult.reasoning,
+          hasMultipleAccounts: false
+        };
+      } catch (fallbackError) {
+        return {
+          accounts: [],
+          totalAccountsFound: 0,
+          confidence: 0,
+          reasoning: 'Failed to detect any accounts from statement: ' + (error instanceof Error ? error.message : 'Unknown error'),
+          hasMultipleAccounts: false
+        };
+      }
+    }
   }
 }
 

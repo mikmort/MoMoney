@@ -4,7 +4,7 @@ import { ColDef } from 'ag-grid-community';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
-import { Account, AccountStatementAnalysisResponse } from '../../types';
+import { Account, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../../types';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { accountManagementService } from '../../services/accountManagementService';
@@ -199,6 +199,13 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
+  // Multiple account detection
+  const [multipleAccountsResult, setMultipleAccountsResult] = useState<MultipleAccountAnalysisResponse | null>(null);
+  const [showMultipleAccountsDialog, setShowMultipleAccountsDialog] = useState(false);
+  const [selectedAccountsForCreation, setSelectedAccountsForCreation] = useState<number[]>([]);
+  const [showWarningDialog, setShowWarningDialog] = useState(false);
+  const [warningMessage, setWarningMessage] = useState<string>('');
+
   // Balance history modal
   const [showBalanceHistoryModal, setShowBalanceHistoryModal] = useState(false);
   const [selectedAccountForHistory, setSelectedAccountForHistory] = useState<Account | null>(null);
@@ -310,27 +317,40 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     setUploadedFile(file);
     setIsAnalyzing(true);
     setAnalysisResult(null);
+    setMultipleAccountsResult(null);
 
     try {
-      const result = await accountManagementService.createAccountFromStatement(file);
+      // Use new multiple account detection
+      const result = await accountManagementService.detectMultipleAccountsFromStatement(file);
       
-      if (result.success && result.account) {
-        // Account created successfully
-        setShowStatementUpload(false);
-        // Ensure the accounts list reflects the newly created account immediately
-        refreshAccounts();
-      } else if (result.analysis) {
-        // Analysis completed but needs user review
-        setAnalysisResult(result.analysis);
-        
-        // Pre-populate form with extracted data
-        setAccountForm({
-          name: result.analysis.accountName || `Account from ${file.name}`,
-          type: result.analysis.accountType || 'checking',
-          institution: result.analysis.institution || '',
-          currency: result.analysis.currency || 'USD',
-          balance: result.analysis.balance || 0,
-          isActive: true
+      if (result.success) {
+        if (result.accounts && result.accounts.length > 0) {
+          // Accounts were successfully created automatically (single account with high confidence)
+          setShowStatementUpload(false);
+          refreshAccounts();
+        } else if (result.multipleAccountsResult) {
+          // Multiple accounts detected or needs user review
+          setMultipleAccountsResult(result.multipleAccountsResult);
+          
+          // Check for warning
+          if (result.warning) {
+            setWarningMessage(result.warning);
+            setShowWarningDialog(true);
+          } else {
+            // Show multiple accounts dialog directly
+            setShowMultipleAccountsDialog(true);
+            // Pre-select all accounts by default
+            setSelectedAccountsForCreation(
+              result.multipleAccountsResult.accounts.map((_, index) => index)
+            );
+          }
+        }
+      } else {
+        // Error occurred, show error message
+        setAnalysisResult({
+          confidence: 0,
+          reasoning: result.error || 'Failed to process statement',
+          extractedFields: []
         });
       }
     } catch (error) {
@@ -398,6 +418,93 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     if (confidence >= 0.7) return 'high';
     if (confidence >= 0.4) return 'medium';
     return 'low';
+  };
+
+  // Handler for warning dialog confirmation
+  const handleWarningConfirmation = () => {
+    setShowWarningDialog(false);
+    setShowMultipleAccountsDialog(true);
+    // Pre-select all accounts by default
+    if (multipleAccountsResult) {
+      setSelectedAccountsForCreation(
+        multipleAccountsResult.accounts.map((_, index) => index)
+      );
+    }
+  };
+
+  // Handler for warning dialog cancellation
+  const handleWarningCancellation = () => {
+    setShowWarningDialog(false);
+    setShowStatementUpload(false);
+    setMultipleAccountsResult(null);
+    setUploadedFile(null);
+  };
+
+  // Handler for toggling account selection
+  const handleAccountSelectionToggle = (index: number) => {
+    setSelectedAccountsForCreation(prev => {
+      if (prev.includes(index)) {
+        return prev.filter(i => i !== index);
+      } else {
+        return [...prev, index];
+      }
+    });
+  };
+
+  // Handler for selecting/deselecting all accounts
+  const handleSelectAllAccounts = () => {
+    if (!multipleAccountsResult) return;
+    
+    if (selectedAccountsForCreation.length === multipleAccountsResult.accounts.length) {
+      // Deselect all
+      setSelectedAccountsForCreation([]);
+    } else {
+      // Select all
+      setSelectedAccountsForCreation(
+        multipleAccountsResult.accounts.map((_, index) => index)
+      );
+    }
+  };
+
+  // Handler for creating selected accounts
+  const handleCreateSelectedAccounts = async () => {
+    if (!multipleAccountsResult || selectedAccountsForCreation.length === 0) return;
+
+    try {
+      const result = await accountManagementService.createAccountsFromMultipleAnalysis(
+        multipleAccountsResult,
+        selectedAccountsForCreation
+      );
+
+      if (result.success && result.createdAccounts) {
+        // Success - close dialog and refresh
+        setShowMultipleAccountsDialog(false);
+        setShowStatementUpload(false);
+        setMultipleAccountsResult(null);
+        setSelectedAccountsForCreation([]);
+        setUploadedFile(null);
+        refreshAccounts();
+
+        // Show success message if there were errors
+        if (result.errors && result.errors.length > 0) {
+          console.warn('Some accounts failed to create:', result.errors);
+        }
+      } else {
+        // Show errors
+        console.error('Failed to create accounts:', result.errors);
+      }
+    } catch (error) {
+      console.error('Error creating selected accounts:', error);
+    }
+  };
+
+  // Handler for canceling multiple account creation
+  const handleCancelMultipleAccounts = () => {
+    setShowMultipleAccountsDialog(false);
+    setShowStatementUpload(false);
+    setMultipleAccountsResult(null);
+    setSelectedAccountsForCreation([]);
+    setUploadedFile(null);
   };
 
   const handleAccountClick = (accountName: string) => {
@@ -1111,6 +1218,154 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
           isOpen={showBalanceHistoryModal}
           onClose={handleCloseBalanceHistory}
         />
+      )}
+
+      {/* Warning Dialog for >10 accounts */}
+      {showWarningDialog && (
+        <EditModalOverlay onClick={handleWarningCancellation}>
+          <EditModalContent onClick={(e) => e.stopPropagation()}>
+            <h2>⚠️ Large Number of Accounts Detected</h2>
+            <p>{warningMessage}</p>
+            <p>Would you like to proceed and review the accounts to create?</p>
+            <div className="form-actions">
+              <Button variant="outline" onClick={handleWarningCancellation}>
+                Cancel
+              </Button>
+              <Button onClick={handleWarningConfirmation}>
+                Proceed to Review
+              </Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
+      )}
+
+      {/* Multiple Accounts Selection Dialog */}
+      {showMultipleAccountsDialog && multipleAccountsResult && (
+        <EditModalOverlay onClick={handleCancelMultipleAccounts}>
+          <EditModalContent 
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '700px', maxHeight: '80vh' }}
+          >
+            <h2>
+              {multipleAccountsResult.hasMultipleAccounts 
+                ? `${multipleAccountsResult.totalAccountsFound} Accounts Detected` 
+                : 'Account Detected'
+              }
+            </h2>
+            
+            <p>{multipleAccountsResult.reasoning}</p>
+            
+            {multipleAccountsResult.hasMultipleAccounts && (
+              <p>
+                Select which accounts you want to create. 
+                <span className="confidence medium" style={{ marginLeft: 8 }}>
+                  Confidence: {Math.round(multipleAccountsResult.confidence * 100)}%
+                </span>
+              </p>
+            )}
+
+            <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+              <Button 
+                variant="outline" 
+                onClick={handleSelectAllAccounts}
+                style={{ fontSize: '0.9em', padding: '6px 12px' }}
+              >
+                {selectedAccountsForCreation.length === multipleAccountsResult.accounts.length 
+                  ? 'Deselect All' 
+                  : 'Select All'
+                }
+              </Button>
+              <span style={{ color: '#666', fontSize: '0.9em' }}>
+                {selectedAccountsForCreation.length} of {multipleAccountsResult.accounts.length} selected
+              </span>
+            </div>
+
+            <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: 20 }}>
+              {multipleAccountsResult.accounts.map((account, index) => (
+                <div 
+                  key={index}
+                  style={{
+                    border: '1px solid #e0e0e0',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 8,
+                    background: selectedAccountsForCreation.includes(index) ? '#f0f8ff' : '#f9f9f9',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => handleAccountSelectionToggle(index)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedAccountsForCreation.includes(index)}
+                      onChange={() => handleAccountSelectionToggle(index)}
+                      style={{ marginTop: 4 }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                        {account.accountName || `Account ${index + 1}`}
+                      </div>
+                      <div style={{ fontSize: '0.9em', color: '#666', marginBottom: 6 }}>
+                        {account.institution && (
+                          <span style={{ marginRight: 12 }}>
+                            🏦 {account.institution}
+                          </span>
+                        )}
+                        {account.accountType && (
+                          <span style={{ 
+                            background: '#e0e7ff', 
+                            color: '#3b4de8', 
+                            padding: '2px 6px', 
+                            borderRadius: 4,
+                            fontSize: '0.8em',
+                            textTransform: 'capitalize',
+                            marginRight: 12
+                          }}>
+                            {account.accountType}
+                          </span>
+                        )}
+                        {account.maskedAccountNumber && (
+                          <span style={{ color: '#888' }}>
+                            {account.maskedAccountNumber}
+                          </span>
+                        )}
+                      </div>
+                      {account.balance !== null && account.balance !== undefined && (
+                        <div style={{ fontSize: '0.9em', fontWeight: 500 }}>
+                          Balance: {new Intl.NumberFormat('en-US', {
+                            style: 'currency',
+                            currency: account.currency || 'USD'
+                          }).format(account.balance)}
+                          {account.balanceDate && (
+                            <span style={{ color: '#666', fontWeight: 400 }}>
+                              {' '}as of {account.balanceDate.toLocaleDateString ? account.balanceDate.toLocaleDateString() : String(account.balanceDate)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div style={{ fontSize: '0.8em', color: '#888', marginTop: 6 }}>
+                        AI Confidence: {Math.round(account.confidence * 100)}% • 
+                        Fields: {account.extractedFields.join(', ') || 'None'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="form-actions">
+              <Button variant="outline" onClick={handleCancelMultipleAccounts}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleCreateSelectedAccounts}
+                disabled={selectedAccountsForCreation.length === 0}
+              >
+                Create {selectedAccountsForCreation.length} Account{selectedAccountsForCreation.length !== 1 ? 's' : ''}
+              </Button>
+            </div>
+          </EditModalContent>
+        </EditModalOverlay>
       )}
     </div>
   );

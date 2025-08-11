@@ -1,4 +1,4 @@
-import { Account, AccountStatementAnalysisResponse } from '../types';
+import { Account, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../types';
 import * as XLSX from 'xlsx';
 import { defaultAccounts, accountDetectionPatterns } from '../data/defaultAccounts';
 import { AzureOpenAIService } from './azureOpenAIService';
@@ -386,6 +386,157 @@ ${userPrompt}`;
       return {
         success: false,
         error: 'Failed to process statement: ' + (error instanceof Error ? error.message : 'Unknown error')
+      };
+    }
+  }
+
+  /**
+   * Detect multiple accounts from an uploaded bank statement
+   */
+  async detectMultipleAccountsFromStatement(file: File): Promise<{
+    success: boolean;
+    multipleAccountsResult?: MultipleAccountAnalysisResponse;
+    accounts?: Account[];
+    warning?: string;
+    error?: string;
+  }> {
+    try {
+      console.log(`🏦 Detecting multiple accounts from statement: ${file.name}`);
+      
+      // Read file content for AI analysis
+      const fileContent = await this.readStatementText(file);
+      
+      // Analyze the statement for multiple accounts
+      const multipleAccountsResult = await this.azureOpenAIService.detectMultipleAccountsFromStatement({
+        fileContent,
+        fileName: file.name,
+        fileType: this.getFileType(file.name) as 'pdf' | 'csv' | 'excel' | 'image'
+      });
+
+      console.log(`📊 Multiple account detection completed with confidence: ${multipleAccountsResult.confidence}`);
+      console.log(`📋 Found ${multipleAccountsResult.totalAccountsFound} accounts, hasMultiple: ${multipleAccountsResult.hasMultipleAccounts}`);
+
+      // If no accounts detected, return error
+      if (multipleAccountsResult.accounts.length === 0) {
+        return {
+          success: false,
+          error: 'No accounts could be detected from the statement. Please try adding manually.'
+        };
+      }
+
+      // Handle single account case
+      if (!multipleAccountsResult.hasMultipleAccounts || multipleAccountsResult.accounts.length === 1) {
+        // Auto-create single account if confidence is high enough
+        const singleAccount = multipleAccountsResult.accounts[0];
+        if (singleAccount.confidence >= 0.7) {
+          const accountData: Omit<Account, 'id'> = {
+            name: singleAccount.accountName || `Account from ${file.name}`,
+            type: singleAccount.accountType || 'checking',
+            institution: singleAccount.institution || 'Unknown Institution',
+            currency: singleAccount.currency || 'USD',
+            balance: singleAccount.balance,
+            historicalBalance: singleAccount.balance,
+            historicalBalanceDate: singleAccount.balanceDate,
+            maskedAccountNumber: singleAccount.maskedAccountNumber,
+            lastSyncDate: new Date(),
+            isActive: true
+          };
+
+          const newAccount = this.addAccount(accountData);
+          console.log(`✅ Successfully created single account: ${newAccount.id} (${newAccount.name})`);
+          
+          return {
+            success: true,
+            multipleAccountsResult,
+            accounts: [newAccount]
+          };
+        }
+      }
+
+      // Handle multiple accounts case
+      const totalAccounts = multipleAccountsResult.totalAccountsFound;
+      
+      // Warning for >10 accounts
+      let warning: string | undefined;
+      if (totalAccounts > 10) {
+        warning = `This statement contains ${totalAccounts} accounts. This is a large number of accounts to create. Please review carefully before proceeding.`;
+      }
+
+      return {
+        success: true,
+        multipleAccountsResult,
+        warning
+      };
+
+    } catch (error) {
+      console.error('Error detecting multiple accounts from statement:', error);
+      return {
+        success: false,
+        error: 'Failed to process statement: ' + (error instanceof Error ? error.message : 'Unknown error')
+      };
+    }
+  }
+
+  /**
+   * Create multiple accounts from a multiple account analysis result
+   */
+  async createAccountsFromMultipleAnalysis(
+    multipleAccountsResult: MultipleAccountAnalysisResponse,
+    selectedAccountIndices: number[]
+  ): Promise<{
+    success: boolean;
+    createdAccounts?: Account[];
+    errors?: string[];
+  }> {
+    try {
+      console.log(`🏦 Creating ${selectedAccountIndices.length} accounts from multiple account analysis`);
+      
+      const createdAccounts: Account[] = [];
+      const errors: string[] = [];
+
+      for (const index of selectedAccountIndices) {
+        if (index < 0 || index >= multipleAccountsResult.accounts.length) {
+          errors.push(`Invalid account index: ${index}`);
+          continue;
+        }
+
+        const accountAnalysis = multipleAccountsResult.accounts[index];
+        
+        try {
+          const accountData: Omit<Account, 'id'> = {
+            name: accountAnalysis.accountName || `Account ${index + 1}`,
+            type: accountAnalysis.accountType || 'checking',
+            institution: accountAnalysis.institution || 'Unknown Institution',
+            currency: accountAnalysis.currency || 'USD',
+            balance: accountAnalysis.balance,
+            historicalBalance: accountAnalysis.balance,
+            historicalBalanceDate: accountAnalysis.balanceDate,
+            maskedAccountNumber: accountAnalysis.maskedAccountNumber,
+            lastSyncDate: new Date(),
+            isActive: true
+          };
+
+          const newAccount = this.addAccount(accountData);
+          createdAccounts.push(newAccount);
+          console.log(`✅ Created account: ${newAccount.id} (${newAccount.name})`);
+        } catch (error) {
+          const errorMsg = `Failed to create account ${index + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          errors.push(errorMsg);
+          console.error(errorMsg);
+        }
+      }
+
+      return {
+        success: createdAccounts.length > 0,
+        createdAccounts,
+        errors: errors.length > 0 ? errors : undefined
+      };
+
+    } catch (error) {
+      console.error('Error creating multiple accounts:', error);
+      return {
+        success: false,
+        errors: ['Failed to create accounts: ' + (error instanceof Error ? error.message : 'Unknown error')]
       };
     }
   }
