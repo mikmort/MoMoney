@@ -18,8 +18,8 @@ export interface ExchangeRateStatus {
 }
 
 export class CurrencyExchangeService {
-  private readonly CACHE_DURATION = 1000 * 60 * 60; // 1 hour fresh cache
-  private readonly STALE_WARNING_DURATION = 1000 * 60 * 60 * 24; // 24 hours until stale warning
+  private readonly CACHE_DURATION = 1000 * 60 * 60 * 24; // 24 hours fresh cache (once per day maximum)
+  private readonly STALE_WARNING_DURATION = 1000 * 60 * 60 * 24 * 3; // 72 hours until stale warning
   private readonly STORAGE_KEY_PREFIX = 'mo_money_exchange_rates_';
   private readonly STATUS_KEY = 'mo_money_exchange_status';
   private lastApiCallAttempt: Date | null = null;
