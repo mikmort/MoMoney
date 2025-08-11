@@ -171,6 +171,13 @@ const NewAccountForm = styled.div`
         border-color: #2196f3;
       }
     }
+
+    .field-hint {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #666;
+      font-style: italic;
+    }
   }
 `;
 
@@ -213,7 +220,9 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
     type: 'checking' as const,
     institution: '',
     currency: 'USD',
-    isActive: true
+    isActive: true,
+    balance: '',
+    balanceDate: new Date().toISOString().split('T')[0] // Today's date in YYYY-MM-DD format
   });
 
   if (!isOpen) return null;
@@ -221,7 +230,20 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
   const handleConfirm = () => {
     if (selectedAccountId === 'new') {
       if (newAccount.name && newAccount.institution) {
-        onNewAccount(newAccount);
+        // Convert form values to Account interface format
+        const accountData: Omit<Account, 'id'> = {
+          name: newAccount.name,
+          type: newAccount.type,
+          institution: newAccount.institution,
+          currency: newAccount.currency,
+          isActive: newAccount.isActive,
+          // Parse balance and date values
+          balance: newAccount.balance ? parseFloat(newAccount.balance) : undefined,
+          historicalBalance: newAccount.balance ? parseFloat(newAccount.balance) : undefined,
+          historicalBalanceDate: newAccount.balance && newAccount.balanceDate ? new Date(newAccount.balanceDate) : undefined,
+          lastSyncDate: new Date()
+        };
+        onNewAccount(accountData);
       }
     } else if (selectedAccountId) {
       onAccountSelect(selectedAccountId);
@@ -353,6 +375,30 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="form-group">
+              <label>Current Balance (Optional)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={newAccount.balance}
+                onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })}
+                placeholder="e.g., 1250.00"
+              />
+              <div className="field-hint">
+                Enter the current balance shown on your statement. This will be used as the starting point for calculating future balances.
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Balance Date (Optional)</label>
+              <input
+                type="date"
+                value={newAccount.balanceDate}
+                onChange={(e) => setNewAccount({ ...newAccount, balanceDate: e.target.value })}
+              />
+              <div className="field-hint">
+                Date when the above balance was recorded. Transactions after this date will update the balance.
+              </div>
             </div>
           </NewAccountForm>
         )}
