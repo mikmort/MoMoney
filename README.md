@@ -121,7 +121,7 @@ A smart money tracking and budgeting application built with React, TypeScript, a
 - 💳 **Transaction Management** - Upload and categorize bank statements
 - 🤖 **AI-Powered Categorization** - Automatic transaction classification using Azure OpenAI
 - 📈 **Visual Analytics** - Charts and reports for spending insights
-- 📄 **Statement Processing** - Support for PDF, CSV, Excel, and image files
+- 📄 **Statement Processing** - Support for PDF, CSV, Excel, OFX, and image files
 - 🎯 **Budget Tracking** - Set and monitor spending budgets
 - 📱 **Responsive Design** - Works on desktop and mobile devices
 
