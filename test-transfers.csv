@@ -1,0 +1,9 @@
+Date,Description,Amount,Account,Type
+6/16/2025,ACH Debit CAPITAL ONE,-2214.87,Bank of America,Transfer
+6/16/2025,ACH Debit CHASE CREDIT,-316.72,Bank of America,Transfer  
+6/13/2025,AUTOMATIC PAYMENT - Chase Checking,316.72,Chase Checking,Transfer
+6/15/2025,Capital One Transfer,2214.87,Capital One,Transfer
+6/14/2025,Bank Transfer OUT,-500.00,Wells Fargo,Transfer
+6/14/2025,Bank Transfer IN,500.00,Savings Account,Transfer
+6/10/2025,ATM Withdrawal,-100.00,Checking,Transfer
+6/10/2025,ATM Deposit,100.00,Savings,Transfer
