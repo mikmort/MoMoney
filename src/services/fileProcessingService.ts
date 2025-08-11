@@ -447,6 +447,14 @@ export class FileProcessingService {
   }
 
   private async readFileContent(file: File): Promise<string> {
+    console.log('📖 readFileContent START');
+    console.log(`📄 File details:`, {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: new Date(file.lastModified).toISOString()
+    });
+    
     // Read as ArrayBuffer, then decode with best-fit encoding (UTF-8, Windows-1252, ISO-8859-1)
     // This preserves Scandinavian characters (æ, ø, å) commonly found in CSVs saved with legacy encodings.
     const readAsArrayBuffer = (): Promise<ArrayBuffer> =>
@@ -454,11 +462,23 @@ export class FileProcessingService {
         const reader = new FileReader();
         reader.onload = (e) => {
           const result = e.target?.result;
-          if (result instanceof ArrayBuffer) resolve(result);
-          else if (typeof result === 'string') resolve(new TextEncoder().encode(result).buffer);
-          else reject(new Error('Failed to read file content'));
+          if (result instanceof ArrayBuffer) {
+            console.log(`📦 File read as ArrayBuffer: ${result.byteLength} bytes`);
+            resolve(result);
+          }
+          else if (typeof result === 'string') {
+            console.log(`📦 File read as string: ${result.length} characters, converting to ArrayBuffer`);
+            resolve(new TextEncoder().encode(result).buffer);
+          }
+          else {
+            console.error('❌ Failed to read file content - unexpected result type');
+            reject(new Error('Failed to read file content'));
+          }
         };
-        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.onerror = () => {
+          console.error('❌ FileReader error occurred');
+          reject(new Error('Failed to read file'));
+        };
         reader.readAsArrayBuffer(file);
       });
 
@@ -491,22 +511,44 @@ export class FileProcessingService {
     const hasUTF16LE = view.length >= 2 && view[0] === 0xff && view[1] === 0xfe;
     const hasUTF16BE = view.length >= 2 && view[0] === 0xfe && view[1] === 0xff;
 
+    console.log('🔍 Encoding detection:', {
+      bufferSize: buffer.byteLength,
+      hasUTF8BOM,
+      hasUTF16LE,
+      hasUTF16BE,
+      firstBytes: Array.from(view.slice(0, 10)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' ')
+    });
+
     if (hasUTF16LE) {
       const dec = new TextDecoder('utf-16le');
-      return stripBOM(dec.decode(new DataView(buffer)));
+      const result = stripBOM(dec.decode(new DataView(buffer)));
+      console.log(`✅ Decoded as UTF-16LE: ${result.length} characters`);
+      console.log(`📝 Content preview: ${result.substring(0, 200)}`);
+      return result;
     }
     if (hasUTF16BE) {
       const dec = new TextDecoder('utf-16be' as any);
-      return stripBOM(dec.decode(new DataView(buffer)));
+      const result = stripBOM(dec.decode(new DataView(buffer)));
+      console.log(`✅ Decoded as UTF-16BE: ${result.length} characters`);
+      console.log(`📝 Content preview: ${result.substring(0, 200)}`);
+      return result;
     }
 
     // Prefer UTF-8; if we see replacement characters, try common Western encodings.
   const utf8 = tryDecode(buffer, 'utf-8');
     const utf8Repl = countReplacement(utf8);
+    
+    console.log(`🔍 UTF-8 decode attempt: ${utf8.length} chars, ${utf8Repl} replacement chars`);
 
-  if (utf8Repl === 0 || hasUTF8BOM) return utf8;
+  if (utf8Repl === 0 || hasUTF8BOM) {
+    console.log('✅ Using UTF-8 encoding (clean or has BOM)');
+    console.log(`📝 Content preview: ${utf8.substring(0, 200)}`);
+    return utf8;
+  }
 
     // Some CSV exports use Windows-1252 or ISO-8859-1
+    console.log('🔍 Trying alternate encodings due to UTF-8 replacement characters...');
+    
     const cp1252 = tryDecode(buffer, 'windows-1252');
     const cp1252Repl = countReplacement(cp1252);
     const cp1252C1 = countC1Controls(cp1252);
@@ -518,6 +560,13 @@ export class FileProcessingService {
   const iso885915 = tryDecode(buffer, 'iso-8859-15');
   const iso15Repl = countReplacement(iso885915);
   const iso15C1 = countC1Controls(iso885915);
+
+    console.log('🔍 Encoding candidates:', {
+      utf8: { chars: utf8.length, repl: utf8Repl, c1: countC1Controls(utf8) },
+      cp1252: { chars: cp1252.length, repl: cp1252Repl, c1: cp1252C1 },
+      iso88591: { chars: iso88591.length, repl: isoRepl, c1: isoC1 },
+      iso885915: { chars: iso885915.length, repl: iso15Repl, c1: iso15C1 }
+    });
 
     // Score decodings: lower replacement chars first, then fewer C1 controls.
     // Prefer cp1252 over iso-8859-1 when ties (common for Western European CSVs).
@@ -536,6 +585,10 @@ export class FileProcessingService {
   const prefOrder: Record<Candidate['label'], number> = { utf8: 0, cp1252: 1, iso: 2, iso15: 3 };
       return prefOrder[cur.label] < prefOrder[best.label] ? cur : best;
     });
+
+    console.log(`✅ Selected encoding: ${best.label} (${best.repl} repl, ${best.c1} c1)`);
+    console.log(`📝 Final content: ${best.text.length} characters`);
+    console.log(`📝 Content preview: ${best.text.substring(0, 200)}`);
 
     return best.text || utf8; // fallback to utf8 if all failed
   }
@@ -650,31 +703,72 @@ Return ONLY a clean JSON response:
 
   // OFX parsing methods for testing
   private async parseOFX(content: string, mapping: FileSchemaMapping): Promise<any[]> {
+    console.log('🔧 OFX PARSING START');
+    console.log(`📄 OFX content length: ${content.length} characters`);
+    console.log(`📋 OFX mapping:`, mapping);
+    
     try {
       const transactions = [];
+      
+      // Log the first 500 characters to see the OFX structure
+      console.log('📝 OFX content preview (first 500 chars):');
+      console.log(content.substring(0, 500));
+      
       const transactionBlocks = content.split('<STMTTRN>').slice(1);
+      console.log(`🧱 Found ${transactionBlocks.length} transaction blocks after splitting on <STMTTRN>`);
 
-      for (const block of transactionBlocks) {
+      for (let i = 0; i < transactionBlocks.length; i++) {
+        const block = transactionBlocks[i];
+        console.log(`\n🔍 Processing transaction block ${i + 1}/${transactionBlocks.length}:`);
+        console.log(`📦 Block content preview: ${block.substring(0, 200).replace(/\n/g, ' ')}...`);
+        
         // Extract raw amount string first, then convert to number to avoid TS type reassignment issues
         const rawAmount = this.extractOFXValue(block, 'TRNAMT');
         const numericAmount = rawAmount != null ? parseFloat(rawAmount) : null;
+        
+        console.log(`💰 Raw amount: "${rawAmount}" -> Numeric: ${numericAmount}`);
+
+        const fitid = this.extractOFXValue(block, 'FITID');
+        const trntype = this.extractOFXValue(block, 'TRNTYPE');
+        const dtposted = this.extractOFXValue(block, 'DTPOSTED');
+        const name = this.extractOFXValue(block, 'NAME');
+        const memo = this.extractOFXValue(block, 'MEMO');
+        
+        console.log(`🆔 FITID: "${fitid}"`);
+        console.log(`📊 TRNTYPE: "${trntype}"`);
+        console.log(`📅 DTPOSTED: "${dtposted}"`);
+        console.log(`🏷️ NAME: "${name}"`);
+        console.log(`📝 MEMO: "${memo}"`);
 
         const transaction = {
-          transactionId: this.extractOFXValue(block, 'FITID') || `tx_${Date.now()}_${Math.random()}`,
-          type: this.extractOFXValue(block, 'TRNTYPE'),
-          date: this.extractOFXValue(block, 'DTPOSTED'),
+          transactionId: fitid || `tx_${Date.now()}_${Math.random()}`,
+          type: trntype,
+          date: dtposted,
           amount: numericAmount,
-          description: this.extractOFXValue(block, 'NAME') || this.extractOFXValue(block, 'MEMO'),
-          notes: this.extractOFXValue(block, 'MEMO'),
+          description: name || memo,
+          notes: memo,
           account: 'Unknown'
         };
 
+        console.log(`✅ Created transaction:`, transaction);
         transactions.push(transaction);
       }
 
+      console.log(`🎉 OFX parsing completed successfully: ${transactions.length} transactions extracted`);
+      console.log('📊 Sample transactions (first 2):');
+      transactions.slice(0, 2).forEach((tx, idx) => {
+        console.log(`  Transaction ${idx + 1}:`, tx);
+      });
+      
       return transactions;
     } catch (error) {
-      console.warn('OFX parsing failed:', error);
+      console.error('💥 OFX parsing failed with error:', error);
+      console.error('📊 Error details:', {
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : undefined,
+        contentLength: content.length,
+        contentPreview: content.substring(0, 200)
+      });
       return [];
     }
   }
@@ -682,20 +776,47 @@ Return ONLY a clean JSON response:
   private extractOFXValue(block: string, tagName: string): string | null {
     const regex = new RegExp(`<${tagName}>([^<]+)`, 'i');
     const match = block.match(regex);
-    return match ? match[1].trim() : null;
+    const result = match ? match[1].trim() : null;
+    console.log(`🔍 extractOFXValue(${tagName}): "${result}"`);
+    return result;
   }
 
   private async parseFileData(content: string, fileType: StatementFile['fileType'], mapping: FileSchemaMapping): Promise<any[]> {
+    console.log(`🔧 parseFileData START - FileType: ${fileType}`);
+    console.log(`📄 Content length: ${content.length} characters`);
+    console.log(`📋 Schema mapping:`, mapping);
+    
+    let result: any[] = [];
+    
     switch (fileType) {
       case 'csv':
-        return this.parseCSV(content, mapping);
+        console.log('📈 Parsing as CSV...');
+        result = await this.parseCSV(content, mapping);
+        break;
       case 'excel':
-        return this.parseExcel(content, mapping);
+        console.log('📊 Parsing as Excel...');
+        result = await this.parseExcel(content, mapping);
+        break;
       case 'ofx':
-        return this.parseOFX(content, mapping);
+        console.log('🏦 Parsing as OFX...');
+        result = await this.parseOFX(content, mapping);
+        break;
       default:
+        console.error(`❌ Unsupported file type: ${fileType}`);
         throw new Error(`Unsupported file type: ${fileType}`);
     }
+    
+    console.log(`✅ parseFileData COMPLETE - Extracted ${result.length} raw data rows`);
+    if (result.length > 0) {
+      console.log('📊 Sample raw data (first 2 rows):');
+      result.slice(0, 2).forEach((row, idx) => {
+        console.log(`  Row ${idx + 1}:`, row);
+      });
+    } else {
+      console.warn('⚠️ No data rows extracted from file!');
+    }
+    
+    return result;
   }
 
   private async parseCSV(content: string, mapping: FileSchemaMapping): Promise<any[]> {
@@ -747,30 +868,54 @@ Return ONLY a clean JSON response:
     accountId: string,
     onProgress?: (processed: number) => void
   ): Promise<Transaction[]> {
-    console.log(`📊 processTransactions called with ${rawData.length} raw data rows`);
+    console.log(`🔧 processTransactions START`);
+    console.log(`📊 Input: ${rawData.length} raw data rows`);
+    console.log(`📋 Schema mapping:`, mapping);
+    console.log(`🏦 Account ID: ${accountId}`);
+
+    if (rawData.length > 0) {
+      console.log('📋 Sample raw data (first 3 rows):');
+      rawData.slice(0, 3).forEach((row, idx) => {
+        console.log(`  Raw row ${idx + 1}:`, row);
+      });
+    }
 
     // Prepare rows -> basic extracted data first
+    console.log('⚙️ Step 1: Extracting basic data from raw rows...');
     const prepared: Array<{
       idx: number;
       date: Date | null;
       description: string;
       amount: number | null;
       notes: string;
-    }> = rawData.map((row, idx) => ({
-      idx,
-      date: this.extractDate(row, mapping.dateColumn, mapping.dateFormat),
-      description: this.extractString(row, mapping.descriptionColumn),
-      amount: this.extractAmount(row, mapping.amountColumn),
-      notes: this.extractString(row, mapping.notesColumn)
-    }));
+    }> = rawData.map((row, idx) => {
+      const extracted = {
+        idx,
+        date: this.extractDate(row, mapping.dateColumn, mapping.dateFormat),
+        description: this.extractString(row, mapping.descriptionColumn),
+        amount: this.extractAmount(row, mapping.amountColumn),
+        notes: this.extractString(row, mapping.notesColumn)
+      };
+      
+      if (idx < 3) {
+        console.log(`  Extracted ${idx + 1}:`, extracted);
+      }
+      
+      return extracted;
+    });
 
-    console.log(`📊 Prepared ${prepared.length} rows from raw data`);
+    console.log(`✅ Prepared ${prepared.length} rows from raw data`);
 
     const validIndices = prepared
       .filter(p => p.date && p.description && p.amount !== null)
       .map(p => p.idx);
 
     console.log(`📊 Found ${validIndices.length} valid rows out of ${prepared.length} prepared rows`);
+
+    if (validIndices.length === 0) {
+      console.warn('⚠️ No valid transactions found after extraction - returning empty array');
+      return [];
+    }
 
     // Step 0: Initialize transfer detection rules if needed (skip in test environment)
     if (process.env.NODE_ENV !== 'test') {
@@ -779,8 +924,14 @@ Return ONLY a clean JSON response:
     }
 
     // Step 1: Apply category rules first (now includes transfer detection)
-    console.log(`📋 Applying category rules to ${validIndices.length} valid transactions`);
+    console.log(`📋 Step 2: Applying category rules to ${validIndices.length} valid transactions`);
     const validTransactions = validIndices.map(i => prepared[i]).filter(p => p.date && p.description && p.amount !== null);
+    
+    console.log('📋 Sample valid transactions for rules (first 2):');
+    validTransactions.slice(0, 2).forEach((tx, idx) => {
+      console.log(`  Valid tx ${idx + 1}: ${tx.date?.toISOString()} | ${tx.amount} | "${tx.description}"`);
+    });
+    
     const ruleResults = await rulesService.applyRulesToBatch(validTransactions.map(p => ({
       date: p.date!,
       description: p.description,
@@ -795,6 +946,14 @@ Return ONLY a clean JSON response:
 
     console.log(`📋 Rules applied: ${ruleResults.matchedTransactions.length} matched, ${ruleResults.unmatchedTransactions.length} need AI`);
 
+    if (ruleResults.matchedTransactions.length > 0) {
+      console.log('📋 Sample rule-matched transactions (first 2):');
+      ruleResults.matchedTransactions.slice(0, 2).forEach((item, idx) => {
+        const tx = item.transaction;
+        console.log(`  Rule-matched ${idx + 1}: ${tx.date.toISOString()} | ${tx.amount} | "${tx.description}" -> ${tx.category}`);
+      });
+    }
+
     // Step 2: Build batch requests for AI (only for unmatched transactions)
     const batchRequests: AIClassificationRequest[] = ruleResults.unmatchedTransactions.map(transaction => ({
       transactionText: transaction.description,
@@ -803,7 +962,7 @@ Return ONLY a clean JSON response:
       availableCategories: categories
     }));
 
-    console.log(`📊 Created ${batchRequests.length} batch requests for AI (reduced from ${validIndices.length} total)`);
+    console.log(`🤖 Step 3: Created ${batchRequests.length} batch requests for AI (reduced from ${validIndices.length} total)`);
 
     // Step 3: Call AI in batch chunks only for unmatched transactions
     const batchResults: AIClassificationResponse[] = [];
@@ -942,25 +1101,34 @@ Return ONLY a clean JSON response:
       }
     }
 
-    console.log(`📊 Final results: ${allMatchedTransactions.length} rule-matched + ${batchResults.length} AI-processed = ${allMatchedTransactions.length + batchResults.length} total`);
+    console.log(`🎯 Step 4: Final transaction assembly`);
+    console.log(`📊 Input summary: ${allMatchedTransactions.length} rule-matched + ${batchResults.length} AI-processed = ${allMatchedTransactions.length + batchResults.length} total`);
 
     // Step 4: Combine rule-matched and AI-processed transactions
     const transactions: Transaction[] = [];
 
     // Add rule-matched transactions (already have proper category/subcategory)
-    allMatchedTransactions.forEach(({ transaction, rule }) => {
-      transactions.push({
+    console.log(`➕ Adding ${allMatchedTransactions.length} rule-matched transactions...`);
+    allMatchedTransactions.forEach(({ transaction, rule }, idx) => {
+      const newTransaction = {
         ...transaction,
         id: uuidv4(),
         addedDate: new Date(),
         lastModifiedDate: new Date(),
         confidence: 1.0,
         reasoning: `Matched rule: ${rule.name}`,
-      });
+      };
+      transactions.push(newTransaction);
+      
+      if (idx < 2) {
+        console.log(`  Rule-matched ${idx + 1}: ID=${newTransaction.id}, ${newTransaction.date.toISOString()} | ${newTransaction.amount} | "${newTransaction.description}" -> ${newTransaction.category}`);
+      }
     });
 
     // Process AI results for unmatched transactions (rebuild from original unmatched list)
     const originalUnmatchedTransactions = ruleResults.unmatchedTransactions;
+    console.log(`🤖 Processing ${batchResults.length} AI results for ${originalUnmatchedTransactions.length} originally unmatched transactions...`);
+    
     const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
     const idToNameSub = new Map<string, { name: string; parentId: string }>();
     categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
@@ -968,6 +1136,10 @@ Return ONLY a clean JSON response:
     for (let index = 0; index < batchResults.length && index < originalUnmatchedTransactions.length; index++) {
       const transaction = originalUnmatchedTransactions[index];
       const ai = batchResults[index] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
+
+      if (index < 2) {
+        console.log(`  AI processing ${index + 1}: ${transaction.date.toISOString()} | ${transaction.amount} | "${transaction.description}" -> AI: ${ai.categoryId} (${ai.confidence})`);
+      }
 
       // Constrain AI result to valid categories
       const categoryIds = new Set(categories.map(c => c.id));
@@ -998,7 +1170,7 @@ Return ONLY a clean JSON response:
 
       // Note: Auto-rule creation now happens immediately after each batch (above) for better availability
 
-      transactions.push({
+      const newTransaction = {
         ...transaction,
         category: categoryName,
         subcategory: subName,
@@ -1007,10 +1179,24 @@ Return ONLY a clean JSON response:
         id: uuidv4(),
         addedDate: new Date(),
         lastModifiedDate: new Date(),
-      });
+      };
+      transactions.push(newTransaction);
+      
+      if (index < 2) {
+        console.log(`  AI-processed ${index + 1}: ID=${newTransaction.id}, Final category: ${categoryName}`);
+      }
     }
 
-    console.log(`📊 processTransactions completed. Returning ${transactions.length} transactions`);
+    console.log(`✅ processTransactions COMPLETE`);
+    console.log(`📊 Final result: ${transactions.length} transactions ready for import`);
+    
+    if (transactions.length > 0) {
+      console.log('📋 Sample final transactions (first 3):');
+      transactions.slice(0, 3).forEach((tx, idx) => {
+        console.log(`  Final ${idx + 1}: ID=${tx.id}, ${tx.date.toISOString()} | ${tx.amount} | "${tx.description}" -> ${tx.category}`);
+      });
+    }
+    
     return transactions;
   }
 
