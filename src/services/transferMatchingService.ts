@@ -193,7 +193,7 @@ class TransferMatchingService {
 
   /**
    * Automatically find and apply transfer matches to transactions
-   * Only applies matches with confidence >= 0.8 (80%)
+   * Only applies matches with confidence >= 0.4 (40%)
    */
   async autoMatchTransfers(transactions: Transaction[]): Promise<Transaction[]> {
     const transferTransactions = transactions.filter(tx => tx.type === 'transfer');
@@ -213,15 +213,15 @@ class TransferMatchingService {
       return transactions;
     }
 
-    // Filter matches to only include high-confidence ones (>= 80%)
-    const highConfidenceMatches = matchResult.matches.filter(match => match.confidence >= 0.8);
+  // Filter matches to only include high-confidence ones (>= 40%)
+  const highConfidenceMatches = matchResult.matches.filter(match => match.confidence >= 0.4);
     
     if (highConfidenceMatches.length === 0) {
-      console.log(`🔄 Found ${matchResult.matches.length} transfer matches, but none meet 80% confidence threshold`);
+      console.log(`🔄 Found ${matchResult.matches.length} transfer matches, but none meet 40% confidence threshold`);
       return transactions;
     }
 
-    console.log(`🔄 Auto-matching ${highConfidenceMatches.length} high-confidence transfer pairs (${matchResult.matches.length} total found)`);
+    console.log(`🔄 Auto-matching ${highConfidenceMatches.length} transfer pairs (${matchResult.matches.length} total found) at ≥40% confidence`);
     return await this.applyTransferMatches(transactions, highConfidenceMatches);
   }
 

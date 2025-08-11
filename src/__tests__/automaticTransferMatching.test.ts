@@ -49,7 +49,7 @@ describe('Automatic Transfer Matching', () => {
       expect(targetTx!.notes).toContain('Matched Transfer:');
     });
 
-    it('should not automatically apply matches with less than 80% confidence', async () => {
+  it('should automatically apply matches with at least 40% confidence', async () => {
       // Create a lower-confidence transfer pair (different days, slightly different amounts)
       const transactions: Transaction[] = [
         {
@@ -82,14 +82,14 @@ describe('Automatic Transfer Matching', () => {
 
       const result = await transferMatchingService.autoMatchTransfers(transactions);
 
-      // Transactions should NOT be automatically matched due to low confidence
+  // With 40% threshold, this pair should be automatically matched
       const sourceTx = result.find(tx => tx.id === 'source-tx-2');
       const targetTx = result.find(tx => tx.id === 'target-tx-2');
 
       expect(sourceTx).toBeDefined();
       expect(targetTx).toBeDefined();
-      expect(sourceTx!.reimbursementId).toBeUndefined();
-      expect(targetTx!.reimbursementId).toBeUndefined();
+  expect(sourceTx!.reimbursementId).toBe('target-tx-2');
+  expect(targetTx!.reimbursementId).toBe('source-tx-2');
     });
 
     it('should handle mixed confidence scenarios correctly', async () => {
