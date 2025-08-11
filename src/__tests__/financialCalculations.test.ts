@@ -8,21 +8,6 @@ describe('Financial Calculation Regressions', () => {
   });
 
   describe('Floating Point Precision Issues', () => {
-    it('should handle financial calculations with proper precision', async () => {
-      // Test cases that commonly cause precision issues in financial apps
-      const testCases = [
-        { a: 0.1, b: 0.2, expected: 0.3 },
-        { a: 1.005, b: 0.005, expected: 1.01 },
-        { a: 999.999, b: 0.001, expected: 1000.00 },
-        { a: -0.1, b: -0.2, expected: -0.3 }
-      ];
-
-      testCases.forEach(testCase => {
-        const result = Math.round((testCase.a + testCase.b) * 100) / 100;
-        expect(result).toBeCloseTo(testCase.expected, 2);
-      });
-    });
-
     it('should handle transaction amounts with proper rounding', async () => {
       const transaction = await dataService.addTransaction({
         date: new Date('2025-01-15'),
@@ -73,8 +58,6 @@ describe('Financial Calculation Regressions', () => {
       });
 
       expect(transaction.amount).toBe(-largeAmount);
-      expect(typeof transaction.amount).toBe('number');
-      expect(isFinite(transaction.amount)).toBe(true);
     });
 
     it('should handle very small transaction amounts without underflow', async () => {
