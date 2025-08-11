@@ -97,13 +97,14 @@ class RulesService {
       for (const rule of activeRules) {
         if (this.evaluateRule(transaction, rule)) {
           // Apply the rule's category/subcategory and optional type
+          // Note: Rules don't set AI confidence - that's only for AI classifications
           const updatedTransaction = {
             ...transaction,
             category: rule.action.categoryName,
             subcategory: rule.action.subcategoryName,
             type: rule.action.transactionType || transaction.type, // Override type if specified
-            confidence: 1.0,
-            reasoning: `Matched rule: ${rule.name}`,
+            confidence: undefined, // Rules don't provide AI confidence
+            reasoning: undefined, // Rules don't provide AI reasoning
           };
           matchedTransactions.push({ transaction: updatedTransaction, rule });
           

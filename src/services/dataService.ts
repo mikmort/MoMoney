@@ -508,9 +508,24 @@ class DataService {
     // Record a snapshot of the current transaction before updating (persistent history)
     await this.addHistorySnapshot(current.id, current, note);
 
+    // Check if category or subcategory is being changed - if so, remove AI confidence
+    const isCategoryChange = ('category' in updates && updates.category !== current.category) ||
+                            ('subcategory' in updates && updates.subcategory !== current.subcategory);
+    
+    let finalUpdates = { ...updates };
+    if (isCategoryChange) {
+      // Remove AI confidence fields when user manually changes category
+      finalUpdates = {
+        ...finalUpdates,
+        confidence: undefined,
+        reasoning: undefined,
+        aiProxyMetadata: undefined
+      };
+    }
+
     this.transactions[index] = {
       ...current,
-      ...updates,
+      ...finalUpdates,
       lastModifiedDate: new Date(),
     };
     
