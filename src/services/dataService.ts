@@ -337,6 +337,18 @@ class DataService {
     };
     
     this.transactions.push(newTransaction);
+    
+    // Attempt automatic transfer matching if the new transaction is a transfer
+    if (newTransaction.type === 'transfer') {
+      console.log(`DataService: Attempting automatic transfer matching for new transfer transaction`);
+      try {
+        // Run automatic matching on all transactions to find matches with the newly added one
+        this.transactions = await transferMatchingService.autoMatchTransfers(this.transactions);
+      } catch (error) {
+        console.warn('DataService: Automatic transfer matching failed:', error);
+      }
+    }
+    
     await this.saveToDB();
     return newTransaction;
   }
@@ -421,9 +433,26 @@ class DataService {
     
     console.log('📊 Adding transactions to in-memory store...');
     this.transactions.push(...newTransactions);
+
     console.log(`📊 Total transactions now: ${this.transactions.length}`);
     
     console.log('💾 Saving to IndexedDB...');
+
+    console.log(`DataService: Total transactions now: ${this.transactions.length}`);
+    
+    // Attempt automatic transfer matching for new transactions
+    const hasNewTransfers = newTransactions.some(tx => tx.type === 'transfer');
+    if (hasNewTransfers) {
+      console.log(`DataService: Attempting automatic transfer matching for new transactions`);
+      try {
+        // Run automatic matching on all transactions to find matches with the newly added ones
+        this.transactions = await transferMatchingService.autoMatchTransfers(this.transactions);
+      } catch (error) {
+        console.warn('DataService: Automatic transfer matching failed:', error);
+      }
+    }
+    
+
     await this.saveToDB();
     console.log('✅ Saved to IndexedDB successfully');
     
