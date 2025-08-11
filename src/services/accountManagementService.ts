@@ -76,7 +76,7 @@ export class AccountManagementService {
   }
 
   // Update existing account
-  updateAccount(id: string, updates: Partial<Account>): Account | null {
+  async updateAccount(id: string, updates: Partial<Account>): Promise<Account | null> {
     const index = this.accounts.findIndex(account => account.id === id);
     if (index === -1) return null;
 
@@ -85,7 +85,35 @@ export class AccountManagementService {
       return digits.length >= 3 ? `Ending in ${digits.slice(-3)}` : undefined;
     };
 
-    this.accounts[index] = { ...this.accounts[index], ...updates, maskedAccountNumber: sanitizeMask(updates.maskedAccountNumber ?? this.accounts[index].maskedAccountNumber) };
+    const oldAccount = this.accounts[index];
+    const updatedAccount = { ...oldAccount, ...updates, maskedAccountNumber: sanitizeMask(updates.maskedAccountNumber ?? oldAccount.maskedAccountNumber) };
+
+    // If the account name is being changed, update all related transactions
+    if (updates.name && updates.name !== oldAccount.name) {
+      try {
+        const ds = await getDataService();
+        const allTransactions = await ds.getAllTransactions();
+        
+        // Find transactions that reference this account by old name
+        const transactionsToUpdate = allTransactions.filter((t: any) => 
+          t.account === oldAccount.name
+        );
+
+        if (transactionsToUpdate.length > 0) {
+          console.log(`🔄 Updating ${transactionsToUpdate.length} transactions from account "${oldAccount.name}" to "${updates.name}"`);
+          
+          // Update each transaction to use the new account name
+          for (const transaction of transactionsToUpdate) {
+            await ds.updateTransaction(transaction.id, { account: updates.name });
+          }
+        }
+      } catch (error) {
+        console.error('Error updating transactions after account rename:', error);
+        // Continue with account update even if transaction update fails
+      }
+    }
+
+    this.accounts[index] = updatedAccount;
     this.saveToStorage();
     return this.accounts[index];
   }
@@ -591,7 +619,7 @@ ${userPrompt}`;
         console.log(`💰 Calculated current balance for ${account.name}: ${account.historicalBalance} + ${balanceChange} = ${currentBalance}`);
         
         // Update the account with the calculated balance
-        this.updateAccount(accountId, { 
+        await this.updateAccount(accountId, { 
           balance: currentBalance, 
           lastSyncDate: new Date() 
         });
@@ -607,7 +635,7 @@ ${userPrompt}`;
       console.log(`💰 Calculated current balance for ${account.name} from all transactions: ${currentBalance}`);
       
       // Update the account with the calculated balance
-      this.updateAccount(accountId, { 
+      await this.updateAccount(accountId, { 
         balance: currentBalance, 
         lastSyncDate: new Date() 
       });
@@ -965,6 +993,31 @@ ${userPrompt}`;
       default:
         return 'unknown'; // Fallback
     }
+  }
+
+  /**
+   * Resolve an account reference (name or ID) to the current account name
+   * This is useful for displaying transaction account names that may reference old names or IDs
+   */
+  resolveAccountName(accountReference: string): string {
+    // First, check if it's a direct account name match
+    const accountByName = this.accounts.find(account => 
+      account.isActive && account.name === accountReference
+    );
+    if (accountByName) {
+      return accountByName.name;
+    }
+
+    // Then check if it's an account ID
+    const accountById = this.accounts.find(account => 
+      account.isActive && account.id === accountReference
+    );
+    if (accountById) {
+      return accountById.name;
+    }
+
+    // If no match found, return the original reference (could be an old name)
+    return accountReference;
   }
 }
 
