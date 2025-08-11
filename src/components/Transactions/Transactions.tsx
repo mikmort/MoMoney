@@ -3076,19 +3076,6 @@ const Transactions: React.FC = () => {
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </QuickFilterButton>
             
-            <QuickFilterButton
-              isActive={transferDisplayOptions.showTransfers}
-              activeColor="#FF9800"
-              activeBackground="#fff3e0"
-              onClick={() => setTransferDisplayOptions({
-                ...transferDisplayOptions,
-                showTransfers: !transferDisplayOptions.showTransfers
-              })}
-              title="Toggle showing transfer transactions in main list"
-            >
-              💱 Show Transfers
-            </QuickFilterButton>
-
             {transferMatchingService.countUnmatchedTransfers(transactions) > 0 && (
               <QuickFilterButton
                 isActive={transferFilter === 'unmatched'}
