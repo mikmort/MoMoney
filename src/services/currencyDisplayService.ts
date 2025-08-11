@@ -87,16 +87,29 @@ class CurrencyDisplayService {
         this.defaultCurrency
       );
 
+      let rateToUse: number | null = null;
+      let convertedAmount: number = 0;
+
       if (conversionResult) {
-        const convertedAmount = transaction.amount < 0 
+        rateToUse = conversionResult.rate;
+        convertedAmount = transaction.amount < 0 
           ? -conversionResult.convertedAmount 
           : conversionResult.convertedAmount;
+      } else {
+        // API failed, use fallback rate
+        rateToUse = this.getFallbackExchangeRate(transactionCurrency, this.defaultCurrency);
+        if (rateToUse) {
+          convertedAmount = transaction.amount * rateToUse;
+          console.warn(`Using fallback exchange rate for ${transactionCurrency} to ${this.defaultCurrency}: ${rateToUse}`);
+        }
+      }
 
+      if (rateToUse) {
         return {
           amount: convertedAmount,
           originalAmount: transaction.amount,
           originalCurrency: transactionCurrency,
-          exchangeRate: conversionResult.rate,
+          exchangeRate: rateToUse,
           isConverted: true
         };
       }
@@ -224,6 +237,46 @@ class CurrencyDisplayService {
   }
 
   /**
+   * Get fallback exchange rate for common currencies when API fails
+   */
+  private getFallbackExchangeRate(fromCurrency: string, toCurrency: string): number | null {
+    if (fromCurrency === toCurrency) return 1;
+    
+    // Fallback rates to USD (approximate, updated periodically)
+    const fallbackRatesToUSD: { [key: string]: number } = {
+      'DKK': 0.145,  // Danish Krone to USD
+      'EUR': 1.08,   // Euro to USD
+      'GBP': 1.27,   // British Pound to USD
+      'CAD': 0.73,   // Canadian Dollar to USD
+      'AUD': 0.66,   // Australian Dollar to USD
+      'JPY': 0.0067, // Japanese Yen to USD
+      'CHF': 1.12,   // Swiss Franc to USD
+      'CNY': 0.14,   // Chinese Yuan to USD
+      'INR': 0.012,  // Indian Rupee to USD
+      'KRW': 0.00074,// South Korean Won to USD
+      'SEK': 0.092,  // Swedish Krona to USD
+      'NOK': 0.089   // Norwegian Krone to USD
+    };
+    
+    // Direct conversion to USD
+    if (toCurrency === 'USD' && fallbackRatesToUSD[fromCurrency]) {
+      return fallbackRatesToUSD[fromCurrency];
+    }
+    
+    // Conversion from USD
+    if (fromCurrency === 'USD' && fallbackRatesToUSD[toCurrency]) {
+      return 1 / fallbackRatesToUSD[toCurrency];
+    }
+    
+    // Cross-currency conversion through USD
+    if (fallbackRatesToUSD[fromCurrency] && fallbackRatesToUSD[toCurrency]) {
+      return fallbackRatesToUSD[fromCurrency] / fallbackRatesToUSD[toCurrency];
+    }
+    
+    return null;
+  }
+
+  /**
    * Batch convert multiple transactions for efficient display
    */
   async convertTransactionsBatch(transactions: Transaction[]): Promise<Transaction[]> {
@@ -252,15 +305,36 @@ class CurrencyDisplayService {
       // Get exchange rate once for this currency
       const exchangeRate = await currencyExchangeService.getExchangeRate(currency, this.defaultCurrency);
       
+      // Determine the rate to use (API or fallback)
+      let rateToUse: number | null = null;
+      let rateSource = 'unknown';
+      
+      if (exchangeRate && exchangeRate.rate) {
+        rateToUse = exchangeRate.rate;
+        rateSource = 'api';
+      } else {
+        // API failed, use fallback rate
+        rateToUse = this.getFallbackExchangeRate(currency, this.defaultCurrency);
+        rateSource = 'fallback';
+        if (rateToUse) {
+          console.warn(`Using fallback exchange rate for ${currency} to ${this.defaultCurrency}: ${rateToUse}`);
+        }
+      }
+      
       for (const transaction of currencyTransactions) {
         const convertedTransaction = { ...transaction };
         
-        if (exchangeRate) {
-          // Convert amount
-          const convertedAmount = transaction.amount * exchangeRate.rate;
+        if (rateToUse) {
+          // Convert amount using API rate or fallback rate
+          const convertedAmount = transaction.amount * rateToUse;
           convertedTransaction.amount = convertedAmount;
-          convertedTransaction.exchangeRate = exchangeRate.rate;
+          convertedTransaction.exchangeRate = rateToUse;
           convertedTransaction.originalCurrency = currency;
+        } else {
+          // No rate available - log warning but still convert to prevent wrong totals
+          console.warn(`No exchange rate available for ${currency} to ${this.defaultCurrency}, transaction will be excluded from totals calculation`);
+          // Skip this transaction entirely rather than include it with wrong currency
+          continue;
         }
         
         convertedTransactions.push(convertedTransaction);
