@@ -1,5 +1,6 @@
 import { defaultConfig } from '../config/appConfig';
 import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult, AccountStatementAnalysisRequest, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../types';
+import { sanitizeTransactionForAI, sanitizeFileContent, validateMaskedAccountNumber } from '../utils/piiSanitization';
 
 // OpenAI Proxy configuration
 // Allow overriding the proxy URL via environment variable for production or remote Azure Function usage.
@@ -267,9 +268,14 @@ export class AzureOpenAIService {
   async classifyTransaction(request: AIClassificationRequest): Promise<AIClassificationResponse> {
     const startTime = Date.now();
   // Sanitize inputs early so they are available in catch paths as well
-  const desc = String(request.transactionText || '').slice(0, 250);
+  const sanitized = sanitizeTransactionForAI(
+    request.transactionText || '',
+    request.amount as number,
+    request.date || ''
+  );
+  const desc = sanitized.description.slice(0, 250);
   const amount = Number.isFinite(request.amount as any) ? (request.amount as number) : 0;
-  const date = String(request.date || '').slice(0, 40);
+  const date = sanitized.date.slice(0, 40);
     try {
       // Build an explicit catalog of allowed categories/subcategories (IDs only) for the model
   const categoriesCatalog = this.buildCompactCatalog(request.availableCategories as any);
@@ -363,16 +369,21 @@ export class AzureOpenAIService {
     while (i < requests.length) {
       // Start with a reasonable max and shrink until under threshold
       let size = Math.min(12, requests.length - i);
-      let items: Array<{ index: number; description: string; amount: number; date: string }> = [];
+      let items: Array<{ index: number; description: string; amount: number; date: string }>;
       while (size > 0) {
         items = [];
         for (let j = 0; j < size; j++) {
           const r = requests[i + j];
+          const sanitized = sanitizeTransactionForAI(
+            r.transactionText || '',
+            r.amount as number,
+            r.date || ''
+          );
           items.push({
             index: j,
-            description: String(r.transactionText || '').slice(0, 250),
+            description: sanitized.description.slice(0, 250),
             amount: Number.isFinite(r.amount as any) ? (r.amount as number) : 0,
-            date: String(r.date || '').slice(0, 40)
+            date: sanitized.date.slice(0, 40)
           });
         }
     const { maxLen } = this.estimateBatchMessageLengths(compactCatalog, items);
@@ -399,12 +410,19 @@ export class AzureOpenAIService {
   const categoriesCatalog = this.buildCompactCatalog(categories as any);
 
       // Sanitize items
-      const items = requests.map((r, idx) => ({
-        index: idx,
-        description: String(r.transactionText || '').slice(0, 250),
-        amount: Number.isFinite(r.amount as any) ? (r.amount as number) : 0,
-        date: String(r.date || '').slice(0, 40)
-      }));
+      const items = requests.map((r, idx) => {
+        const sanitized = sanitizeTransactionForAI(
+          r.transactionText || '',
+          r.amount as number,
+          r.date || ''
+        );
+        return {
+          index: idx,
+          description: sanitized.description.slice(0, 250),
+          amount: Number.isFinite(r.amount as any) ? (r.amount as number) : 0,
+          date: sanitized.date.slice(0, 40)
+        };
+      });
 
   const systemPrompt = `Classify transactions. Return a JSON array the same length and order as input. Fields per item: categoryId, subcategoryId (or null), confidence (0-1), reasoning.
 
@@ -615,17 +633,24 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
     }
 
     try {
-      // Prepare transaction data for analysis
-      const transactionData = request.transactions.map(t => ({
-        id: t.id,
-        date: t.date.toISOString().split('T')[0],
-        amount: t.amount,
-        description: t.description,
-        category: t.category,
-        subcategory: t.subcategory,
-        account: t.account,
-        type: t.type
-      }));
+      // Prepare transaction data for analysis with PII sanitization
+      const transactionData = request.transactions.map(t => {
+        const sanitized = sanitizeTransactionForAI(
+          t.description,
+          t.amount,
+          t.date.toISOString().split('T')[0]
+        );
+        return {
+          id: t.id,
+          date: sanitized.date,
+          amount: t.amount, // Keep original amount for analysis accuracy
+          description: sanitized.description,
+          category: t.category,
+          subcategory: t.subcategory,
+          account: t.account,
+          type: t.type
+        };
+      });
 
       const systemPrompt = `You are a financial fraud and anomaly detection expert. Analyze the provided transactions and identify any that seem unusual, suspicious, or anomalous based on patterns, amounts, merchants, frequencies, or other factors.
 
@@ -817,8 +842,14 @@ ${JSON.stringify(transactionData, null, 2)}`;
     const startTime = Date.now();
     
     try {
-  // Assess readability/quality of provided content to tailor prompt behavior
+      // Assess readability/quality of provided content to tailor prompt behavior
       const raw = (request.fileContent || '').slice(0, 4000);
+      const sanitized = sanitizeFileContent(raw, { 
+        maskAccountNumbers: true,
+        removeEmails: true,
+        removePhoneNumbers: true,
+        sanitizeAddresses: true 
+      });
       const filterPrintable = (s: string) => {
         let out = '';
         for (let i = 0; i < s.length; i++) {
@@ -829,12 +860,12 @@ ${JSON.stringify(transactionData, null, 2)}`;
         }
         return out;
       };
-      const printable = filterPrintable(raw);
+      const printable = filterPrintable(sanitized);
   const lettersDigits = (printable.match(/[A-Za-z0-9]/g) || []).length;
   const qualityRatio = printable.length > 0 ? lettersDigits / printable.length : 0;
   const lowReadable = printable.length < 200 || qualityRatio < 0.35;
 
-  const contentPreview = (lowReadable ? printable : raw).slice(0, 3000);
+  const contentPreview = (lowReadable ? printable : sanitized).slice(0, 3000);
 
   const systemPrompt = `You are a financial document analyzer that extracts account information from bank statements.
 Analyze the provided document content and extract key account details. Return ONLY a JSON object with this exact schema:
@@ -994,20 +1025,7 @@ Extract the account information following the security guidelines.`;
   }
 
   private validateMaskedAccountNumber(value: any): string | undefined {
-    if (value === null || value === undefined) return undefined;
-
-    // Normalize any provided value into a string and extract digits only
-    const digitsOnly = String(value).match(/\d/g)?.join('') || '';
-
-    // Require at least 3 digits to form a safe mask; otherwise skip
-    if (digitsOnly.length >= 3) {
-      const last3 = digitsOnly.slice(-3);
-      // Always return canonical “Ending in XXX” with only last 3 digits
-      return `Ending in ${last3}`;
-    }
-
-    // No sufficient digits to safely represent; omit instead of logging raw input
-    return undefined;
+    return validateMaskedAccountNumber(value);
   }
 
   /**
@@ -1019,6 +1037,12 @@ Extract the account information following the security guidelines.`;
     try {
       // Assess readability/quality of provided content to tailor prompt behavior
       const raw = (request.fileContent || '').slice(0, 4000);
+      const sanitized = sanitizeFileContent(raw, { 
+        maskAccountNumbers: true,
+        removeEmails: true,
+        removePhoneNumbers: true,
+        sanitizeAddresses: true 
+      });
       const filterPrintable = (s: string) => {
         let out = '';
         for (let i = 0; i < s.length; i++) {
@@ -1029,12 +1053,13 @@ Extract the account information following the security guidelines.`;
         }
         return out;
       };
-      const printable = filterPrintable(raw);
+      const printable = filterPrintable(sanitized);
       const lettersDigits = (printable.match(/[A-Za-z0-9]/g) || []).length;
       const qualityRatio = printable.length > 0 ? lettersDigits / printable.length : 0;
       const lowReadable = printable.length < 200 || qualityRatio < 0.35;
 
-      const contentPreview = (lowReadable ? printable : raw).slice(0, 3000);
+      const contentPreview = (lowReadable ? printable : sanitized).slice(0, 3000);
+
 
       const systemPrompt = `You are a financial document analyzer that detects multiple bank accounts in a single statement or document.
 Analyze the provided document and identify ALL distinct bank accounts present. Return ONLY a JSON object with this exact schema:
