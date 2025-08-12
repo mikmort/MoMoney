@@ -140,7 +140,8 @@ export const defaultCategories: Category[] = [
       { id: 'shopping-electronics', name: 'Electronics', description: 'Electronics and gadgets', keywords: ['electronics', 'computer', 'phone', 'tech'] },
       { id: 'shopping-home', name: 'Home & Garden', description: 'Home improvement and garden', keywords: ['home depot', 'lowes', 'garden', 'furniture'] },
       { id: 'shopping-personal', name: 'Personal Care', description: 'Personal care items', keywords: ['personal care', 'cosmetics', 'hygiene'] },
-      { id: 'shopping-gifts', name: 'Gifts', description: 'Gifts for others', keywords: ['gift', 'present'] }
+      { id: 'shopping-gifts', name: 'Gifts', description: 'Gifts for others', keywords: ['gift', 'present'] },
+      { id: 'shopping-postage', name: 'Postage & Shipping', description: 'Shipping costs and postage fees', keywords: ['shipping', 'postage', 'mail', 'delivery', 'ups', 'fedex', 'usps'] }
     ]
   },
   {
@@ -179,7 +180,9 @@ export const defaultCategories: Category[] = [
       { id: 'personal-fitness', name: 'Fitness/Gym', description: 'Gym memberships and fitness', keywords: ['gym', 'fitness', 'workout'] },
       { id: 'personal-haircare', name: 'Hair/Beauty', description: 'Hair salons and beauty services', keywords: ['hair', 'salon', 'beauty'] },
       { id: 'personal-subscriptions', name: 'Subscriptions', description: 'Various subscriptions', keywords: ['subscription'] },
-      { id: 'personal-charity', name: 'Charity/Donations', description: 'Charitable donations', keywords: ['charity', 'donation'] }
+      { id: 'personal-charity', name: 'Charity/Donations', description: 'Charitable donations', keywords: ['charity', 'donation'] },
+      { id: 'personal-spa', name: 'Spa & Massage', description: 'Spa treatments and massage services', keywords: ['spa', 'massage', 'wellness', 'treatment'] },
+      { id: 'personal-pet', name: 'Pet Care', description: 'Pet care and veterinary expenses', keywords: ['pet', 'veterinary', 'vet', 'animal', 'dog', 'cat'] }
     ]
   },
   {
@@ -223,7 +226,9 @@ export const defaultCategories: Category[] = [
     subcategories: [
       { id: 'fees-bank-fees', name: 'Bank Fees', description: 'Fees charged by banks and credit unions', keywords: ['bank fee', 'service charge', 'maintenance fee', 'atm fee', 'overdraft', 'nsf', 'wire fee'] },
       { id: 'fees-late-fees', name: 'Late Fees (bills, utilities)', description: 'Late payment fees on bills and utilities', keywords: ['late fee', 'late charge', 'past due', 'delinquent', 'penalty fee'] },
-      { id: 'fees-service-fees', name: 'Service Fees', description: 'Service or convenience/processing fees', keywords: ['service fee', 'convenience fee', 'processing fee', 'platform fee', 'transaction fee'] }
+      { id: 'fees-service-fees', name: 'Service Fees', description: 'Service or convenience/processing fees', keywords: ['service fee', 'convenience fee', 'processing fee', 'platform fee', 'transaction fee'] },
+      { id: 'fees-credit-card', name: 'Credit Card Fees', description: 'Credit card annual fees and charges', keywords: ['credit card fee', 'annual fee', 'card fee'] },
+      { id: 'fees-legal', name: 'Legal Fees', description: 'Legal services and attorney fees', keywords: ['legal', 'attorney', 'lawyer', 'law firm'] }
     ]
   },
   {
