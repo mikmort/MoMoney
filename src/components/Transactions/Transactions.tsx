@@ -1102,7 +1102,7 @@ const Transactions: React.FC = () => {
     await dataService.restoreTransactionVersion(historyFor.id, versionId, note);
     const allTransactions = await dataService.getAllTransactions();
     setTransactions(allTransactions);
-    setFilteredTransactions(allTransactions);
+    // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
     const items = await dataService.getTransactionHistory(historyFor.id);
     setHistoryItems(items);
   };
@@ -1326,7 +1326,7 @@ const Transactions: React.FC = () => {
       // Refresh transactions list
       const allTransactions = await dataService.getAllTransactions();
       setTransactions(allTransactions);
-      setFilteredTransactions(allTransactions);
+      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
       // Update undo/redo status for this transaction
       await updateUndoRedoStatus(updatedTransaction.id);
     } catch (error) {
@@ -1386,7 +1386,7 @@ const Transactions: React.FC = () => {
         // Refresh transactions list
         const allTransactions = await dataService.getAllTransactions();
         setTransactions(allTransactions);
-        setFilteredTransactions(allTransactions);
+        // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
         await updateUndoRedoStatus(transactionId);
         console.log('✅ Transaction edit undone successfully');
       }
@@ -1409,7 +1409,7 @@ const Transactions: React.FC = () => {
         // Refresh transactions list
         const allTransactions = await dataService.getAllTransactions();
         setTransactions(allTransactions);
-        setFilteredTransactions(allTransactions);
+        // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
         await updateUndoRedoStatus(transactionId);
         console.log('✅ Transaction edit redone successfully');
       }
@@ -1609,7 +1609,7 @@ const Transactions: React.FC = () => {
         // Refresh transactions list
         const allTransactions = await dataService.getAllTransactions();
         setTransactions(allTransactions);
-        setFilteredTransactions(allTransactions);
+        // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
         console.log('✅ Transaction deleted successfully');
       } else {
         console.log('❌ Transaction not found or could not be deleted');
@@ -1722,7 +1722,7 @@ const Transactions: React.FC = () => {
       // Refresh the transactions list
       const updatedTransactions = await dataService.getAllTransactions();
       setTransactions(updatedTransactions);
-      setFilteredTransactions(updatedTransactions);
+      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
       
       // Close the modal
       setShowEditModal(false);
@@ -1807,7 +1807,7 @@ const Transactions: React.FC = () => {
       // Refresh the transactions list
       const refreshedTransactions = await dataService.getAllTransactions();
       setTransactions(refreshedTransactions);
-      setFilteredTransactions(refreshedTransactions);
+      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
       
       // Close dialogs
       setShowCategoryEditDialog(false);
@@ -1863,7 +1863,7 @@ const Transactions: React.FC = () => {
         // Refresh transactions list
         const allTransactions = await dataService.getAllTransactions();
         setTransactions(allTransactions);
-        setFilteredTransactions(allTransactions);
+        // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
         
         // Clear selection
         if (gridApi) {
@@ -1914,7 +1914,7 @@ const Transactions: React.FC = () => {
       // Refresh transactions
       const allTransactions = await dataService.getAllTransactions();
       setTransactions(allTransactions);
-      setFilteredTransactions(allTransactions);
+      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
 
       console.log(`✅ Bulk verify completed for ${updateCount} transactions`);
     } catch (error) {
@@ -1982,7 +1982,7 @@ const Transactions: React.FC = () => {
       // Refresh transactions
       const allTransactions = await dataService.getAllTransactions();
       setTransactions(allTransactions);
-      setFilteredTransactions(allTransactions);
+      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
 
       // Clear selection and close modal
       if (gridApi) {
@@ -2007,7 +2007,7 @@ const Transactions: React.FC = () => {
       const allTransactions = await dataService.getAllTransactions();
       console.log(`📊 Refreshed data: ${allTransactions.length} total transactions`);
       setTransactions(allTransactions);
-      setFilteredTransactions(allTransactions);
+      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
       
       // Show success message
       console.log(`✅ Successfully refreshed UI with ${importedCount} new transactions`);
@@ -2621,7 +2621,7 @@ const Transactions: React.FC = () => {
       // Refresh the transactions list
       const updatedTransactions = await dataService.getAllTransactions();
       setTransactions(updatedTransactions);
-      setFilteredTransactions(updatedTransactions);
+      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
 
       showAlert('success', `Successfully auto-categorized ${uncategorizedTransactions.length} transaction(s)!`, 'Auto-Categorization Complete');
     } catch (error) {
@@ -2716,7 +2716,7 @@ const Transactions: React.FC = () => {
       // Refresh the transactions list
       const updatedTransactions = await dataService.getAllTransactions();
       setTransactions(updatedTransactions);
-      setFilteredTransactions(updatedTransactions);
+      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
       
     } catch (error) {
       console.error('Failed to remove duplicates:', error);
@@ -2736,13 +2736,13 @@ const Transactions: React.FC = () => {
   const handleApplyTransferMatch = async (match: any) => {
     const updatedTransactions = await applyTransferMatches(transactions, [match]);
     setTransactions(updatedTransactions);
-    setFilteredTransactions(updatedTransactions);
+    // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
   };
 
   const handleUnmatchTransfer = async (matchId: string) => {
     const updatedTransactions = await unmatchTransfers(transactions, matchId);
     setTransactions(updatedTransactions);
-    setFilteredTransactions(updatedTransactions);
+    // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
   };
 
   const handleFindTransfers = async () => {
@@ -3643,7 +3643,7 @@ const Transactions: React.FC = () => {
         }}
         onTransactionsUpdate={(updatedTransactions) => {
           setTransactions(updatedTransactions);
-          setFilteredTransactions(updatedTransactions);
+          // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
         }}
       />
 
@@ -3676,7 +3676,7 @@ const Transactions: React.FC = () => {
                 // Add the new transaction to the list
                 const updatedTransactions = [...transactions, transaction];
                 setTransactions(updatedTransactions);
-                setFilteredTransactions(updatedTransactions);
+                // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
                 setShowReceiptImport(false);
               }}
               onCancel={() => setShowReceiptImport(false)}
