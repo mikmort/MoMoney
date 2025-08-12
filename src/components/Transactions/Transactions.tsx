@@ -6,7 +6,7 @@ import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, CollapsedTransfer, TransferDisplayOptions, DuplicateTransaction } from '../../types';
 import { dataService } from '../../services/dataService';
-import { defaultCategories } from '../../data/defaultCategories';
+import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -25,7 +25,6 @@ import { TransferList } from './TransferList';
 import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
-import { defaultCategories as categoriesCatalog } from '../../data/defaultCategories';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { receiptProcessingService } from '../../services/receiptProcessingService';
 import { FileViewer } from '../shared/FileViewer';
@@ -961,6 +960,9 @@ const Transactions: React.FC = () => {
     showFees: false
   });
   
+  // Categories management hook
+  const { categories, getAllCategoryOptions, getSubcategories } = useCategoriesManager();
+  
   // Account selection dialog state
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -1118,8 +1120,7 @@ const Transactions: React.FC = () => {
 
   // Get available subcategories based on selected category
   const getAvailableSubcategories = (categoryName: string) => {
-    const category = defaultCategories.find(cat => cat.name === categoryName);
-    return category ? category.subcategories : [];
+    return getSubcategories(categoryName);
   };
 
   const { 
@@ -1159,9 +1160,7 @@ const Transactions: React.FC = () => {
   const CategoryCellEditor = React.forwardRef<any, any>((props, ref) => {
     const [value, setValue] = useState(props.value || '');
     
-    const allCategories = defaultCategories.flatMap(cat => 
-      [cat.name, ...cat.subcategories.map(sub => `${cat.name} > ${sub.name}`)]
-    );
+    const allCategories = getAllCategoryOptions();
 
     // AG Grid cell editor interface methods
     React.useImperativeHandle(ref, () => ({
@@ -2261,14 +2260,14 @@ const Transactions: React.FC = () => {
             transactionText: tx.description,
             amount: tx.amount,
             date: tx.date.toISOString(),
-            availableCategories: categoriesCatalog,
+            availableCategories: categories,
           },
         ]);
 
-        // Map returned ids to display names using categoriesCatalog
-        const idToNameCategory = new Map(categoriesCatalog.map(c => [c.id, c.name]));
+        // Map returned ids to display names using categories
+        const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
         const subMap = new Map<string, { name: string; parentId: string }>();
-        categoriesCatalog.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
+        categories.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
 
         let categoryName = idToNameCategory.get(result.categoryId) || (result.categoryId || 'Uncategorized');
         let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
@@ -2373,7 +2372,7 @@ const Transactions: React.FC = () => {
     });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
-  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, navigate, showAlert]);
+  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, navigate, showAlert, categories]);
 
   const columnDefs: ColDef[] = [
     {
@@ -2538,7 +2537,8 @@ const Transactions: React.FC = () => {
     }).format(amount);
   };
 
-  const uniqueCategories = Array.from(new Set(transactions.map((t: Transaction) => t.category)));
+  const uniqueCategories = Array.from(new Set(transactions.map((t: Transaction) => t.category)))
+    .sort((a, b) => a.localeCompare(b)); // Sort alphabetically
   const uniqueAccounts = Array.from(new Set(transactions.map((t: Transaction) => t.account)));
 
   const handleFindReimbursements = async () => {
@@ -2583,14 +2583,14 @@ const Transactions: React.FC = () => {
               transactionText: transaction.description,
               amount: transaction.amount,
               date: transaction.date.toISOString(),
-              availableCategories: categoriesCatalog,
+              availableCategories: categories,
             },
           ]);
 
-          // Map returned ids to display names using categoriesCatalog
-          const idToNameCategory = new Map(categoriesCatalog.map(c => [c.id, c.name]));
+          // Map returned ids to display names using categories
+          const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
           const subMap = new Map<string, { name: string; parentId: string }>();
-          categoriesCatalog.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
+          categories.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
 
           let categoryName = idToNameCategory.get(result.categoryId) || (result.categoryId || 'Uncategorized');
           let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
@@ -3375,7 +3375,7 @@ const Transactions: React.FC = () => {
                     onChange={(e) => setBulkEditForm({...bulkEditForm, category: e.target.value, subcategory: ''})}
                   >
                     <option value="">Select Category</option>
-                    {defaultCategories.map(cat => (
+                    {categories.map(cat => (
                       <option key={cat.id} value={cat.name}>{cat.name}</option>
                     ))}
                   </select>
@@ -3524,7 +3524,7 @@ const Transactions: React.FC = () => {
                   onChange={(e) => handleEditFormChange('category', e.target.value)}
                 >
                   <option value="">Select Category</option>
-                  {defaultCategories.map(cat => (
+                  {categories.map(cat => (
                     <option key={cat.id} value={cat.name}>{cat.name}</option>
                   ))}
                 </select>
@@ -3586,7 +3586,7 @@ const Transactions: React.FC = () => {
                   amount: parseFloat(transactionForm.amount) || editingTransaction.amount,
                   splits: transactionForm.splits
                 }}
-                categories={defaultCategories}
+                categories={categories}
                 onSplitsChange={handleSplitsChange}
               />
             )}
