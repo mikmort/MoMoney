@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef } from 'ag-grid-community';
 import styled from 'styled-components';
 import { PageHeader, Card, Button, FlexBox, Badge } from '../../styles/globalStyles';
-import { Budget, Category, Transaction } from '../../types';
+import { Budget, Category, Transaction, BudgetViewPeriod } from '../../types';
 import { budgetService } from '../../services/budgetService';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
@@ -47,6 +47,46 @@ const BudgetsContainer = styled.div`
   .progress-warning { background-color: #FF9800; }
   .progress-danger { background-color: #F44336; }
   .progress-exceeded { background-color: #D32F2F; }
+`;
+
+const ViewPeriodContainer = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  
+  .period-selector {
+    display: flex;
+    background: #f5f5f5;
+    border-radius: 6px;
+    padding: 2px;
+    border: 1px solid #ddd;
+  }
+  
+  .period-option {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    
+    &:hover {
+      color: #333;
+      background: rgba(25, 118, 210, 0.1);
+    }
+    
+    &.active {
+      background: #1976d2;
+      color: white;
+      box-shadow: 0 2px 4px rgba(25, 118, 210, 0.3);
+    }
+  }
 `;
 
 const MonthNavigationContainer = styled.div`
@@ -308,6 +348,7 @@ const Budgets: React.FC = () => {
     isActive: true,
   });
   const [budgetProgress, setBudgetProgress] = useState<any[]>([]);
+  const [viewPeriod, setViewPeriod] = useState<BudgetViewPeriod>('monthly');
   
   // Month navigation state
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -320,7 +361,7 @@ const Budgets: React.FC = () => {
   const [popupTransactions, setPopupTransactions] = useState<Transaction[]>([]);
   const [popupCategoryName, setPopupCategoryName] = useState('');
 
-  // Load data on component mount and when month changes
+  // Load data on component mount and when month or view period changes
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -341,8 +382,13 @@ const Budgets: React.FC = () => {
         setBudgets(budgetData);
         setCategories(categoriesData);
 
-        // Calculate budget progress for the selected month
-        const progress = budgetService.getBudgetProgressForAll(transactionData, categoriesData, selectedMonth);
+        // Calculate budget progress for the selected period and view
+        const progress = budgetService.getBudgetProgressForAllWithViewPeriod(
+          transactionData, 
+          categoriesData, 
+          selectedMonth,
+          viewPeriod
+        );
         setBudgetProgress(progress);
       } catch (error) {
         console.error('Failed to load budget data:', error);
@@ -350,7 +396,7 @@ const Budgets: React.FC = () => {
     };
     
     loadData();
-  }, [selectedMonth]);
+  }, [selectedMonth, viewPeriod]);
 
   const loadData = async () => {
     try {
@@ -371,8 +417,13 @@ const Budgets: React.FC = () => {
       setBudgets(budgetData);
       setCategories(categoriesData);
 
-      // Calculate budget progress for the selected month
-      const progress = budgetService.getBudgetProgressForAll(transactionData, categoriesData, selectedMonth);
+      // Calculate budget progress for the selected period and view
+      const progress = budgetService.getBudgetProgressForAllWithViewPeriod(
+        transactionData, 
+        categoriesData, 
+        selectedMonth,
+        viewPeriod
+      );
       setBudgetProgress(progress);
     } catch (error) {
       console.error('Failed to load budget data:', error);
@@ -567,19 +618,61 @@ const Budgets: React.FC = () => {
     return categories.filter(c => c.type === 'expense');
   };
 
-  const handlePreviousMonth = () => {
+  const handlePreviousPeriod = () => {
     setSelectedMonth(prev => {
-      const newMonth = prev.month === 0 ? 11 : prev.month - 1;
-      const newYear = prev.month === 0 ? prev.year - 1 : prev.year;
-      return { year: newYear, month: newMonth };
+      switch (viewPeriod) {
+        case 'weekly':
+          const prevWeekDate = new Date(prev.year, prev.month, 1);
+          prevWeekDate.setDate(prevWeekDate.getDate() - 7);
+          return { year: prevWeekDate.getFullYear(), month: prevWeekDate.getMonth() };
+        
+        case 'monthly':
+          const newMonth = prev.month === 0 ? 11 : prev.month - 1;
+          const newYear = prev.month === 0 ? prev.year - 1 : prev.year;
+          return { year: newYear, month: newMonth };
+        
+        case 'quarterly':
+          const prevQuarterDate = new Date(prev.year, prev.month, 1);
+          prevQuarterDate.setMonth(prevQuarterDate.getMonth() - 3);
+          return { year: prevQuarterDate.getFullYear(), month: prevQuarterDate.getMonth() };
+        
+        case 'annual':
+          return { year: prev.year - 1, month: prev.month };
+        
+        default:
+          const defaultNewMonth = prev.month === 0 ? 11 : prev.month - 1;
+          const defaultNewYear = prev.month === 0 ? prev.year - 1 : prev.year;
+          return { year: defaultNewYear, month: defaultNewMonth };
+      }
     });
   };
 
-  const handleNextMonth = () => {
+  const handleNextPeriod = () => {
     setSelectedMonth(prev => {
-      const newMonth = prev.month === 11 ? 0 : prev.month + 1;
-      const newYear = prev.month === 11 ? prev.year + 1 : prev.year;
-      return { year: newYear, month: newMonth };
+      switch (viewPeriod) {
+        case 'weekly':
+          const nextWeekDate = new Date(prev.year, prev.month, 1);
+          nextWeekDate.setDate(nextWeekDate.getDate() + 7);
+          return { year: nextWeekDate.getFullYear(), month: nextWeekDate.getMonth() };
+        
+        case 'monthly':
+          const newMonth = prev.month === 11 ? 0 : prev.month + 1;
+          const newYear = prev.month === 11 ? prev.year + 1 : prev.year;
+          return { year: newYear, month: newMonth };
+        
+        case 'quarterly':
+          const nextQuarterDate = new Date(prev.year, prev.month, 1);
+          nextQuarterDate.setMonth(nextQuarterDate.getMonth() + 3);
+          return { year: nextQuarterDate.getFullYear(), month: nextQuarterDate.getMonth() };
+        
+        case 'annual':
+          return { year: prev.year + 1, month: prev.month };
+        
+        default:
+          const defaultNewMonth = prev.month === 11 ? 0 : prev.month + 1;
+          const defaultNewYear = prev.month === 11 ? prev.year + 1 : prev.year;
+          return { year: defaultNewYear, month: defaultNewMonth };
+      }
     });
   };
 
@@ -587,6 +680,32 @@ const Budgets: React.FC = () => {
     setPopupTransactions(progress.transactions || []);
     setPopupCategoryName(progress.categoryName);
     setShowTransactionPopup(true);
+  };
+
+  const formatSelectedPeriod = () => {
+    const date = new Date(selectedMonth.year, selectedMonth.month, 1);
+    
+    switch (viewPeriod) {
+      case 'weekly':
+        // Find the week that contains the first day of the month
+        const dayOfWeek = date.getDay();
+        const weekStart = new Date(date.getTime() - (dayOfWeek * 24 * 60 * 60 * 1000));
+        const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+        return `Week of ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      
+      case 'monthly':
+        return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      
+      case 'quarterly':
+        const quarter = Math.floor(selectedMonth.month / 3) + 1;
+        return `Q${quarter} ${selectedMonth.year}`;
+      
+      case 'annual':
+        return `${selectedMonth.year}`;
+      
+      default:
+        return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
   };
 
   const formatSelectedMonth = () => {
@@ -615,14 +734,27 @@ const Budgets: React.FC = () => {
       {/* Budget Progress Overview */}
       {budgetProgress && budgetProgress.length > 0 && (
         <Card>
+          <ViewPeriodContainer>
+            <div className="period-selector">
+              {(['weekly', 'monthly', 'quarterly', 'annual'] as BudgetViewPeriod[]).map(period => (
+                <button
+                  key={period}
+                  className={`period-option ${viewPeriod === period ? 'active' : ''}`}
+                  onClick={() => setViewPeriod(period)}
+                >
+                  {period.charAt(0).toUpperCase() + period.slice(1)}
+                </button>
+              ))}
+            </div>
+          </ViewPeriodContainer>
           <MonthNavigationContainer>
-            <div className="nav-button" onClick={handlePreviousMonth} title="Previous Month">
+            <div className="nav-button" onClick={handlePreviousPeriod} title={`Previous ${viewPeriod}`}>
               ←
             </div>
             <div className="month-display">
-              Budget Progress - {formatSelectedMonth()}
+              Budget Progress - {formatSelectedPeriod()}
             </div>
-            <div className="nav-button" onClick={handleNextMonth} title="Next Month">
+            <div className="nav-button" onClick={handleNextPeriod} title={`Next ${viewPeriod}`}>
               →
             </div>
           </MonthNavigationContainer>

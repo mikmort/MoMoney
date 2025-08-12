@@ -1,4 +1,4 @@
-import { Budget, Transaction, Category } from '../types';
+import { Budget, Transaction, Category, BudgetViewPeriod } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 class BudgetService {
@@ -147,6 +147,69 @@ class BudgetService {
     this.budgets.splice(index, 1);
     this.saveBudgets();
     return true;
+  }
+
+  /**
+   * Calculate budget amount based on view period
+   * Budgets are stored as monthly amounts, so we need to adjust for other periods
+   */
+  private calculateBudgetAmountForViewPeriod(budget: Budget, viewPeriod: BudgetViewPeriod): number {
+    // All budgets are stored as monthly amounts regardless of their defined period
+    const monthlyAmount = budget.amount;
+    
+    switch (viewPeriod) {
+      case 'weekly':
+        return monthlyAmount / 4.33; // Average weeks per month
+      case 'monthly':
+        return monthlyAmount;
+      case 'quarterly':
+        return monthlyAmount * 3;
+      case 'annual':
+        return monthlyAmount * 12;
+      default:
+        return monthlyAmount;
+    }
+  }
+
+  /**
+   * Get view period dates based on selected view period and reference date
+   */
+  private getViewPeriodDates(viewPeriod: BudgetViewPeriod, referenceDate: { year: number; month: number }): { startDate: Date; endDate: Date } {
+    switch (viewPeriod) {
+      case 'weekly':
+        // Find the week that contains the first day of the specified month
+        const monthStart = new Date(referenceDate.year, referenceDate.month, 1);
+        const dayOfWeek = monthStart.getDay();
+        const weekStart = new Date(monthStart.getTime() - (dayOfWeek * 24 * 60 * 60 * 1000));
+        const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+        return { startDate: weekStart, endDate: weekEnd };
+        
+      case 'monthly':
+        return {
+          startDate: new Date(referenceDate.year, referenceDate.month, 1),
+          endDate: new Date(referenceDate.year, referenceDate.month + 1, 0) // Last day of the month
+        };
+        
+      case 'quarterly':
+        // Find which quarter the month belongs to
+        const quarterStartMonth = Math.floor(referenceDate.month / 3) * 3;
+        return {
+          startDate: new Date(referenceDate.year, quarterStartMonth, 1),
+          endDate: new Date(referenceDate.year, quarterStartMonth + 3, 0)
+        };
+        
+      case 'annual':
+        return {
+          startDate: new Date(referenceDate.year, 0, 1),
+          endDate: new Date(referenceDate.year, 12, 0)
+        };
+        
+      default:
+        return {
+          startDate: new Date(referenceDate.year, referenceDate.month, 1),
+          endDate: new Date(referenceDate.year, referenceDate.month + 1, 0)
+        };
+    }
   }
 
   /**
@@ -304,6 +367,98 @@ class BudgetService {
     return activeBudgets.map(budget => 
       this.calculateBudgetProgress(budget, transactions, categories, forMonth)
     );
+  }
+
+  /**
+   * Get budget progress for all active budgets with view period support
+   */
+  getBudgetProgressForAllWithViewPeriod(
+    transactions: Transaction[], 
+    categories: Category[], 
+    referenceDate: { year: number; month: number },
+    viewPeriod: BudgetViewPeriod = 'monthly'
+  ) {
+    const activeBudgets = this.getActiveBudgets();
+    return activeBudgets.map(budget => 
+      this.calculateBudgetProgressWithViewPeriod(budget, transactions, categories, referenceDate, viewPeriod)
+    );
+  }
+
+  /**
+   * Calculate budget progress for a specific budget with view period support
+   */
+  calculateBudgetProgressWithViewPeriod(
+    budget: Budget, 
+    transactions: Transaction[], 
+    categories: Category[], 
+    referenceDate: { year: number; month: number },
+    viewPeriod: BudgetViewPeriod = 'monthly'
+  ): {
+    budgetId: string;
+    categoryName: string;
+    budgetAmount: number;
+    actualSpent: number;
+    percentage: number;
+    remaining: number;
+    status: 'safe' | 'warning' | 'danger' | 'exceeded';
+    daysInPeriod: number;
+    daysRemaining: number;
+    transactions: Transaction[];
+    viewPeriod: BudgetViewPeriod;
+  } {
+    const category = categories.find(c => c.id === budget.categoryId);
+    const categoryName = category?.name || 'Unknown Category';
+
+    // Get the date range for the view period
+    const { startDate, endDate } = this.getViewPeriodDates(viewPeriod, referenceDate);
+    
+    // Calculate the budget amount for this view period
+    const budgetAmount = this.calculateBudgetAmountForViewPeriod(budget, viewPeriod);
+    
+    // Filter transactions for this category and period
+    const categoryTransactions = transactions.filter(t => {
+      const transactionCategory = t.category;
+      const isMainCategory = transactionCategory === categoryName;
+      const isSubcategory = transactionCategory && transactionCategory.startsWith(categoryName + ' →');
+      
+      return (isMainCategory || isSubcategory) &&
+             t.type === 'expense' &&
+             t.date >= startDate &&
+             t.date <= endDate;
+    });
+
+    const actualSpent = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const percentage = budgetAmount > 0 ? (actualSpent / budgetAmount) * 100 : 0;
+    const remaining = budgetAmount - actualSpent;
+
+    // Calculate days 
+    const now = new Date();
+    const daysInPeriod = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+
+    // Determine status
+    let status: 'safe' | 'warning' | 'danger' | 'exceeded' = 'safe';
+    if (percentage >= 100) {
+      status = 'exceeded';
+    } else if (percentage >= (budget.alertThreshold || 80)) {
+      status = 'danger';
+    } else if (percentage >= 60) {
+      status = 'warning';
+    }
+
+    return {
+      budgetId: budget.id,
+      categoryName,
+      budgetAmount,
+      actualSpent,
+      percentage: Math.round(percentage * 100) / 100,
+      remaining,
+      status,
+      daysInPeriod,
+      daysRemaining,
+      transactions: categoryTransactions,
+      viewPeriod,
+    };
   }
 
   /**
