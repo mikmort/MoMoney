@@ -1,7 +1,6 @@
 import { defaultConfig } from '../config/appConfig';
 import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult, AccountStatementAnalysisRequest, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../types';
 import { sanitizeTransactionForAI, sanitizeFileContent, validateMaskedAccountNumber } from '../utils/piiSanitization';
-import { userPreferencesService } from './userPreferencesService';
 
 // OpenAI Proxy configuration
 // Allow overriding the proxy URL via environment variable for production or remote Azure Function usage.
@@ -82,17 +81,6 @@ export class AzureOpenAIService {
   // Override with REACT_APP_OPENAI_MSG_CHAR_BUDGET if needed
   const envBudget = parseInt(String(process.env.REACT_APP_OPENAI_MSG_CHAR_BUDGET || ''), 10);
   this.messageCharBudget = Number.isFinite(envBudget) && envBudget > 0 ? envBudget : 8000;
-  }
-
-  // Get the current deployment name (from user preferences or default)
-  private async getCurrentDeploymentName(): Promise<string> {
-    try {
-      const userModel = await userPreferencesService.getSelectedAIModel();
-      return userModel || this.deploymentName;
-    } catch (error) {
-      console.warn('Failed to get user AI model preference, using default:', error);
-      return this.deploymentName;
-    }
   }
 
   // Build a very compact catalog string like: id1:subA|subB;id2:subC
@@ -190,9 +178,8 @@ export class AzureOpenAIService {
         // Let mocked fetch handle the request
       } else {
         // Fallback response for unmocked test scenarios
-        const currentDeployment = await this.getCurrentDeploymentName();
         return { success: true, data: {
-          id: 'test', object: 'chat.completion', created: Date.now(), model: request.deployment || currentDeployment,
+          id: 'test', object: 'chat.completion', created: Date.now(), model: request.deployment || this.deploymentName,
           choices: [{ index: 0, message: { role: 'assistant', content: '{"categoryId":"uncategorized","subcategoryId":null,"confidence":0.1,"reasoning":"test mode"}' }, finish_reason: 'stop' }],
           usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
         } } as OpenAIProxyResponse;
@@ -201,8 +188,7 @@ export class AzureOpenAIService {
     const attemptsPerDeployment = options?.attemptsPerDeployment ?? 2;
     const base = options?.baseBackoffMs ?? 400;
 
-    const currentDeployment = await this.getCurrentDeploymentName();
-    const deployments = [request.deployment || currentDeployment, ...this.fallbackDeployments]
+    const deployments = [request.deployment || this.deploymentName, ...this.fallbackDeployments]
       .filter((d, i, arr) => d && arr.indexOf(d) === i);
 
     let lastErr: any;
@@ -297,9 +283,9 @@ export class AzureOpenAIService {
   const systemPrompt = `Classify one financial transaction. Use ONLY ids from the catalog. Reply with a single JSON object with fields: categoryId, subcategoryId (or null), confidence (0-1), reasoning. If unsure: categoryId="uncategorized", confidence<=0.3.`;
 
   
-      const currentDeployment = await this.getCurrentDeploymentName();
+
       const proxyRequest: OpenAIProxyRequest = {
-        deployment: currentDeployment,
+        deployment: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `CAT:${categoriesCatalog}` },
@@ -340,7 +326,7 @@ export class AzureOpenAIService {
       
       // Add proxy metadata for transparency
       constrainedResult.proxyMetadata = {
-        model: response.data.model || currentDeployment,
+        model: response.data.model || this.deploymentName,
         promptTokens: response.data.usage?.prompt_tokens,
         completionTokens: response.data.usage?.completion_tokens,
         totalTokens: response.data.usage?.total_tokens,
@@ -355,13 +341,12 @@ export class AzureOpenAIService {
     } catch (error) {
       console.error('Error classifying transaction:', error);
       
-      const currentDeployment = await this.getCurrentDeploymentName();
       return {
         categoryId: 'uncategorized',
         confidence: 0.1,
         reasoning: 'Failed to classify using AI - using fallback',
         proxyMetadata: {
-          model: currentDeployment,
+          model: this.deploymentName,
           processingTime: Date.now() - startTime,
           keyTokens: this.extractKeyTokens(desc)
         }
@@ -451,7 +436,7 @@ CRITICAL: Distinguish transfers from bank fees carefully:
 Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
 
       const proxyRequest: OpenAIProxyRequest = {
-        deployment: await this.getCurrentDeploymentName(),
+        deployment: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `CAT:${categoriesCatalog}` },
@@ -582,7 +567,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
       console.log('Testing OpenAI proxy connection...');
       
       const proxyRequest: OpenAIProxyRequest = {
-        deployment: await this.getCurrentDeploymentName(),
+        deployment: this.deploymentName,
         messages: [
           { role: 'user', content: 'Hello, please respond with "OK" if you can read this.' }
         ],
@@ -614,7 +599,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
     }
   ): Promise<any> {
     const proxyRequest: OpenAIProxyRequest = {
-      deployment: await this.getCurrentDeploymentName(),
+      deployment: this.deploymentName,
       messages,
       max_tokens: options?.maxTokens || 500,
       temperature: options?.temperature || 0.1
@@ -630,10 +615,9 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
   }
 
   async getServiceInfo(): Promise<{ status: string; model: string; initialized: boolean }> {
-    const currentModel = await this.getCurrentDeploymentName();
     return {
       status: this.initialized ? 'ready' : 'not initialized',
-      model: currentModel,
+      model: this.deploymentName,
       initialized: this.initialized
     };
   }
@@ -729,7 +713,7 @@ Rules:
 ${JSON.stringify(transactionData, null, 2)}`;
 
         const proxyRequest: OpenAIProxyRequest = {
-          deployment: await this.getCurrentDeploymentName(),
+          deployment: this.deploymentName,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
@@ -756,7 +740,7 @@ ${JSON.stringify(transactionData, null, 2)}`;
 ${JSON.stringify(chunk, null, 2)}`;
 
           const proxyRequest: OpenAIProxyRequest = {
-            deployment: await this.getCurrentDeploymentName(),
+            deployment: this.deploymentName,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }
@@ -861,7 +845,7 @@ ${JSON.stringify(chunk, null, 2)}`;
     }
     try {
       const proxyRequest: OpenAIProxyRequest = {
-        deployment: await this.getCurrentDeploymentName(),
+        deployment: this.deploymentName,
         messages: [
           { role: 'user', content: prompt }
         ],
@@ -997,7 +981,7 @@ ${contentPreview}
 Extract the account information following the security guidelines.`;
 
       const proxyRequest: OpenAIProxyRequest = {
-        deployment: await this.getCurrentDeploymentName(),
+        deployment: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
@@ -1198,7 +1182,7 @@ ${contentPreview}
 Detect all accounts in this statement following the security guidelines. If you find evidence of multiple distinct accounts, include all of them. If only one account is present, return that single account with hasMultipleAccounts: false.`;
 
       const proxyRequest: OpenAIProxyRequest = {
-        deployment: await this.getCurrentDeploymentName(),
+        deployment: this.deploymentName,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

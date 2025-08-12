@@ -95,33 +95,6 @@ class UserPreferencesService {
     const currency = this.getCurrencyOptions().find(c => c.value === currencyCode);
     return currency?.symbol || currencyCode;
   }
-
-  // Get available AI model options for the UI
-  getAIModelOptions(): Array<{ value: string; label: string; description: string }> {
-    return [
-      { 
-        value: 'gpt-5-chat', 
-        label: 'GPT-5 Chat', 
-        description: 'Advanced conversational AI model (default)' 
-      },
-      { 
-        value: 'gpt-5-mini', 
-        label: 'GPT-5 Mini', 
-        description: 'Lightweight version of GPT-5 for faster processing' 
-      }
-    ];
-  }
-
-  // Get the user's selected AI model or default
-  async getSelectedAIModel(): Promise<string> {
-    const preferences = await this.getPreferences();
-    return preferences.aiModel || 'gpt-5-chat';
-  }
-
-  // Set the user's preferred AI model
-  async setSelectedAIModel(model: string): Promise<void> {
-    await this.updatePreferences({ aiModel: model });
-  }
 }
 
 // Export singleton instance
