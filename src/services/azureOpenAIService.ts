@@ -69,7 +69,7 @@ export class AzureOpenAIService {
   private readonly messageCharBudget: number;
 
   constructor() {
-    this.deploymentName = defaultConfig.azure.openai.deploymentName || 'gpt-4o';
+    this.deploymentName = defaultConfig.azure.openai.deploymentName || 'gpt-5-chat';
     // Optional comma-separated fallbacks, e.g. "gpt-5-chat,gpt-4o"
     const envFallback = (process.env.REACT_APP_AZURE_OPENAI_FALLBACK_DEPLOYMENTS || '').split(',').map(s => s.trim()).filter(Boolean);
     // Ensure we have at least the opposite popular option as a fallback
