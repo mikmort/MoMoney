@@ -235,6 +235,8 @@ export interface UserPreferences {
   enableNotifications: boolean;
   budgetAlerts: boolean;
   autoCategorizationEnabled: boolean;
+  // AI model selection
+  aiModel?: string; // Selected AI model (gpt-5-chat, gpt-5-mini)
   // Investment display preferences
   showInvestments: boolean; // Show investment transactions in main list (default: false)
   includeInvestmentsInReports: boolean; // Include investments in spending/income reports (advanced users)
