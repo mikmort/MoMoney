@@ -95,6 +95,8 @@ export interface Subcategory {
   keywords?: string[]; // Keywords for AI classification
 }
 
+export type BudgetViewPeriod = 'weekly' | 'monthly' | 'quarterly' | 'annual';
+
 export interface Budget {
   id: string;
   name: string;
