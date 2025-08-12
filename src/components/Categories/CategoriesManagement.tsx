@@ -4,9 +4,9 @@ import { ColDef } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
 import { Category } from '../../types';
-import { defaultCategories } from '../../data/defaultCategories';
 import { ActionsMenu } from '../shared/ActionsMenu';
 import { useNotification } from '../../contexts/NotificationContext';
+import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 import Papa from 'papaparse';
 import { v4 as uuidv4 } from 'uuid';
 import 'ag-grid-community/styles/ag-grid.css';
@@ -224,11 +224,16 @@ const EditModalContent = styled.div`
 
 interface CategoriesManagementProps {}
 
-const CATEGORIES_STORAGE_KEY = 'mo-money-categories';
-
 export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   const { showAlert, showConfirmation } = useNotification();
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { 
+    categories, 
+    addCategory, 
+    updateCategory, 
+    deleteCategory,
+    saveCategories 
+  } = useCategoriesManager();
+  
   const [filteredCategories, setFilteredCategories] = useState<Category[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [showEditModal, setShowEditModal] = useState(false);
@@ -243,28 +248,6 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   });
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
-
-  // Load categories from localStorage on component mount
-  useEffect(() => {
-    const saved = localStorage.getItem(CATEGORIES_STORAGE_KEY);
-    if (saved) {
-      try {
-        setCategories(JSON.parse(saved));
-      } catch (error) {
-        console.error('Failed to load categories from localStorage:', error);
-        setCategories(defaultCategories);
-      }
-    } else {
-      setCategories(defaultCategories);
-    }
-  }, []);
-
-  // Save categories to localStorage whenever categories change
-  useEffect(() => {
-    if (categories.length > 0) {
-      localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
-    }
-  }, [categories]);
 
   // Apply category filter
   useEffect(() => {
@@ -466,23 +449,19 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
 
     if (editingCategory) {
       // Update existing category
-      const updatedCategories = categories.map(cat => 
-        cat.id === editingCategory.id 
-          ? {
-              ...cat,
-              name: categoryForm.name.trim(),
-              type: categoryForm.type,
-              color: categoryForm.color,
-              icon: categoryForm.icon,
-              subcategories: categoryForm.subcategories.map((sub, index) => ({
-                id: sub.name ? `${categoryForm.name.toLowerCase().replace(/\s+/g, '-')}-${sub.name.toLowerCase().replace(/\s+/g, '-')}` : `subcategory-${index}`,
-                name: sub.name.trim(),
-                description: sub.description?.trim() || ''
-              })).filter(sub => sub.name) // Remove empty subcategories
-            }
-          : cat
-      );
-      setCategories(updatedCategories);
+      const updatedCategory: Category = {
+        ...editingCategory,
+        name: categoryForm.name.trim(),
+        type: categoryForm.type,
+        color: categoryForm.color,
+        icon: categoryForm.icon,
+        subcategories: categoryForm.subcategories.map((sub, index) => ({
+          id: sub.name ? `${categoryForm.name.toLowerCase().replace(/\s+/g, '-')}-${sub.name.toLowerCase().replace(/\s+/g, '-')}` : `subcategory-${index}`,
+          name: sub.name.trim(),
+          description: sub.description?.trim() || ''
+        })).filter(sub => sub.name) // Remove empty subcategories
+      };
+      updateCategory(editingCategory.id, updatedCategory);
     } else {
       // Create new category
       const newCategory: Category = {
@@ -498,7 +477,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
         })).filter(sub => sub.name) // Remove empty subcategories
       };
       
-      setCategories(prev => [...prev, newCategory]);
+      addCategory(newCategory);
     }
 
     // Close modal and reset form
@@ -713,7 +692,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
       }
     });
 
-    setCategories(newCategories);
+    saveCategories(newCategories);
     setShowImportModal(false);
     showAlert('success', `Import completed! ${importCount} categories/subcategories imported.`, 'Import Successful');
   };
@@ -730,8 +709,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     );
     
     if (shouldDelete) {
-      const updatedCategories = categories.filter(c => c.id !== categoryId);
-      setCategories(updatedCategories);
+      deleteCategory(categoryId);
     }
   };
 
