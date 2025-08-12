@@ -5,8 +5,9 @@ import { dataService } from '../../services/dataService';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { simplifiedImportExportService } from '../../services/simplifiedImportExportService';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
+import { currencyExchangeService } from '../../services/currencyExchangeService';
 import { useNotification } from '../../contexts/NotificationContext';
-import { UserPreferences } from '../../types';
+import { UserPreferences, CurrencyExchangeRate } from '../../types';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -50,6 +51,153 @@ const ConfirmDialog = styled.div`
   align-items: center;
   justify-content: center;
   z-index: 1000;
+`;
+
+const ExchangeRatesModal = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`;
+
+const ExchangeRatesContent = styled.div`
+  background: white;
+  padding: 24px;
+  border-radius: 12px;
+  max-width: 800px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  
+  h3 {
+    margin-bottom: 16px;
+    color: #333;
+  }
+  
+  .header-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  
+  .status-info {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f5f5f5;
+    border-radius: 6px;
+    
+    &.stale {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      color: #856404;
+    }
+    
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+  }
+  
+  .rates-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+    
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    
+    th {
+      background: #f8f9fa;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    tr:hover {
+      background: #f8f9fa;
+    }
+    
+    .currency-pair {
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .rate-value {
+      font-family: monospace;
+      font-weight: 500;
+    }
+    
+    .source-info {
+      font-size: 12px;
+      color: #666;
+    }
+    
+    .age-info {
+      font-size: 12px;
+      color: #888;
+      
+      &.fresh {
+        color: #4CAF50;
+      }
+      
+      &.stale {
+        color: #FF9800;
+      }
+      
+      &.very-stale {
+        color: #f44336;
+      }
+    }
+  }
+  
+  .no-rates {
+    text-align: center;
+    padding: 40px 20px;
+    color: #666;
+  }
+  
+  .buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+`;
+
+const SyncButton = styled(Button)`
+  background: #2196F3;
+  color: white;
+  border: 1px solid #2196F3;
+  
+  &:hover {
+    background: #1976D2;
+    border-color: #1976D2;
+  }
+  
+  &:disabled {
+    background: #cccccc;
+    border-color: #cccccc;
+    cursor: not-allowed;
+  }
 `;
 
 const ConfirmContent = styled.div`
@@ -139,6 +287,10 @@ const Settings: React.FC = () => {
   const [isExportingSupport, setIsExportingSupport] = useState(false);
   const [isDeduping, setIsDeduping] = useState(false);
   const [isLoadingSampleData, setIsLoadingSampleData] = useState(false);
+  const [showExchangeRates, setShowExchangeRates] = useState(false);
+  const [exchangeRates, setExchangeRates] = useState<CurrencyExchangeRate[]>([]);
+  const [isLoadingRates, setIsLoadingRates] = useState(false);
+  const [isSyncingRates, setIsSyncingRates] = useState(false);
 
   useEffect(() => {
     loadPreferences();
@@ -403,6 +555,81 @@ const Settings: React.FC = () => {
       setIsLoadingSampleData(false);
     }
   };
+
+  const handleViewExchangeRates = async () => {
+    setShowExchangeRates(true);
+    await loadExchangeRates();
+  };
+
+  const loadExchangeRates = async () => {
+    setIsLoadingRates(true);
+    try {
+      const commonCurrencies = currencyExchangeService.getCommonCurrencies();
+      const baseCurrency = preferences?.currency || 'USD';
+      
+      // Get rates for all common currencies from the base currency
+      const rates: CurrencyExchangeRate[] = [];
+      
+      for (const targetCurrency of commonCurrencies) {
+        if (targetCurrency !== baseCurrency) {
+          const rate = await currencyExchangeService.getExchangeRate(baseCurrency, targetCurrency);
+          if (rate) {
+            rates.push(rate);
+          }
+        }
+      }
+      
+      // Also get some reverse rates (other currencies to base)
+      const otherBaseCurrencies = ['EUR', 'GBP', 'JPY'];
+      for (const otherBase of otherBaseCurrencies) {
+        if (otherBase !== baseCurrency) {
+          const rate = await currencyExchangeService.getExchangeRate(otherBase, baseCurrency);
+          if (rate) {
+            rates.push(rate);
+          }
+        }
+      }
+      
+      setExchangeRates(rates);
+    } catch (error) {
+      console.error('Failed to load exchange rates:', error);
+      showAlert('error', 'Failed to load exchange rates. Please try again.');
+    } finally {
+      setIsLoadingRates(false);
+    }
+  };
+
+  const handleSyncExchangeRates = async () => {
+    setIsSyncingRates(true);
+    try {
+      // Clear stored rates to force fresh API calls
+      currencyExchangeService.clearStoredRates();
+      
+      // Reload rates
+      await loadExchangeRates();
+      
+      showAlert('success', 'Exchange rates synced successfully!');
+    } catch (error) {
+      console.error('Failed to sync exchange rates:', error);
+      showAlert('error', 'Failed to sync exchange rates. Please check your internet connection and try again.');
+    } finally {
+      setIsSyncingRates(false);
+    }
+  };
+
+  const formatRateAge = (date: Date): { text: string; className: string } => {
+    const ageHours = (Date.now() - date.getTime()) / (1000 * 60 * 60);
+    
+    if (ageHours < 2) {
+      return { text: `${Math.floor(ageHours * 60)}m ago`, className: 'fresh' };
+    } else if (ageHours < 24) {
+      return { text: `${Math.floor(ageHours)}h ago`, className: 'fresh' };
+    } else if (ageHours < 72) {
+      return { text: `${Math.floor(ageHours / 24)}d ago`, className: 'stale' };
+    } else {
+      return { text: `${Math.floor(ageHours / 24)}d ago`, className: 'very-stale' };
+    }
+  };
   return (
     <div>
       <PageHeader>
@@ -494,6 +721,23 @@ const Settings: React.FC = () => {
             </SaveButton>
           </PreferencesForm>
         )}
+      </Card>
+
+      <Card>
+        <h3>Exchange Rates</h3>
+        <p>View current exchange rates and sync with the latest data from external APIs.</p>
+        
+        <div style={{ marginTop: '16px' }}>
+          <Button 
+            onClick={handleViewExchangeRates}
+            style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white' }}
+          >
+            💱 View Exchange Rates
+          </Button>
+          <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+            Shows current exchange rates for common currencies with age and source information.
+          </div>
+        </div>
       </Card>
 
       <Card>
@@ -607,6 +851,113 @@ const Settings: React.FC = () => {
           </ResetButton>
         </DangerZone>
       </Card>
+
+      {showExchangeRates && (
+        <ExchangeRatesModal onClick={() => setShowExchangeRates(false)}>
+          <ExchangeRatesContent onClick={(e) => e.stopPropagation()}>
+            <div className="header-actions">
+              <h3>💱 Exchange Rates</h3>
+              <SyncButton 
+                onClick={handleSyncExchangeRates}
+                disabled={isSyncingRates || isLoadingRates}
+              >
+                {isSyncingRates ? 'Syncing...' : '🔄 Sync Now'}
+              </SyncButton>
+            </div>
+            
+            <div className={`status-info ${currencyExchangeService.getExchangeRateStatus().isStale ? 'stale' : ''}`}>
+              {(() => {
+                const status = currencyExchangeService.getExchangeRateStatus();
+                return (
+                  <>
+                    <div className="status-item">
+                      <span>Status:</span>
+                      <span>
+                        {status.isStale ? '⚠️ Rates may be stale' : '✅ Rates are fresh'}
+                      </span>
+                    </div>
+                    <div className="status-item">
+                      <span>Total stored rates:</span>
+                      <span>{status.totalStoredRates}</span>
+                    </div>
+                    {status.lastSuccessfulFetch && (
+                      <div className="status-item">
+                        <span>Last successful fetch:</span>
+                        <span>{status.lastSuccessfulFetch.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
+            {isLoadingRates ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <div style={{ marginBottom: '12px' }}>🔄 Loading exchange rates...</div>
+                <div style={{ fontSize: '14px', color: '#666' }}>
+                  This may take a few moments to fetch rates from external APIs.
+                </div>
+              </div>
+            ) : exchangeRates.length > 0 ? (
+              <table className="rates-table">
+                <thead>
+                  <tr>
+                    <th>Currency Pair</th>
+                    <th>Exchange Rate</th>
+                    <th>Last Updated</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exchangeRates.map((rate) => {
+                    const age = formatRateAge(rate.date);
+                    return (
+                      <tr key={`${rate.fromCurrency}-${rate.toCurrency}`}>
+                        <td className="currency-pair">
+                          {rate.fromCurrency} → {rate.toCurrency}
+                        </td>
+                        <td className="rate-value">
+                          {rate.rate.toFixed(6)}
+                        </td>
+                        <td>
+                          <div className={`age-info ${age.className}`}>
+                            {age.text}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#999' }}>
+                            {rate.date.toLocaleDateString()} {rate.date.toLocaleTimeString()}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="source-info">
+                            {rate.source}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div className="no-rates">
+                <div style={{ marginBottom: '12px', fontSize: '18px' }}>📊</div>
+                <div>No exchange rates available</div>
+                <div style={{ fontSize: '14px', marginTop: '8px' }}>
+                  Try syncing to fetch the latest rates from external APIs.
+                </div>
+              </div>
+            )}
+
+            <div className="buttons">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowExchangeRates(false)}
+              >
+                Close
+              </Button>
+            </div>
+          </ExchangeRatesContent>
+        </ExchangeRatesModal>
+      )}
 
       {showConfirmDialog && (
         <ConfirmDialog onClick={() => setShowConfirmDialog(false)}>
