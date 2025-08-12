@@ -640,54 +640,27 @@ const Settings: React.FC = () => {
         <h3>Azure OpenAI Configuration</h3>
         <p>Configure your Azure OpenAI settings for AI-powered transaction classification.</p>
         <div style={{ marginTop: '16px' }}>
-          {preferences && (
-            <PreferencesForm>
-              <div className="form-group">
-                <label htmlFor="aiModel">AI Model</label>
-                <select 
-                  id="aiModel"
-                  value={preferences.aiModel || 'gpt-5-chat'} 
-                  onChange={(e) => handlePreferenceChange('aiModel', e.target.value)}
-                >
-                  {userPreferencesService.getAIModelOptions().map(option => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <div className="description">
-                  {(() => {
-                    const selectedModel = preferences.aiModel || 'gpt-5-chat';
-                    const modelInfo = userPreferencesService.getAIModelOptions().find(m => m.value === selectedModel);
-                    return modelInfo?.description || 'Select your preferred AI model for transaction classification';
-                  })()}
-                </div>
-              </div>
-            </PreferencesForm>
-          )}
-          <div style={{ marginTop: '16px' }}>
-            <div style={{ marginBottom: '12px' }}>
-              <strong>Current Model:</strong> {deploymentInfo || 'Loading...'}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Button 
-                variant="outline" 
-                onClick={handleTestConnection}
-                disabled={isTestingConnection}
-              >
-                {isTestingConnection ? 'Testing...' : 'Test Connection'}
-              </Button>
-              {connectionTestResult === 'success' && (
-                <span style={{ color: '#4CAF50', fontWeight: 500 }}>
-                  ✅ Connection successful!
-                </span>
-              )}
-              {connectionTestResult === 'error' && (
-                <span style={{ color: '#f44336', fontWeight: 500 }}>
-                  ❌ Connection failed. Please check your configuration.
-                </span>
-              )}
-            </div>
+          <div style={{ marginBottom: '12px' }}>
+            <strong>Deployment:</strong> {deploymentInfo || 'Loading...'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <Button 
+              variant="outline" 
+              onClick={handleTestConnection}
+              disabled={isTestingConnection}
+            >
+              {isTestingConnection ? 'Testing...' : 'Test Connection'}
+            </Button>
+            {connectionTestResult === 'success' && (
+              <span style={{ color: '#4CAF50', fontWeight: 500 }}>
+                ✅ Connection successful!
+              </span>
+            )}
+            {connectionTestResult === 'error' && (
+              <span style={{ color: '#f44336', fontWeight: 500 }}>
+                ❌ Connection failed. Please check your configuration.
+              </span>
+            )}
           </div>
         </div>
       </Card>

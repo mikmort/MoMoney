@@ -16,7 +16,6 @@ export const mockUser = {
     enableNotifications: true,
     budgetAlerts: true,
     autoCategorizationEnabled: true,
-    aiModel: 'gpt-5-chat', // Default AI model
     showInvestments: false, // Hide investment transactions by default
     includeInvestmentsInReports: false // Don't include investments in spending/income reports by default
   }
