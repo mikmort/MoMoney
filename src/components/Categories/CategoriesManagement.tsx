@@ -235,7 +235,7 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [categoryForm, setCategoryForm] = useState({
     name: '',
-    type: 'expense' as 'income' | 'expense' | 'transfer',
+    type: 'expense' as 'income' | 'expense' | 'transfer' | 'asset-allocation',
     color: '#2196F3',
     icon: '📁',
     subcategories: [] as Array<{ name: string; description: string }>
@@ -855,11 +855,12 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
                 <label>Type *</label>
                 <select
                   value={categoryForm.type}
-                  onChange={(e) => setCategoryForm({...categoryForm, type: e.target.value as 'income' | 'expense' | 'transfer'})}
+                  onChange={(e) => setCategoryForm({...categoryForm, type: e.target.value as 'income' | 'expense' | 'transfer' | 'asset-allocation'})}
                 >
                   <option value="expense">Expense</option>
                   <option value="income">Income</option>
                   <option value="transfer">Transfer</option>
+                  <option value="asset-allocation">Asset Allocation</option>
                 </select>
               </div>
             </div>

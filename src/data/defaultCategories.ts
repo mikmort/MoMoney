@@ -252,5 +252,25 @@ export const defaultCategories: Category[] = [
       { id: 'transfer-withdrawal', name: 'Withdrawal', description: 'ATM or bank withdrawal', keywords: ['atm', 'withdraw', 'cash'] },
       { id: 'transfer-deposit', name: 'Deposit', description: 'Cash or check deposit', keywords: ['deposit', 'cash', 'check'] }
     ]
+  },
+
+  // Asset Allocation Category for Investment Accounts
+  {
+    id: 'asset-allocation',
+    name: 'Asset Allocation',
+    type: 'asset-allocation',
+    color: '#FF6B35',
+    icon: '📊',
+    subcategories: [
+      { id: 'asset-stock-purchase', name: 'Stock Purchase', description: 'Purchase of individual stocks', keywords: ['stock', 'buy', 'purchase', 'equity'] },
+      { id: 'asset-stock-sale', name: 'Stock Sale', description: 'Sale of individual stocks', keywords: ['stock', 'sell', 'sale', 'equity'] },
+      { id: 'asset-bond-purchase', name: 'Bond Purchase', description: 'Purchase of bonds or fixed income securities', keywords: ['bond', 'buy', 'purchase', 'fixed income'] },
+      { id: 'asset-bond-sale', name: 'Bond Sale', description: 'Sale of bonds or fixed income securities', keywords: ['bond', 'sell', 'sale', 'fixed income'] },
+      { id: 'asset-fund-purchase', name: 'Fund Purchase', description: 'Purchase of mutual funds or ETFs', keywords: ['fund', 'etf', 'mutual fund', 'buy', 'purchase'] },
+      { id: 'asset-fund-sale', name: 'Fund Sale', description: 'Sale of mutual funds or ETFs', keywords: ['fund', 'etf', 'mutual fund', 'sell', 'sale'] },
+      { id: 'asset-crypto-purchase', name: 'Cryptocurrency Purchase', description: 'Purchase of cryptocurrency', keywords: ['crypto', 'bitcoin', 'ethereum', 'buy', 'purchase'] },
+      { id: 'asset-crypto-sale', name: 'Cryptocurrency Sale', description: 'Sale of cryptocurrency', keywords: ['crypto', 'bitcoin', 'ethereum', 'sell', 'sale'] },
+      { id: 'asset-other', name: 'Other Investment Activity', description: 'Other investment transactions not covered above', keywords: ['investment', 'asset', 'allocation'] }
+    ]
   }
 ];

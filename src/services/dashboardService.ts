@@ -30,8 +30,8 @@ class DashboardService {
     const monthlyData: { [monthKey: string]: { income: number; expenses: number } } = {};
     
   converted.forEach(transaction => {
-      // Skip transfer transactions in financial calculations
-      if (transaction.type === 'transfer') {
+      // Skip transfer and asset-allocation transactions in financial calculations
+      if (transaction.type === 'transfer' || transaction.type === 'asset-allocation') {
         return;
       }
       
@@ -93,7 +93,7 @@ class DashboardService {
       totalIncome,
       totalExpenses,
       netIncome: totalIncome - totalExpenses,
-  transactionCount: converted.filter(t => t.type !== 'transfer').length, // Exclude transfers from count
+      transactionCount: converted.filter(t => t.type !== 'transfer' && t.type !== 'asset-allocation').length, // Exclude transfers and investments from count
       topCategories,
       monthlyTrend
     };
