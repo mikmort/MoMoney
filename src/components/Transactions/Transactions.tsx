@@ -1439,8 +1439,13 @@ const Transactions: React.FC = () => {
     
     const handleInfoClick = (e: React.MouseEvent) => {
       e.stopPropagation();
-      const transaction = params.data as Transaction;
-      setConfidencePopupData({ isOpen: true, transaction });
+      const gridTransaction = params.data as Transaction;
+      
+      // Find the current transaction from state to ensure we have up-to-date data
+      // This prevents showing stale AI reasoning when transaction data has been updated
+      const currentTransaction = transactions.find(t => t.id === gridTransaction.id) || gridTransaction;
+      
+      setConfidencePopupData({ isOpen: true, transaction: currentTransaction });
     };
     
     const infoIcon = (
@@ -2405,7 +2410,70 @@ const Transactions: React.FC = () => {
       flex: 2,
       minWidth: 200,
       editable: true,
-      cellEditor: TextCellEditor
+      cellEditor: TextCellEditor,
+      cellRenderer: (params: any) => {
+        const transaction = params.data as Transaction;
+        const description = params.value || '';
+        
+        // Create container for description and file icon
+        const container = document.createElement('div');
+        container.style.display = 'flex';
+        container.style.alignItems = 'center';
+        container.style.gap = '8px';
+        container.style.width = '100%';
+        
+        // Add description text
+        const descriptionSpan = document.createElement('span');
+        descriptionSpan.textContent = description;
+        descriptionSpan.style.flex = '1';
+        container.appendChild(descriptionSpan);
+        
+        // Add file icon if transaction has attached file
+        if (transaction.attachedFileId) {
+          const fileButton = document.createElement('button');
+          fileButton.innerHTML = '📎';
+          fileButton.title = `View ${transaction.attachedFileName || 'attached file'}`;
+          fileButton.style.background = 'none';
+          fileButton.style.border = 'none';
+          fileButton.style.cursor = 'pointer';
+          fileButton.style.fontSize = '16px';
+          fileButton.style.padding = '4px';
+          fileButton.style.borderRadius = '3px';
+          fileButton.style.color = '#666';
+          fileButton.style.transition = 'color 0.2s ease';
+          
+          // Add hover effect
+          fileButton.addEventListener('mouseenter', () => {
+            fileButton.style.color = '#333';
+            fileButton.style.backgroundColor = '#f5f5f5';
+          });
+          
+          fileButton.addEventListener('mouseleave', () => {
+            fileButton.style.color = '#666';
+            fileButton.style.backgroundColor = 'transparent';
+          });
+          
+          fileButton.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+              const file = await receiptProcessingService.getAttachedFile(transaction.attachedFileId!);
+              if (file) {
+                setViewingFile(file);
+                setShowFileViewer(true);
+              } else {
+                alert('File not found');
+              }
+            } catch (error) {
+              console.error('Error loading file:', error);
+              alert('Error loading file');
+            }
+          });
+          
+          container.appendChild(fileButton);
+        }
+        
+        return container;
+      }
     },
     {
       headerName: 'Category',
@@ -2456,68 +2524,6 @@ const Transactions: React.FC = () => {
       width: 130,
       cellRenderer: ConfidenceCellRenderer,
       filter: false // Disable filter for this column as it's not useful
-    },
-    {
-      headerName: 'Reimbursed',
-      field: 'reimbursed',
-      width: 110,
-      filter: 'agTextColumnFilter',
-      filterParams: {
-        textMatcher: ({ value, filterText }: any) => {
-          const displayValue = value ? 'yes' : 'no';
-          return displayValue.includes(filterText.toLowerCase());
-        },
-        buttons: ['clear', 'apply']
-      },
-      cellRenderer: (params: any) => {
-        return params.value ? '💰' : '';
-      }
-    },
-    {
-      headerName: 'File',
-      width: 50,
-      pinned: 'right',
-      cellRenderer: (params: any) => {
-        const transaction = params.data as Transaction;
-        if (!transaction.attachedFileId) return '';
-        
-        return (
-          <button
-            title={`View ${transaction.attachedFileName || 'attached file'}`}
-            onClick={async (e) => {
-              e.stopPropagation();
-              try {
-                const file = await receiptProcessingService.getAttachedFile(transaction.attachedFileId!);
-                if (file) {
-                  setViewingFile(file);
-                  setShowFileViewer(true);
-                } else {
-                  showAlert('error', 'File not found');
-                }
-              } catch (error) {
-                console.error('Error loading file:', error);
-                showAlert('error', 'Error loading file');
-              }
-            }}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '16px',
-              padding: '4px',
-              borderRadius: '3px'
-            }}
-          >
-            📎
-          </button>
-        );
-      },
-      editable: false,
-      suppressHeaderMenuButton: true,
-      sortable: false,
-      filter: false,
-      suppressSizeToFit: true,
-      suppressMovable: true
     },
     {
       headerName: 'Actions',

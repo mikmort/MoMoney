@@ -9,6 +9,7 @@ import { transferDetectionService } from './transferDetectionService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
+import { sanitizeFileContent } from '../utils/piiSanitization';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface FileProcessingResult {
@@ -598,8 +599,11 @@ export class FileProcessingService {
       // Get a sample of the file content for AI analysis
       const sampleContent = this.getSampleContent(fileContent, fileType);
       
+      // Sanitize file content to remove PII before sending to AI
+      const sanitizedContent = sanitizeFileContent(sampleContent);
+      
       const request: AISchemaMappingRequest = {
-        fileContent: sampleContent,
+        fileContent: sanitizedContent,
         fileType,
         targetSchema: ['date', 'description', 'notes', 'category', 'subcategory', 'amount'],
       };
@@ -1131,16 +1135,32 @@ Return ONLY a clean JSON response:
       }
     });
 
-    // Process AI results for unmatched transactions (rebuild from original unmatched list)
-    const originalUnmatchedTransactions = ruleResults.unmatchedTransactions;
-    console.log(`🤖 Processing ${batchResults.length} AI results for ${originalUnmatchedTransactions.length} originally unmatched transactions...`);
+    // Process AI results for unmatched transactions 
+    // CRITICAL FIX: Account for transactions that may have been rule-matched during batch processing
+    console.log(`🤖 Processing AI results for unmatched transactions...`);
+    console.log(`📊 Original unmatched: ${ruleResults.unmatchedTransactions.length}, AI results: ${batchResults.length}, Current rule-matched: ${allMatchedTransactions.length}`);
     
     const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
     const idToNameSub = new Map<string, { name: string; parentId: string }>();
     categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
 
-    for (let index = 0; index < batchResults.length && index < originalUnmatchedTransactions.length; index++) {
+    // CRITICAL FIX: Match AI results to original unmatched transactions properly
+    // This addresses the index mismatch when rules are created during batch processing
+    const originalUnmatchedTransactions = ruleResults.unmatchedTransactions;
+    const processedTransactionDescriptions = new Set(
+      allMatchedTransactions.map(match => `${match.transaction.description}|${match.transaction.amount}|${match.transaction.date.getTime()}`)
+    );
+
+    for (let index = 0; index < Math.min(batchResults.length, originalUnmatchedTransactions.length); index++) {
       const transaction = originalUnmatchedTransactions[index];
+      const transactionKey = `${transaction.description}|${transaction.amount}|${transaction.date.getTime()}`;
+      
+      // Skip transactions that were already matched by rules during batch processing
+      if (processedTransactionDescriptions.has(transactionKey)) {
+        console.log(`  Skipping transaction already rule-matched: ${transaction.description}`);
+        continue;
+      }
+      
       const ai = batchResults[index] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
 
       if (index < 2) {

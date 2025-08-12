@@ -12,6 +12,7 @@ import { NavigationBlocker } from './components/shared/NavigationBlocker';
 import Navigation from './components/Layout/Navigation';
 import LoginPage from './components/Auth/LoginPage';
 import DatabaseEventHandler from './components/shared/DatabaseEventHandler';
+import ExchangeRateNotifications from './components/shared/ExchangeRateNotifications';
 import { GlobalStyles, lightTheme } from './styles/globalStyles';
 
 // Lazy load heavy components to reduce initial bundle size
@@ -50,6 +51,7 @@ const RootLayout: React.FC = () => (
     <main style={{ flex: 1, padding: '20px', backgroundColor: '#f5f5f5' }}>
       <Suspense fallback={<LoadingFallback />}>
         <NavigationBlocker />
+        <ExchangeRateNotifications />
         <Outlet />
       </Suspense>
     </main>

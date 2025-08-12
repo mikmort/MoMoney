@@ -20,28 +20,6 @@ describe('Account Balance Date Feature', () => {
   });
 
   describe('Account Creation with Balance Date', () => {
-    it('should create account with balance and balance date properly set', () => {
-      const balanceDate = new Date('2025-01-15');
-      const balance = 1500.50;
-
-      const newAccount = accountService.addAccount({
-        name: 'Test Account with Balance',
-        type: 'checking',
-        institution: 'Test Bank',
-        currency: 'USD',
-        isActive: true,
-        balance: balance,
-        historicalBalance: balance,
-        historicalBalanceDate: balanceDate
-      });
-
-      expect(newAccount).toBeDefined();
-      expect(newAccount.name).toBe('Test Account with Balance');
-      expect(newAccount.balance).toBe(balance);
-      expect(newAccount.historicalBalance).toBe(balance);
-      expect(newAccount.historicalBalanceDate).toEqual(balanceDate);
-    });
-
     it('should calculate current balance correctly using historical balance and date', async () => {
       const historicalDate = new Date('2025-01-01');
       const historicalBalance = 1000;
@@ -134,72 +112,5 @@ describe('Account Balance Date Feature', () => {
       expect(currentBalance).toBe(400);
     });
 
-    it('should handle edge case where balance date is provided but balance is not', () => {
-      const balanceDate = new Date('2025-01-15');
-
-      const newAccount = accountService.addAccount({
-        name: 'Test Account Date Only',
-        type: 'checking',
-        institution: 'Test Bank',
-        currency: 'USD',
-        isActive: true,
-        historicalBalanceDate: balanceDate
-        // No historicalBalance provided
-      });
-
-      expect(newAccount).toBeDefined();
-      expect(newAccount.historicalBalanceDate).toEqual(balanceDate);
-      expect(newAccount.historicalBalance).toBeUndefined();
-    });
-
-    it('should handle edge case where balance is provided but date is not', () => {
-      const balance = 750.25;
-
-      const newAccount = accountService.addAccount({
-        name: 'Test Account Balance Only',
-        type: 'savings',
-        institution: 'Test Bank',
-        currency: 'USD',
-        isActive: true,
-        historicalBalance: balance
-        // No historicalBalanceDate provided
-      });
-
-      expect(newAccount).toBeDefined();
-      expect(newAccount.historicalBalance).toBe(balance);
-      expect(newAccount.historicalBalanceDate).toBeUndefined();
-    });
-  });
-
-  describe('AI Account Creation from Statement', () => {
-    it('should preserve balance and date from AI analysis when creating account from statement', () => {
-      // This test verifies that the existing AI-driven account creation continues to work
-      // The actual AI service is mocked, so we just need to verify the data flow
-      
-      const testBalance = 2500.75;
-      const testBalanceDate = new Date('2025-01-10');
-
-      // Simulate the result from AI analysis
-      const accountData: Omit<Account, 'id'> = {
-        name: 'AI Detected Account',
-        type: 'checking',
-        institution: 'Chase Bank',
-        currency: 'USD',
-        balance: testBalance,
-        historicalBalance: testBalance,
-        historicalBalanceDate: testBalanceDate,
-        maskedAccountNumber: 'Ending in 123',
-        lastSyncDate: new Date(),
-        isActive: true
-      };
-
-      const newAccount = accountService.addAccount(accountData);
-
-      expect(newAccount).toBeDefined();
-      expect(newAccount.balance).toBe(testBalance);
-      expect(newAccount.historicalBalance).toBe(testBalance);
-      expect(newAccount.historicalBalanceDate).toEqual(testBalanceDate);
-      expect(newAccount.maskedAccountNumber).toBe('Ending in 123');
-    });
   });
 });

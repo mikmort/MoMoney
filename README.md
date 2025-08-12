@@ -1,6 +1,6 @@
 # 💰 Mo Money - Smart Money Tracking App
 
-A modern React TypeScript application for tracking expenses, managing budgets, and analyzing financial data with AI-powered categorization.
+A modern React TypeScript application for tracking expenses, managing budgets, and analyzing financial data with AI-powered transaction categorization.
 
 ## � Quick Start
 
