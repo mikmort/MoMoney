@@ -7,6 +7,7 @@ import { Budget, Category } from '../../types';
 import { budgetService } from '../../services/budgetService';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
+import { useNotification } from '../../contexts/NotificationContext';
 
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -161,6 +162,7 @@ const BudgetProgressCard = styled.div`
 `;
 
 const Budgets: React.FC = () => {
+  const { showAlert, showConfirmation } = useNotification();
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -343,7 +345,7 @@ const Budgets: React.FC = () => {
 
   const handleSaveBudget = () => {
     if (!budgetForm.name || !budgetForm.categoryId || !budgetForm.amount) {
-      alert('Please fill in all required fields');
+      showAlert('error', 'Please fill in all required fields');
       return;
     }
 
@@ -368,18 +370,25 @@ const Budgets: React.FC = () => {
       setShowCreateModal(false);
     } catch (error) {
       console.error('Failed to save budget:', error);
-      alert('Failed to save budget');
+      showAlert('error', 'Failed to save budget');
     }
   };
 
-  const handleDeleteBudget = (budgetId: string) => {
-    if (window.confirm('Are you sure you want to delete this budget?')) {
+  const handleDeleteBudget = async (budgetId: string) => {
+    const confirmed = await showConfirmation('Are you sure you want to delete this budget?', {
+      title: 'Delete Budget',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      danger: true
+    });
+    
+    if (confirmed) {
       try {
         budgetService.deleteBudget(budgetId);
         loadData(); // Refresh data
       } catch (error) {
         console.error('Failed to delete budget:', error);
-        alert('Failed to delete budget');
+        showAlert('error', 'Failed to delete budget');
       }
     }
   };

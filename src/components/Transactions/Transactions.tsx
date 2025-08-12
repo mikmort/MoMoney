@@ -942,7 +942,7 @@ const AnomalyResultsPanel = styled(Card)`
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
-  const { showAlert } = useNotification();
+  const { showAlert, showConfirmation } = useNotification();
   const [searchParams] = useSearchParams();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
@@ -1087,7 +1087,11 @@ const Transactions: React.FC = () => {
       if (current) {
         const diff = summarizeDiff(current, version.data);
         const confirmMsg = `Restore this version?\n\nChanges: ${diff || 'No visible field changes.'}`;
-        const ok = window.confirm(confirmMsg);
+        const ok = await showConfirmation(confirmMsg, {
+          title: 'Restore Transaction Version',
+          confirmText: 'Restore',
+          cancelText: 'Cancel'
+        });
         if (!ok) return;
         note = diff ? `Restored: ${diff}` : 'Restored previous version';
       }
@@ -1390,7 +1394,7 @@ const Transactions: React.FC = () => {
       console.error('❌ Failed to undo transaction edit:', error);
       showAlert('error', 'Failed to undo. Please try again.');
     }
-  }, [transactions]);
+  }, [transactions, showAlert]);
 
   // Handle redo transaction edit
   const handleRedoTransaction = useCallback(async (transactionId: string) => {
@@ -1413,7 +1417,7 @@ const Transactions: React.FC = () => {
       console.error('❌ Failed to redo transaction edit:', error);
       showAlert('error', 'Failed to redo. Please try again.');
     }
-  }, [transactions]);
+  }, [transactions, showAlert]);
 
   // Function to clear all column filters
   const handleClearAllFilters = () => {
@@ -1579,7 +1583,13 @@ const Transactions: React.FC = () => {
       if (!transaction) return;
 
       const confirmMessage = `Are you sure you want to delete this transaction?\n\n"${transaction.description}" - ${formatCurrencySync(transaction.amount)}\n\nThis action cannot be undone.`;
-      if (!window.confirm(confirmMessage)) {
+      const confirmed = await showConfirmation(confirmMessage, {
+        title: 'Delete Transaction',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        danger: true
+      });
+      if (!confirmed) {
         return;
       }
 
@@ -1600,7 +1610,7 @@ const Transactions: React.FC = () => {
       console.error('❌ Failed to delete transaction:', error);
       showAlert('error', 'Failed to delete transaction. Please try again.');
     }
-  }, [transactions]);
+  }, [transactions, showAlert, showConfirmation]);
 
   const startEditTransaction = useCallback((transaction: Transaction) => {
     console.log('Editing transaction:', transaction);
@@ -1712,7 +1722,7 @@ const Transactions: React.FC = () => {
       console.log('✅ Transaction updated successfully');
     } catch (error) {
       console.error('❌ Error updating transaction:', error);
-      alert('Failed to update transaction. Please try again.');
+      showAlert('error', 'Failed to update transaction. Please try again.');
     }
   };
 
@@ -1777,11 +1787,11 @@ const Transactions: React.FC = () => {
         );
         
         if (result.reclassifiedCount && result.reclassifiedCount > 0) {
-          alert(`Rule ${result.isNew ? 'created' : 'updated'} successfully!\n\nReclassified ${result.reclassifiedCount} existing transaction(s) with the same description and account.`);
+          showAlert('success', `Rule ${result.isNew ? 'created' : 'updated'} successfully!\n\nReclassified ${result.reclassifiedCount} existing transaction(s) with the same description and account.`, 'Rule Applied');
         } else if (result.isNew) {
-          alert('Rule created successfully!\n\nFuture transactions with the same description and account will be automatically categorized.');
+          showAlert('success', 'Rule created successfully!\n\nFuture transactions with the same description and account will be automatically categorized.', 'Rule Created');
         } else {
-          alert('Rule updated successfully!\n\nFuture transactions with the same description and account will use the new categorization.');
+          showAlert('success', 'Rule updated successfully!\n\nFuture transactions with the same description and account will use the new categorization.', 'Rule Updated');
         }
       }
       
@@ -1799,7 +1809,7 @@ const Transactions: React.FC = () => {
       console.log(`✅ Category edit applied with option: ${option}`);
     } catch (error) {
       console.error('❌ Error applying category edit:', error);
-      alert('Failed to apply category change. Please try again.');
+      showAlert('error', 'Failed to apply category change. Please try again.');
     }
   };
 
@@ -1826,7 +1836,13 @@ const Transactions: React.FC = () => {
     if (selectedTransactions.length === 0) return;
 
     const confirmMessage = `Are you sure you want to delete ${selectedTransactions.length} transaction(s)?\n\nThis action cannot be undone.`;
-    if (!window.confirm(confirmMessage)) {
+    const confirmed = await showConfirmation(confirmMessage, {
+      title: 'Delete Transactions',
+      confirmText: 'Delete All',
+      cancelText: 'Cancel',
+      danger: true
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -1850,7 +1866,7 @@ const Transactions: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ Error during bulk delete:', error);
-      alert('Failed to delete transactions. Please try again.');
+      showAlert('error', 'Failed to delete transactions. Please try again.');
     }
   };
 
@@ -1859,12 +1875,17 @@ const Transactions: React.FC = () => {
 
     const unverifiedTransactions = selectedTransactions.filter(t => !t.isVerified);
     if (unverifiedTransactions.length === 0) {
-      alert('All selected transactions are already verified.');
+      showAlert('info', 'All selected transactions are already verified.');
       return;
     }
 
     const confirmMessage = `Mark ${unverifiedTransactions.length} transaction(s) as verified?`;
-    if (!window.confirm(confirmMessage)) {
+    const confirmed = await showConfirmation(confirmMessage, {
+      title: 'Verify Transactions',
+      confirmText: 'Mark as Verified',
+      cancelText: 'Cancel'
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -1889,7 +1910,7 @@ const Transactions: React.FC = () => {
       console.log(`✅ Bulk verify completed for ${updateCount} transactions`);
     } catch (error) {
       console.error('❌ Error during bulk verify:', error);
-      alert('Failed to verify transactions. Please try again.');
+      showAlert('error', 'Failed to verify transactions. Please try again.');
     }
   };
 
@@ -1964,7 +1985,7 @@ const Transactions: React.FC = () => {
       console.log(`✅ Bulk edit completed for ${updateCount} transactions`);
     } catch (error) {
       console.error('❌ Error during bulk edit:', error);
-      alert('Failed to update transactions. Please try again.');
+      showAlert('error', 'Failed to update transactions. Please try again.');
     }
   };
 
@@ -2010,7 +2031,7 @@ const Transactions: React.FC = () => {
       console.log(`Successfully imported ${newTransactions.length} transactions to account: ${accountId}`);
     } catch (error) {
       console.error('Error assigning account to file:', error);
-      alert('Failed to import transactions. Please try again.');
+      showAlert('error', 'Failed to import transactions. Please try again.');
     }
   };
 
@@ -2022,7 +2043,7 @@ const Transactions: React.FC = () => {
       await handleAccountSelection(newAccount.id);
     } catch (error) {
       console.error('Error creating new account:', error);
-      alert('Failed to create new account. Please try again.');
+      showAlert('error', 'Failed to create new account. Please try again.');
     }
   };
 
@@ -2255,7 +2276,7 @@ const Transactions: React.FC = () => {
         setFilteredTransactions(all);
       } catch (e) {
         console.error('Suggest Category failed:', e);
-        alert('Failed to suggest category');
+        showAlert('error', 'Failed to suggest category');
       }
     };
 
@@ -2265,7 +2286,7 @@ const Transactions: React.FC = () => {
 
     const handleFindMatchingTransfers = async () => {
       if (params.data.type !== 'transfer') {
-        alert('This action is only available for transfer transactions.');
+        showAlert('info', 'This action is only available for transfer transactions.');
         return;
       }
       
@@ -2337,7 +2358,7 @@ const Transactions: React.FC = () => {
     });
 
     return <ActionsMenu key={`actions-${params.data.id}`} menuId={`menu-${params.data.id}`} actions={actions} />;
-  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, navigate]);
+  }, [startEditTransaction, handleDeleteTransaction, undoRedoStatus, handleUndoTransaction, handleRedoTransaction, navigate, showAlert]);
 
   const columnDefs: ColDef[] = [
     {
@@ -2471,11 +2492,11 @@ const Transactions: React.FC = () => {
                   setViewingFile(file);
                   setShowFileViewer(true);
                 } else {
-                  alert('File not found');
+                  showAlert('error', 'File not found');
                 }
               } catch (error) {
                 console.error('Error loading file:', error);
-                alert('Error loading file');
+                showAlert('error', 'Error loading file');
               }
             }}
             style={{
@@ -2542,12 +2563,17 @@ const Transactions: React.FC = () => {
       const uncategorizedTransactions = transactions.filter(t => t.category === 'Uncategorized');
       
       if (uncategorizedTransactions.length === 0) {
-        alert('No uncategorized transactions found!');
+        showAlert('info', 'No uncategorized transactions found!');
         return;
       }
 
       const confirmMessage = `Found ${uncategorizedTransactions.length} uncategorized transaction(s). Do you want to auto-categorize them using AI?`;
-      if (!window.confirm(confirmMessage)) {
+      const confirmed = await showConfirmation(confirmMessage, {
+        title: 'Auto-Categorize Transactions',
+        confirmText: 'Auto-Categorize',
+        cancelText: 'Cancel'
+      });
+      if (!confirmed) {
         return;
       }
 
@@ -2597,22 +2623,27 @@ const Transactions: React.FC = () => {
       setTransactions(updatedTransactions);
       setFilteredTransactions(updatedTransactions);
 
-      alert(`Successfully auto-categorized ${uncategorizedTransactions.length} transaction(s)!`);
+      showAlert('success', `Successfully auto-categorized ${uncategorizedTransactions.length} transaction(s)!`, 'Auto-Categorization Complete');
     } catch (error) {
       console.error('Auto-categorization failed:', error);
-      alert('Failed to auto-categorize transactions. Please try again.');
+      showAlert('error', 'Failed to auto-categorize transactions. Please try again.');
     }
   };
 
   const handleSearchAnomalies = async () => {
     try {
       if (transactions.length === 0) {
-        alert('No transactions to analyze!');
+        showAlert('info', 'No transactions to analyze!');
         return;
       }
 
       const confirmMessage = `Analyze ${transactions.length} transaction(s) for anomalies using AI? This may take a few moments.`;
-      if (!window.confirm(confirmMessage)) {
+      const confirmed = await showConfirmation(confirmMessage, {
+        title: 'Anomaly Detection',
+        confirmText: 'Analyze',
+        cancelText: 'Cancel'
+      });
+      if (!confirmed) {
         return;
       }
 
@@ -2629,14 +2660,14 @@ const Transactions: React.FC = () => {
       setShowAnomalyResults(true);
 
       if (result.anomalies.length === 0) {
-        alert('No anomalies detected! All transactions appear normal.');
+        showAlert('success', 'No anomalies detected! All transactions appear normal.', 'Analysis Complete');
       } else {
-        alert(`Found ${result.anomalies.length} potentially anomalous transaction(s). Check the results below.`);
+        showAlert('info', `Found ${result.anomalies.length} potentially anomalous transaction(s). Check the results below.`, 'Anomalies Found');
       }
 
     } catch (error) {
       console.error('Anomaly detection failed:', error);
-      alert('Failed to detect anomalies. Please try again later.');
+      showAlert('error', 'Failed to detect anomalies. Please try again later.');
     } finally {
       setIsAnomalyDetectionLoading(false);
     }
@@ -2645,7 +2676,7 @@ const Transactions: React.FC = () => {
   const handleRemoveDuplicates = async () => {
     try {
       if (transactions.length === 0) {
-        alert('No transactions to analyze!');
+        showAlert('info', 'No transactions to analyze!');
         return;
       }
 
@@ -2661,7 +2692,7 @@ const Transactions: React.FC = () => {
       
     } catch (error) {
       console.error('Duplicate detection failed:', error);
-      alert('Failed to detect duplicates. Please try again later.');
+      showAlert('error', 'Failed to detect duplicates. Please try again later.');
       setShowRemoveDuplicatesDialog(false);
     } finally {
       setIsDuplicateDetectionLoading(false);
@@ -2676,7 +2707,7 @@ const Transactions: React.FC = () => {
       
       if (result.errors.length > 0) {
         console.warn('Some duplicates could not be removed:', result.errors);
-        alert(`Removed ${result.removed} duplicates, but encountered ${result.errors.length} errors. See console for details.`);
+        showAlert('warning', `Removed ${result.removed} duplicates, but encountered ${result.errors.length} errors. See console for details.`, 'Partial Success');
       } else {
         console.log(`✅ Successfully removed ${result.removed} duplicate transactions`);
         // Success - no alert needed, user can see the visual update

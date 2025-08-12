@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, DBHealthCheck } from './db';
 import { rulesService } from './rulesService';
 import { transferMatchingService } from './transferMatchingService';
+import { notificationService } from './notificationService';
 
 class DataService {
   private transactions: Transaction[] = [];
@@ -46,7 +47,7 @@ class DataService {
         
         if (this.healthCheckFailures >= 2) {
           // Show user prompt for reset
-          this.showCorruptionResetPrompt();
+          await this.showCorruptionResetPrompt();
           return; // Don't continue initialization if we're prompting for reset
         }
       } else {
@@ -79,9 +80,16 @@ class DataService {
     }
   }
 
-  private showCorruptionResetPrompt(): void {
-    const message = "Data looks corrupted. Reset?";
-    const shouldReset = window.confirm(`${message}\n\nThis will delete all your data and reset the application.`);
+  private async showCorruptionResetPrompt(): Promise<void> {
+    const shouldReset = await notificationService.showConfirmation(
+      "This will delete all your data and reset the application.", 
+      {
+        title: "Database Corruption Detected",
+        confirmText: "Reset Database",
+        cancelText: "Continue Anyway",
+        danger: true
+      }
+    );
     
     if (shouldReset) {
       this.performEmergencyReset();
@@ -120,11 +128,11 @@ class DataService {
         }
       });
       
-      alert('Database has been reset due to corruption. The page will reload.');
+      notificationService.showAlert('success', 'Database has been reset due to corruption. The page will reload.', 'Database Reset');
       window.location.reload();
     } catch (error) {
       console.error('[TX] Emergency reset failed:', error);
-      alert('Failed to reset corrupted database. Please visit /reset-db.html for manual reset.');
+      notificationService.showAlert('error', 'Failed to reset corrupted database. Please visit /reset-db.html for manual reset.', 'Reset Failed');
     }
   }
 

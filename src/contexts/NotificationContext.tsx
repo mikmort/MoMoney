@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import AlertToast, { AlertType } from '../components/shared/AlertToast';
 import ConfirmationDialog from '../components/shared/ConfirmationDialog';
+import { notificationService } from '../services/notificationService';
 
 interface NotificationContextType {
   showAlert: (type: AlertType, message: string, title?: string, options?: AlertOptions) => void;
@@ -96,6 +97,16 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
       resolve(false);
     }
   }, [confirmationState]);
+
+  // Register handlers with the global notification service
+  useEffect(() => {
+    notificationService.setHandlers({ showAlert, showConfirmation });
+    
+    // Cleanup on unmount
+    return () => {
+      notificationService.clearHandlers();
+    };
+  }, [showAlert, showConfirmation]);
 
   return (
     <NotificationContext.Provider value={{ showAlert, showConfirmation }}>
