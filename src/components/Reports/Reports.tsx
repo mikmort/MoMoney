@@ -14,6 +14,7 @@ import {
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
 import CategoryDrilldownModal from './CategoryDrilldownModal';
+import TransactionDetailsModal, { TransactionFilter } from './TransactionDetailsModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 const ReportsContainer = styled.div`
@@ -216,6 +217,17 @@ const Reports: React.FC = () => {
   const [spendingInsights, setSpendingInsights] = useState<SpendingInsights | null>(null);
   const [burnRateAnalysis, setBurnRateAnalysis] = useState<BurnRateAnalysis | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  
+  // State for the new transaction details modal
+  const [transactionDetailsModal, setTransactionDetailsModal] = useState<{
+    isOpen: boolean;
+    filter: TransactionFilter;
+    title: string;
+  }>({
+    isOpen: false,
+    filter: { type: 'category' },
+    title: ''
+  });
 
   const getCurrentDateRange = useCallback((): DateRange | undefined => {
     switch (dateRangeType) {
@@ -293,6 +305,101 @@ const Reports: React.FC = () => {
       case 'increasing': return 'Increasing';
       case 'decreasing': return 'Decreasing';
       default: return 'Stable';
+    }
+  };
+
+  // Helper function to create date range from month label
+  const createDateRangeFromMonth = (monthLabel: string): { startDate: Date; endDate: Date } => {
+    // Parse month label like "Jul 2025" or "2025-07"
+    let year: number;
+    let month: number;
+    
+    if (monthLabel.includes(' ')) {
+      // Format: "Jul 2025"
+      const [monthName, yearStr] = monthLabel.split(' ');
+      year = parseInt(yearStr);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      month = monthNames.indexOf(monthName);
+    } else if (monthLabel.includes('-')) {
+      // Format: "2025-07"
+      const [yearStr, monthStr] = monthLabel.split('-');
+      year = parseInt(yearStr);
+      month = parseInt(monthStr) - 1; // JavaScript months are 0-based
+    } else {
+      // Fallback: assume current year and try to parse month name
+      year = new Date().getFullYear();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      month = monthNames.indexOf(monthLabel);
+      if (month === -1) month = 0; // Default to January if parsing fails
+    }
+    
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0); // Last day of the month
+    
+    return { startDate, endDate };
+  };
+
+  // Chart click handlers
+  const handleCategoryChartClick = (event: any, elements: any[]) => {
+    if (elements.length > 0) {
+      const elementIndex = elements[0].index;
+      const categoryName = spendingByCategory[elementIndex]?.categoryName;
+      
+      if (categoryName) {
+        setTransactionDetailsModal({
+          isOpen: true,
+          filter: { type: 'category', category: categoryName },
+          title: `${categoryName} - Transaction Details`
+        });
+      }
+    }
+  };
+
+  const handleTrendsChartClick = (event: any, elements: any[]) => {
+    if (elements.length > 0) {
+      const elementIndex = elements[0].index;
+      const datasetIndex = elements[0].datasetIndex;
+      const monthLabel = monthlyTrends[elementIndex]?.month;
+      
+      if (monthLabel) {
+        const dateRange = createDateRangeFromMonth(monthLabel);
+        const transactionType = datasetIndex === 0 ? 'income' : 'expense';
+        const typeLabel = transactionType === 'income' ? 'Income' : 'Expenses';
+        
+        setTransactionDetailsModal({
+          isOpen: true,
+          filter: { 
+            type: 'month-type', 
+            month: monthLabel,
+            transactionType,
+            dateRange
+          },
+          title: `${monthLabel} ${typeLabel} - Transaction Details`
+        });
+      }
+    }
+  };
+
+  const handleNetIncomeChartClick = (event: any, elements: any[]) => {
+    if (elements.length > 0) {
+      const elementIndex = elements[0].index;
+      const monthLabel = monthlyTrends[elementIndex]?.month;
+      
+      if (monthLabel) {
+        const dateRange = createDateRangeFromMonth(monthLabel);
+        
+        setTransactionDetailsModal({
+          isOpen: true,
+          filter: { 
+            type: 'month',
+            month: monthLabel,
+            dateRange
+          },
+          title: `${monthLabel} - All Transactions`
+        });
+      }
     }
   };
 
@@ -497,6 +604,11 @@ const Reports: React.FC = () => {
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
+                  onClick: handleCategoryChartClick,
+                  interaction: {
+                    intersect: true,
+                    mode: 'nearest'
+                  },
                   plugins: {
                     legend: {
                       position: 'bottom',
@@ -508,6 +620,9 @@ const Reports: React.FC = () => {
                           const total = spendingByCategory.reduce((sum, cat) => sum + cat.amount, 0);
                           const percentage = ((value / total) * 100).toFixed(1);
                           return `${context.label}: ${formatCurrency(value)} (${percentage}%)`;
+                        },
+                        afterLabel: function() {
+                          return 'Click to view transactions';
                         }
                       }
                     }
@@ -540,10 +655,22 @@ const Reports: React.FC = () => {
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
+                  onClick: handleTrendsChartClick,
+                  interaction: {
+                    intersect: true,
+                    mode: 'nearest'
+                  },
                   plugins: {
                     legend: {
                       position: 'top',
                     },
+                    tooltip: {
+                      callbacks: {
+                        afterLabel: function() {
+                          return 'Click to view transactions';
+                        }
+                      }
+                    }
                   },
                   scales: {
                     y: {
@@ -585,6 +712,11 @@ const Reports: React.FC = () => {
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
+                  onClick: handleNetIncomeChartClick,
+                  interaction: {
+                    intersect: true,
+                    mode: 'nearest'
+                  },
                   plugins: {
                     legend: {
                       display: false,
@@ -595,6 +727,9 @@ const Reports: React.FC = () => {
                           const value = context.parsed.y;
                           const status = value >= 0 ? 'surplus' : 'deficit';
                           return `Net ${status}: ${formatCurrency(Math.abs(value))}`;
+                        },
+                        afterLabel: function() {
+                          return 'Click to view all transactions';
                         }
                       }
                     }
@@ -696,6 +831,14 @@ const Reports: React.FC = () => {
           onClose={() => setSelectedCategory(null)}
         />
       )}
+
+      {/* Transaction Details Modal */}
+      <TransactionDetailsModal
+        isOpen={transactionDetailsModal.isOpen}
+        onClose={() => setTransactionDetailsModal(prev => ({ ...prev, isOpen: false }))}
+        filter={transactionDetailsModal.filter}
+        title={transactionDetailsModal.title}
+      />
     </ReportsContainer>
   );
 };
