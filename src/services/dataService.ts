@@ -11,6 +11,7 @@ class DataService {
   private isInitialized = false;
   private healthCheckResults: DBHealthCheck | null = null;
   private healthCheckFailures = 0; // Track consecutive health check failures
+  private needsAnomalyDetection = false; // Track if anomaly detection needs to be re-run
   
   // In-memory undo/redo stacks for fast operations during active editing
   private undoStacks: { [transactionId: string]: Transaction[] } = {};
@@ -314,6 +315,11 @@ class DataService {
     return [...this.transactions];
   }
 
+  // Check if anomaly detection needs to be re-run
+  getNeedsAnomalyDetection(): boolean {
+    return this.needsAnomalyDetection;
+  }
+
   async getTransactionsWithoutTransfers(): Promise<Transaction[]> {
     await this.ensureInitialized();
     const filteredTransactions = transferMatchingService.filterNonTransfers(this.transactions);
@@ -351,6 +357,9 @@ class DataService {
     };
     
     this.transactions.push(newTransaction);
+    
+    // Set flag to indicate anomaly detection needs to be re-run
+    this.needsAnomalyDetection = true;
     
     // Attempt automatic transfer matching if the new transaction is a transfer
     if (newTransaction.type === 'transfer') {
@@ -447,6 +456,11 @@ class DataService {
     
     console.log('📊 Adding transactions to in-memory store...');
     this.transactions.push(...newTransactions);
+
+    // Set flag to indicate anomaly detection needs to be re-run
+    if (newTransactions.length > 0) {
+      this.needsAnomalyDetection = true;
+    }
 
     console.log(`📊 Total transactions now: ${this.transactions.length}`);
     
@@ -870,6 +884,9 @@ class DataService {
       }
     }
     await this.saveToDB();
+    
+    // Clear flag after anomaly detection is complete
+    this.needsAnomalyDetection = false;
   }
 
   private calculateAnomalyScore(transaction: Transaction): {
