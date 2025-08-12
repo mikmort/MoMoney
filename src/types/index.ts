@@ -130,6 +130,33 @@ export interface FileImportProgress {
   processedRows: number;
   totalRows: number;
   errors: string[];
+  fileName?: string; // For identifying which file this progress is for
+}
+
+export interface MultiFileImportProgress {
+  files: Map<string, FileImportProgress>;
+  totalFiles: number;
+  completedFiles: number;
+  failedFiles: number;
+  overallStatus: 'pending' | 'processing' | 'completed' | 'error' | 'partial';
+}
+
+export interface FileImportItem {
+  fileId: string;
+  file: File;
+  accountId?: string;
+  needsAccountSelection: boolean;
+  accountDetectionResult?: {
+    detectedAccountId?: string;
+    confidence: number;
+    reasoning: string;
+    suggestedAccounts: Array<{
+      accountId: string;
+      confidence: number;
+      reasoning: string;
+    }>;
+  };
+  progress?: FileImportProgress;
 }
 
 export interface FileSchemaMapping {
