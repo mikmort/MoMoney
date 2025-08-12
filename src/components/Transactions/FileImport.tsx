@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
-import { FileImportProgress, Category, Subcategory, Account, DuplicateDetectionResult, Transaction } from '../../types';
+import { FileImportProgress, Category, Subcategory, Account, DuplicateDetectionResult, Transaction, FileImportItem, MultiFileImportProgress } from '../../types';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
@@ -122,11 +122,16 @@ interface FileImportProps {
 
 export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const [isImporting, setIsImporting] = useState(false);
-  const [progress, setProgress] = useState<FileImportProgress | null>(null);
+  const [multiFileProgress, setMultiFileProgress] = useState<MultiFileImportProgress | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [fileImportItems, setFileImportItems] = useState<FileImportItem[]>([]);
+  const [showAccountSelection, setShowAccountSelection] = useState(false);
+  const [currentAccountSelectionItem, setCurrentAccountSelectionItem] = useState<FileImportItem | null>(null);
+  
+  // Legacy single-file state - keep for backwards compatibility with existing dialogs
+  const [progress, setProgress] = useState<FileImportProgress | null>(null);
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [showAccountSelection, setShowAccountSelection] = useState(false);
   const [accountDetectionResult, setAccountDetectionResult] = useState<AccountDetectionResponse | null>(null);
   
   // Duplicate detection state
@@ -149,10 +154,216 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const handleFileSelect = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     
-    const file = files[0];
-    processFile(file);
+    console.log(`📁 Selected ${files.length} file(s) for import`);
+    
+    // Convert FileList to array and process each file
+    const fileArray = Array.from(files);
+    processMultipleFiles(fileArray);
   };
 
+  const processMultipleFiles = async (files: File[]) => {
+    try {
+      // Create FileImportItem for each file
+      const importItems: FileImportItem[] = [];
+      
+      for (const file of files) {
+        const fileId = `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        console.log(`🔍 Processing file: ${file.name}`);
+        
+        // Try to detect account for each file
+        const detectionRequest = {
+          fileName: file.name,
+        };
+
+        try {
+          const detectionResult = await detectAccount(detectionRequest);
+          
+          const CONFIDENCE_THRESHOLD = 0.95;
+          const item: FileImportItem = {
+            fileId,
+            file,
+            needsAccountSelection: !(detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD),
+            accountDetectionResult: {
+              detectedAccountId: detectionResult.detectedAccountId,
+              confidence: detectionResult.confidence,
+              reasoning: detectionResult.reasoning,
+              suggestedAccounts: detectionResult.suggestedAccounts || []
+            },
+            accountId: (detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD) 
+              ? detectionResult.detectedAccountId 
+              : undefined
+          };
+          
+          importItems.push(item);
+        } catch (error) {
+          console.error(`Account detection failed for ${file.name}:`, error);
+          // Fallback - require manual account selection
+          const item: FileImportItem = {
+            fileId,
+            file,
+            needsAccountSelection: true,
+            accountDetectionResult: undefined,
+            accountId: undefined
+          };
+          
+          importItems.push(item);
+        }
+      }
+      
+      setFileImportItems(importItems);
+      
+      // Check if any files need account selection
+      const filesNeedingAccounts = importItems.filter(item => item.needsAccountSelection);
+      
+      if (filesNeedingAccounts.length > 0) {
+        console.log(`⚠️ ${filesNeedingAccounts.length} file(s) need account selection`);
+        // Show account selection for the first file that needs it
+        setCurrentAccountSelectionItem(filesNeedingAccounts[0]);
+        setShowAccountSelection(true);
+        // Clear the input so selecting the same files again triggers onChange
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } else {
+        // All files have high-confidence account detection, start processing all
+        console.log(`✅ All ${importItems.length} file(s) have high-confidence account detection`);
+        await startMultiFileProcessing(importItems);
+      }
+      
+    } catch (error) {
+      console.error('Error processing multiple files:', error);
+      // Clear the input so selecting the same files again triggers onChange
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const startMultiFileProcessing = async (items: FileImportItem[]) => {
+    setIsImporting(true);
+    setGlobalImportState(true, `${items.length} files`);
+    
+    const filesMap = new Map<string, FileImportProgress>();
+    items.forEach(item => {
+      filesMap.set(item.fileId, {
+        fileId: item.fileId,
+        status: 'pending',
+        progress: 0,
+        currentStep: 'Initializing...',
+        processedRows: 0,
+        totalRows: 0,
+        errors: [],
+        fileName: item.file.name
+      });
+    });
+
+    const multiProgress: MultiFileImportProgress = {
+      files: filesMap,
+      totalFiles: items.length,
+      completedFiles: 0,
+      failedFiles: 0,
+      overallStatus: 'processing'
+    };
+    
+    setMultiFileProgress(multiProgress);
+    
+    let totalTransactions = 0;
+    
+    // Process files in parallel (but limit concurrency to avoid overwhelming)
+    const MAX_CONCURRENT = 3;
+    const results = [];
+    
+    for (let i = 0; i < items.length; i += MAX_CONCURRENT) {
+      const batch = items.slice(i, i + MAX_CONCURRENT);
+      const batchPromises = batch.map(item => processFileItem(item, multiProgress));
+      const batchResults = await Promise.allSettled(batchPromises);
+      results.push(...batchResults);
+    }
+    
+    // Count successful imports
+    let completedFiles = 0;
+    let failedFiles = 0;
+    
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        totalTransactions += result.value;
+        completedFiles++;
+      } else {
+        console.error(`Failed to process file ${items[index].file.name}:`, result.reason);
+        failedFiles++;
+      }
+    });
+    
+    // Update final status
+    multiProgress.completedFiles = completedFiles;
+    multiProgress.failedFiles = failedFiles;
+    multiProgress.overallStatus = failedFiles > 0 
+      ? (completedFiles > 0 ? 'partial' : 'error')
+      : 'completed';
+    
+    setMultiFileProgress({...multiProgress});
+    
+    console.log(`🎉 Multi-file import completed: ${completedFiles} successful, ${failedFiles} failed, ${totalTransactions} total transactions`);
+    
+    onImportComplete(totalTransactions);
+    
+    setTimeout(() => {
+      setMultiFileProgress(null);
+      setIsImporting(false);
+      setGlobalImportState(false);
+      setFileImportItems([]);
+    }, 3000);
+  };
+
+  const processFileItem = async (item: FileImportItem, multiProgress: MultiFileImportProgress): Promise<number> => {
+    if (!item.accountId) {
+      throw new Error(`No account ID for file ${item.file.name}`);
+    }
+    
+    const fileProgress = multiProgress.files.get(item.fileId);
+    if (!fileProgress) {
+      throw new Error(`No progress tracking for file ${item.file.name}`);
+    }
+
+    try {
+      const result = await fileProcessingService.processFile(
+        item.file,
+        categories,
+        subcategories,
+        item.accountId,
+        (progress) => {
+          // Update individual file progress
+          const updatedProgress = { ...progress, fileName: item.file.name };
+          multiProgress.files.set(item.fileId, updatedProgress);
+          setMultiFileProgress({...multiProgress});
+        },
+        (fileId) => {
+          console.log(`📋 File processing started for ${item.file.name} with ID: ${fileId}`);
+        }
+      );
+
+      if (result.statementFile.status === 'completed') {
+        // File completed successfully
+        fileProgress.status = 'completed';
+        fileProgress.progress = 100;
+        fileProgress.currentStep = 'Import completed successfully!';
+        multiProgress.files.set(item.fileId, fileProgress);
+        
+        return result.statementFile.transactionCount || 0;
+      } else {
+        // File had issues (e.g., needs duplicate resolution)
+        fileProgress.status = 'error';
+        fileProgress.errors.push('File processing incomplete - may need duplicate resolution');
+        multiProgress.files.set(item.fileId, fileProgress);
+        return 0;
+      }
+    } catch (error) {
+      fileProgress.status = 'error';
+      fileProgress.errors.push(error instanceof Error ? error.message : 'Unknown error');
+      multiProgress.files.set(item.fileId, fileProgress);
+      throw error;
+    }
+  };
+
+  // Keep original processFile function for backward compatibility with account selection
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const processFile = async (file: File) => {
     try {
       // First, try to detect the account
@@ -258,8 +469,6 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   };
 
   const handleAccountSelection = async (accountId: string, isNewAccount?: boolean, newAccountData?: Omit<Account, 'id'>) => {
-    setShowAccountSelection(false);
-    
     let finalAccountId = accountId;
     
     // If creating a new account, add it first
@@ -273,19 +482,56 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       }
     }
 
-    // Start processing with the selected/created account
-    if (pendingFile) {
+    // Handle multi-file or single-file account selection
+    if (currentAccountSelectionItem) {
+      // Multi-file mode: assign account to current file and continue with others
+      currentAccountSelectionItem.accountId = finalAccountId;
+      currentAccountSelectionItem.needsAccountSelection = false;
+      
+      // Update the file import items
+      const updatedItems = fileImportItems.map(item => 
+        item.fileId === currentAccountSelectionItem.fileId ? currentAccountSelectionItem : item
+      );
+      setFileImportItems(updatedItems);
+      
+      // Check if there are more files needing accounts
+      const nextFileNeedingAccount = updatedItems.find(item => item.needsAccountSelection);
+      
+      if (nextFileNeedingAccount) {
+        // Show account selection for next file
+        setCurrentAccountSelectionItem(nextFileNeedingAccount);
+        // Keep dialog open
+      } else {
+        // All files have accounts assigned, start processing
+        setShowAccountSelection(false);
+        setCurrentAccountSelectionItem(null);
+        await startMultiFileProcessing(updatedItems);
+      }
+      
+    } else if (pendingFile) {
+      // Legacy single-file mode
+      setShowAccountSelection(false);
       await startFileProcessing(pendingFile, finalAccountId);
       setPendingFile(null);
     }
+    
     setAccountDetectionResult(null);
   };
 
   const handleCancelAccountSelection = () => {
     setShowAccountSelection(false);
-    setPendingFile(null);
+    
+    if (currentAccountSelectionItem) {
+      // Multi-file mode: cancel the entire import
+      setCurrentAccountSelectionItem(null);
+      setFileImportItems([]);
+    } else {
+      // Legacy single-file mode
+      setPendingFile(null);
+    }
+    
     setAccountDetectionResult(null);
-    // Allow choosing the same file again after cancel
+    // Allow choosing the same file(s) again after cancel
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -411,16 +657,16 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         onClick={handleButtonClick}
       >
         <div>
-          <strong style={{ fontSize: '15px' }}>Drop your file here or click to browse</strong>
+          <strong style={{ fontSize: '15px' }}>Drop your files here or click to browse</strong>
           <br />
-          <span style={{ fontSize: '13px' }}>Upload bank statements, credit card statements, or transaction files</span>
+          <span style={{ fontSize: '13px' }}>Upload bank statements, credit card statements, or transaction files (supports multiple files)</span>
           
           <div style={{ marginTop: '12px' }}>
             <ImportButton 
               onClick={handleButtonClick}
               disabled={isImporting}
             >
-              {isImporting ? 'Processing...' : 'Choose File'}
+              {isImporting ? 'Processing...' : 'Choose Files'}
             </ImportButton>
             
             <SupportedFormats>
@@ -445,9 +691,90 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         ref={fileInputRef}
         type="file"
         accept={getSupportedFormats()}
+        multiple={true}
         onChange={(e) => handleFileSelect(e.target.files)}
         disabled={isImporting}
       />
+
+      {multiFileProgress && (
+        <ProgressContainer>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <strong>Processing {multiFileProgress.totalFiles} Files</strong>
+            <span>{multiFileProgress.completedFiles}/{multiFileProgress.totalFiles} completed</span>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {Array.from(multiFileProgress.files.entries()).map(([fileId, fileProgress]) => (
+              <div key={fileId} style={{ 
+                border: '1px solid #e0e0e0', 
+                borderRadius: '4px', 
+                padding: '8px',
+                backgroundColor: '#f9f9f9'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>
+                    {fileProgress.fileName || `File ${fileId.slice(-8)}`}
+                  </div>
+                  <div style={{ fontSize: '0.8rem' }}>
+                    {Math.round(fileProgress.progress)}%
+                  </div>
+                </div>
+                
+                <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: '4px' }}>
+                  {fileProgress.currentStep}
+                </div>
+                
+                <ProgressBar>
+                  <ProgressFill width={fileProgress.progress} />
+                </ProgressBar>
+                
+                {fileProgress.status === 'completed' && (
+                  <div style={{ color: '#4caf50', fontSize: '0.8rem', marginTop: '4px' }}>
+                    ✅ Completed
+                  </div>
+                )}
+                
+                {fileProgress.status === 'error' && (
+                  <div style={{ color: '#f44336', fontSize: '0.8rem', marginTop: '4px' }}>
+                    ❌ Failed
+                  </div>
+                )}
+                
+                {fileProgress.errors.length > 0 && (
+                  <details style={{ marginTop: '4px' }}>
+                    <summary style={{ cursor: 'pointer', color: '#f44336', fontSize: '0.8rem' }}>
+                      {fileProgress.errors.length} error(s)
+                    </summary>
+                    <div style={{ marginTop: '4px' }}>
+                      {fileProgress.errors.map((error, index) => (
+                        <div key={index} style={{ fontSize: '0.8rem', color: '#f44336' }}>• {error}</div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+          
+          {multiFileProgress.overallStatus === 'completed' && (
+            <div style={{ color: '#4caf50', fontWeight: 'bold', marginTop: '16px' }}>
+              🎉 All files processed successfully!
+            </div>
+          )}
+          
+          {multiFileProgress.overallStatus === 'partial' && (
+            <div style={{ color: '#ff9800', fontWeight: 'bold', marginTop: '16px' }}>
+              ⚠️ Some files completed, some failed ({multiFileProgress.completedFiles} successful, {multiFileProgress.failedFiles} failed)
+            </div>
+          )}
+          
+          {multiFileProgress.overallStatus === 'error' && (
+            <div style={{ color: '#f44336', fontWeight: 'bold', marginTop: '16px' }}>
+              ❌ All files failed to process
+            </div>
+          )}
+        </ProgressContainer>
+      )}
 
       {progress && (
         <ProgressContainer>
@@ -489,16 +816,21 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         </ProgressContainer>
       )}
 
-      {/* Account Selection Dialog */}
-      {showAccountSelection && pendingFile && (
+      {/* Account Selection Dialog - Updated for multi-file support */}
+      {showAccountSelection && (currentAccountSelectionItem || pendingFile) && (
         <AccountSelectionDialog
           isOpen={showAccountSelection}
-          fileName={pendingFile.name}
-          detectionResult={accountDetectionResult || undefined}
+          fileName={(currentAccountSelectionItem?.file?.name) || (pendingFile?.name) || 'Unknown File'}
+          detectionResult={currentAccountSelectionItem?.accountDetectionResult || accountDetectionResult || undefined}
           accounts={accounts}
           onAccountSelect={(accountId) => handleAccountSelection(accountId)}
           onNewAccount={(newAccountData) => handleAccountSelection('new', true, newAccountData)}
           onCancel={handleCancelAccountSelection}
+          multiFileContext={currentAccountSelectionItem ? {
+            currentFileIndex: fileImportItems.findIndex(item => item.fileId === currentAccountSelectionItem.fileId) + 1,
+            totalFiles: fileImportItems.length,
+            filesNeedingAccounts: fileImportItems.filter(item => item.needsAccountSelection).length
+          } : undefined}
         />
       )}
 

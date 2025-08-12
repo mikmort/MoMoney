@@ -200,6 +200,11 @@ interface AccountSelectionDialogProps {
   onAccountSelect: (accountId: string) => void;
   onNewAccount: (account: Omit<Account, 'id'>) => void;
   onCancel: () => void;
+  multiFileContext?: {
+    currentFileIndex: number;
+    totalFiles: number;
+    filesNeedingAccounts: number;
+  };
 }
 
 export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
@@ -209,7 +214,8 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
   accounts,
   onAccountSelect,
   onNewAccount,
-  onCancel
+  onCancel,
+  multiFileContext
 }) => {
   const [selectedAccountId, setSelectedAccountId] = useState<string | 'new'>(
     detectionResult?.detectedAccountId || ''
@@ -263,10 +269,22 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
   return (
     <DialogOverlay onClick={onCancel}>
       <DialogContent onClick={(e) => e.stopPropagation()}>
-        <h2>Select Account for Import</h2>
+        <h2>
+          Select Account for Import
+          {multiFileContext && (
+            <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: '#666', marginLeft: '8px' }}>
+              ({multiFileContext.currentFileIndex} of {multiFileContext.totalFiles} files)
+            </span>
+          )}
+        </h2>
         
         <div className="file-info">
           <strong>File:</strong> {fileName}
+          {multiFileContext && multiFileContext.totalFiles > 1 && (
+            <div style={{ marginTop: '4px', fontSize: '0.9rem' }}>
+              <strong>Progress:</strong> {multiFileContext.filesNeedingAccounts} file(s) still need account selection
+            </div>
+          )}
         </div>
 
         {detectionResult && detectionResult.confidence > 0 && (
