@@ -969,7 +969,7 @@ Return ONLY a clean JSON response:
     console.log(`🤖 Step 3: Created ${batchRequests.length} batch requests for AI (reduced from ${validIndices.length} total)`);
 
     // Step 3: Call AI in batch chunks only for unmatched transactions
-    const batchResults: AIClassificationResponse[] = [];
+    const batchResults: (AIClassificationResponse & { correlationKey?: string })[] = [];
   let remainingUnmatchedTransactions = [...ruleResults.unmatchedTransactions];
   let allMatchedTransactions = [...ruleResults.matchedTransactions];
     
@@ -1019,13 +1019,20 @@ Return ONLY a clean JSON response:
         const currentChunk = remainingUnmatchedTransactions.slice(0, CHUNK);
         console.log(`📊 Processing batch ${batchNumber} with ${currentChunk.length} transactions`);
         
-        // Create batch requests for current chunk
+        // Create batch requests for current chunk with correlation tracking
         const chunkRequests: AIClassificationRequest[] = currentChunk.map(transaction => ({
           transactionText: transaction.description,
           amount: transaction.amount,
           date: transaction.date.toISOString(),
           availableCategories: categories
         }));
+        
+        // Create correlation map to properly match responses back to transactions
+        const chunkCorrelationMap = new Map<string, typeof currentChunk[0]>();
+        currentChunk.forEach(transaction => {
+          const correlationKey = `${transaction.description}|${transaction.amount}|${transaction.date.toISOString()}`;
+          chunkCorrelationMap.set(correlationKey, transaction);
+        });
         
         try {
           const res = await azureOpenAIService.classifyTransactionsBatch(chunkRequests);
@@ -1080,8 +1087,22 @@ Return ONLY a clean JSON response:
             console.log(`📋 Created ${autoRulesCreatedThisBatch} auto-rules from batch ${batchNumber} - these will be available for subsequent batches`);
           }
           
-          // Store results for final transaction creation
-          batchResults.push(...res);
+          // Store results with correlation keys for final transaction creation
+          const correlatedResults = res.map((aiResult, index) => {
+            const originalTransaction = currentChunk[index];
+            if (originalTransaction) {
+              const correlationKey = `${originalTransaction.description}|${originalTransaction.amount}|${originalTransaction.date.toISOString()}`;
+              return {
+                ...aiResult,
+                correlationKey
+              };
+            }
+            return {
+              ...aiResult,
+              correlationKey: `unknown-${index}`
+            };
+          });
+          batchResults.push(...correlatedResults);
           
           // Remove processed transactions from remaining list
           remainingUnmatchedTransactions = remainingUnmatchedTransactions.slice(currentChunk.length);
@@ -1136,7 +1157,7 @@ Return ONLY a clean JSON response:
     });
 
     // Process AI results for unmatched transactions 
-    // CRITICAL FIX: Account for transactions that may have been rule-matched during batch processing
+    // CRITICAL FIX: Use correlation keys instead of indices to properly match AI responses to transactions
     console.log(`🤖 Processing AI results for unmatched transactions...`);
     console.log(`📊 Original unmatched: ${ruleResults.unmatchedTransactions.length}, AI results: ${batchResults.length}, Current rule-matched: ${allMatchedTransactions.length}`);
     
@@ -1144,27 +1165,39 @@ Return ONLY a clean JSON response:
     const idToNameSub = new Map<string, { name: string; parentId: string }>();
     categories.forEach(c => (c.subcategories || []).forEach(s => idToNameSub.set(s.id, { name: s.name, parentId: c.id })));
 
+    // Create a map of AI results by correlation key for fast lookup
+    const aiResultsByCorrelation = new Map<string, any>();
+    batchResults.forEach(result => {
+      if (result.correlationKey) {
+        aiResultsByCorrelation.set(result.correlationKey, result);
+      }
+    });
+
     // CRITICAL FIX: Match AI results to original unmatched transactions properly
     // This addresses the index mismatch when rules are created during batch processing
     const originalUnmatchedTransactions = ruleResults.unmatchedTransactions;
     const processedTransactionDescriptions = new Set(
-      allMatchedTransactions.map(match => `${match.transaction.description}|${match.transaction.amount}|${match.transaction.date.getTime()}`)
+      allMatchedTransactions.map(match => `${match.transaction.description}|${match.transaction.amount}|${match.transaction.date.toISOString()}`)
     );
 
-    for (let index = 0; index < Math.min(batchResults.length, originalUnmatchedTransactions.length); index++) {
-      const transaction = originalUnmatchedTransactions[index];
-      const transactionKey = `${transaction.description}|${transaction.amount}|${transaction.date.getTime()}`;
+    for (const transaction of originalUnmatchedTransactions) {
+      const transactionCorrelationKey = `${transaction.description}|${transaction.amount}|${transaction.date.toISOString()}`;
       
       // Skip transactions that were already matched by rules during batch processing
-      if (processedTransactionDescriptions.has(transactionKey)) {
+      if (processedTransactionDescriptions.has(transactionCorrelationKey)) {
         console.log(`  Skipping transaction already rule-matched: ${transaction.description}`);
         continue;
       }
       
-      const ai = batchResults[index] || { categoryId: 'uncategorized', confidence: 0.1 } as AIClassificationResponse;
+      // Find the correct AI result for this specific transaction using correlation key
+      const ai = aiResultsByCorrelation.get(transactionCorrelationKey) || { 
+        categoryId: 'uncategorized', 
+        confidence: 0.1,
+        reasoning: 'No AI classification result found for this transaction'
+      } as AIClassificationResponse;
 
-      if (index < 2) {
-        console.log(`  AI processing ${index + 1}: ${transaction.date.toISOString()} | ${transaction.amount} | "${transaction.description}" -> AI: ${ai.categoryId} (${ai.confidence})`);
+      if (transactions.length < 2) {
+        console.log(`  AI processing: ${transaction.date.toISOString()} | ${transaction.amount} | "${transaction.description}" -> AI: ${ai.categoryId} (${ai.confidence})`);
       }
 
       // Constrain AI result to valid categories
@@ -1222,8 +1255,8 @@ Return ONLY a clean JSON response:
       };
       transactions.push(newTransaction);
       
-      if (index < 2) {
-        console.log(`  AI-processed ${index + 1}: ID=${newTransaction.id}, Final category: ${finalCategoryName}`);
+      if (transactions.length <= 2) {
+        console.log(`  AI-processed ${transactions.length}: ID=${newTransaction.id}, Final category: ${finalCategoryName}`);
       }
     }
 
