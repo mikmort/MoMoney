@@ -551,6 +551,23 @@ class DataService {
       };
     }
 
+    // Handle transaction type changes when category changes to/from "Internal Transfer"
+    if ('category' in updates && updates.category !== current.category) {
+      const oldCategory = current.category;
+      const newCategory = updates.category;
+      
+      // Case 1: Changing TO "Internal Transfer" - should become type "transfer"
+      if (newCategory === 'Internal Transfer' && oldCategory !== 'Internal Transfer') {
+        finalUpdates.type = 'transfer';
+      }
+      // Case 2: Changing FROM "Internal Transfer" to something else - determine appropriate type
+      else if (oldCategory === 'Internal Transfer' && newCategory !== 'Internal Transfer') {
+        // Determine the appropriate type based on the transaction amount
+        // Negative amounts are typically expenses, positive amounts are typically income
+        finalUpdates.type = current.amount < 0 ? 'expense' : 'income';
+      }
+    }
+
     this.transactions[index] = {
       ...current,
       ...finalUpdates,
