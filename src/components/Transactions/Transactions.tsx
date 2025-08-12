@@ -1427,26 +1427,46 @@ const Transactions: React.FC = () => {
     }
   };
 
-  // Confidence cell renderer with info icon
-  const ConfidenceCellRenderer = (params: any) => {
-    const confidence = params.value;
-    if (!confidence) return '';
+  // Confidence cell renderer component
+  const ConfidenceCell: React.FC<{ transaction: Transaction; confidence: number; onInfoClick: () => void }> = ({
+    transaction,
+    confidence,
+    onInfoClick
+  }) => {
+    const [isRuleMatched, setIsRuleMatched] = useState<boolean | null>(null);
     
+    useEffect(() => {
+      const checkRuleMatch = async () => {
+        try {
+          const ruleResult = await rulesService.applyRules({
+            date: transaction.date,
+            description: transaction.description,
+            amount: transaction.amount,
+            category: transaction.category,
+            account: transaction.account,
+            type: transaction.type
+          });
+          setIsRuleMatched(ruleResult.matched);
+        } catch (error) {
+          // If there's an error checking rules, default to showing confidence
+          console.warn('Error checking rule match for transaction:', error);
+          setIsRuleMatched(false);
+        }
+      };
+      
+      checkRuleMatch();
+    }, [transaction.id, transaction.description, transaction.account, transaction.amount, transaction.category, transaction.date, transaction.type]);
+    
+    // If transaction matches a rule, don't show AI confidence
+    if (isRuleMatched === true) {
+      return null;
+    }
+    
+    // If still checking or no rule match, show confidence
     const percentage = Math.round(confidence * 100);
     const isLowConfidence = percentage < 60;
     const className = percentage > 90 ? 'high' : percentage >= 60 ? 'medium' : 'low';
     const displayText = `${percentage}%`;
-    
-    const handleInfoClick = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      const gridTransaction = params.data as Transaction;
-      
-      // Find the current transaction from state to ensure we have up-to-date data
-      // This prevents showing stale AI reasoning when transaction data has been updated
-      const currentTransaction = transactions.find(t => t.id === gridTransaction.id) || gridTransaction;
-      
-      setConfidencePopupData({ isOpen: true, transaction: currentTransaction });
-    };
     
     const infoIcon = (
       <span 
@@ -1457,7 +1477,10 @@ const Transactions: React.FC = () => {
           color: '#666',
           padding: '2px'
         }}
-        onClick={handleInfoClick}
+        onClick={(e) => {
+          e.stopPropagation();
+          onInfoClick();
+        }}
         title="View AI reasoning"
       >
         ℹ️
@@ -1489,6 +1512,30 @@ const Transactions: React.FC = () => {
         <span className={`confidence ${className}`}>{displayText}</span>
         {infoIcon}
       </span>
+    );
+  };
+
+  // Confidence cell renderer with info icon
+  const ConfidenceCellRenderer = (params: any) => {
+    const confidence = params.value;
+    const gridTransaction = params.data as Transaction;
+    
+    // If no confidence data, return empty
+    if (!confidence) return '';
+    
+    const handleInfoClick = () => {
+      // Find the current transaction from state to ensure we have up-to-date data
+      // This prevents showing stale AI reasoning when transaction data has been updated
+      const currentTransaction = transactions.find(t => t.id === gridTransaction.id) || gridTransaction;
+      setConfidencePopupData({ isOpen: true, transaction: currentTransaction });
+    };
+    
+    return (
+      <ConfidenceCell
+        transaction={gridTransaction}
+        confidence={confidence}
+        onInfoClick={handleInfoClick}
+      />
     );
   };
 
