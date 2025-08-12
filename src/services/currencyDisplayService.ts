@@ -87,16 +87,25 @@ class CurrencyDisplayService {
         this.defaultCurrency
       );
 
+      let rateToUse: number | null = null;
+      let convertedAmount: number = 0;
+
       if (conversionResult) {
-        const convertedAmount = transaction.amount < 0 
+        rateToUse = conversionResult.rate;
+        convertedAmount = transaction.amount < 0 
           ? -conversionResult.convertedAmount 
           : conversionResult.convertedAmount;
+      } else {
+        // API failed and no stored rates available
+        console.warn(`No exchange rate available for ${transactionCurrency} to ${this.defaultCurrency} - transaction conversion skipped`);
+      }
 
+      if (rateToUse) {
         return {
           amount: convertedAmount,
           originalAmount: transaction.amount,
           originalCurrency: transactionCurrency,
-          exchangeRate: conversionResult.rate,
+          exchangeRate: rateToUse,
           isConverted: true
         };
       }
@@ -233,7 +242,7 @@ class CurrencyDisplayService {
     const byCurrency = new Map<string, Transaction[]>();
     
     for (const transaction of transactions) {
-  const currency = this.resolveTransactionCurrency(transaction);
+      const currency = this.resolveTransactionCurrency(transaction);
       if (!byCurrency.has(currency)) {
         byCurrency.set(currency, []);
       }
@@ -252,18 +261,38 @@ class CurrencyDisplayService {
       // Get exchange rate once for this currency
       const exchangeRate = await currencyExchangeService.getExchangeRate(currency, this.defaultCurrency);
       
-      for (const transaction of currencyTransactions) {
-        const convertedTransaction = { ...transaction };
+      if (exchangeRate && exchangeRate.rate) {
+        // Successfully got exchange rate (from API or stored fallback)
+        const rateToUse = exchangeRate.rate;
+        const rateSource = exchangeRate.source;
         
-        if (exchangeRate) {
-          // Convert amount
-          const convertedAmount = transaction.amount * exchangeRate.rate;
+        for (const transaction of currencyTransactions) {
+          const convertedTransaction = { ...transaction };
+          
+          // Convert amount using available exchange rate
+          const convertedAmount = transaction.amount * rateToUse;
           convertedTransaction.amount = convertedAmount;
-          convertedTransaction.exchangeRate = exchangeRate.rate;
+          convertedTransaction.exchangeRate = rateToUse;
           convertedTransaction.originalCurrency = currency;
+          
+          convertedTransactions.push(convertedTransaction);
         }
         
-        convertedTransactions.push(convertedTransaction);
+        if (rateSource.includes('stored')) {
+          console.info(`Used stored exchange rate for ${currency} to ${this.defaultCurrency}: ${rateToUse} (source: ${rateSource})`);
+        }
+      } else {
+        // No rate available - exclude from totals calculation but warn user
+        console.warn(`No exchange rate available for ${currency} to ${this.defaultCurrency}, ${currencyTransactions.length} transactions excluded from totals`);
+        // Still add the transactions but mark them as unconverted
+        for (const transaction of currencyTransactions) {
+          convertedTransactions.push({
+            ...transaction,
+            // Keep original amount but mark as foreign currency issue
+            originalCurrency: currency,
+            exchangeRate: undefined
+          });
+        }
       }
     }
 
