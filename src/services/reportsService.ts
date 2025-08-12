@@ -1,6 +1,7 @@
 import { Transaction } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
+import { userPreferencesService } from './userPreferencesService';
 
 export interface SpendingByCategory {
   categoryName: string;
@@ -66,9 +67,36 @@ export interface DateRange {
 }
 
 class ReportsService {
+  // Helper method to filter transactions based on user preferences
+  private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense'): Promise<Transaction[]> {
+    const preferences = await userPreferencesService.getPreferences();
+    
+    return transactions.filter(t => {
+      // Always exclude transfer transactions from reports
+      if (t.type === 'transfer') {
+        return false;
+      }
+      
+      // Check if this is an asset allocation transaction
+      if (t.type === 'asset-allocation') {
+        // Only include asset allocation transactions if user has enabled it
+        return preferences.includeInvestmentsInReports;
+      }
+      
+      // For regular income/expense filtering
+      if (type === 'expense') {
+        return t.type === 'expense' || t.amount < 0;
+      } else if (type === 'income') {
+        return t.type === 'income' || t.amount > 0;
+      }
+      
+      return false;
+    });
+  }
+
   async getSpendingByCategory(dateRange?: DateRange): Promise<SpendingByCategory[]> {
-  const transactions = await this.getTransactionsInRange(dateRange);
-  const expenseTransactions = transactions.filter(t => t.type === 'expense' || t.amount < 0);
+    const transactions = await this.getTransactionsInRange(dateRange);
+    const expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense');
     
     if (expenseTransactions.length === 0) {
       return [];
@@ -108,12 +136,12 @@ class ReportsService {
   }
 
   async getMonthlySpendingTrends(dateRange?: DateRange): Promise<MonthlySpendingTrend[]> {
-  const transactions = await this.getTransactionsInRange(dateRange);
-  const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
-  const monthlyData: { [monthKey: string]: Transaction[] } = {};
+    const transactions = await this.getTransactionsInRange(dateRange);
+    const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
+    const monthlyData: { [monthKey: string]: Transaction[] } = {};
 
     // Group transactions by month
-  converted.forEach(transaction => {
+    converted.forEach(transaction => {
       const monthKey = transaction.date.toISOString().slice(0, 7); // YYYY-MM
       if (!monthlyData[monthKey]) {
         monthlyData[monthKey] = [];
@@ -122,15 +150,24 @@ class ReportsService {
     });
 
     // Calculate monthly statistics
+    const preferences = await userPreferencesService.getPreferences();
+    
     return Object.entries(monthlyData)
       .map(([monthKey, monthTransactions]) => {
-        const totalSpending = monthTransactions
-          .filter(t => t.type === 'expense' || t.amount < 0)
-          .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+        const expenseTransactions = monthTransactions.filter(t => {
+          if (t.type === 'transfer') return false;
+          if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
+          return t.type === 'expense' || t.amount < 0;
+        });
         
-        const totalIncome = monthTransactions
-          .filter(t => t.type === 'income' || t.amount > 0)
-          .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+        const incomeTransactions = monthTransactions.filter(t => {
+          if (t.type === 'transfer') return false;
+          if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
+          return t.type === 'income' || t.amount > 0;
+        });
+        
+        const totalSpending = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+        const totalIncome = incomeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
         const date = new Date(monthKey + '-01');
         const month = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -150,16 +187,14 @@ class ReportsService {
   }
 
   async getIncomeExpenseAnalysis(dateRange?: DateRange): Promise<IncomeExpenseAnalysis> {
-  const transactions = await this.getTransactionsInRange(dateRange);
-  const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
+    const transactions = await this.getTransactionsInRange(dateRange);
+    const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
     
-  const totalIncome = converted
-      .filter(t => t.type === 'income' || t.amount > 0)
-      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const incomeTransactions = await this.filterTransactionsForReports(converted, 'income');
+    const expenseTransactions = await this.filterTransactionsForReports(converted, 'expense');
     
-  const totalExpenses = converted
-      .filter(t => t.type === 'expense' || t.amount < 0)
-      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const totalIncome = incomeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const totalExpenses = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
     const netIncome = totalIncome - totalExpenses;
     const incomeToExpenseRatio = totalExpenses > 0 ? totalIncome / totalExpenses : 0;
@@ -177,11 +212,21 @@ class ReportsService {
   }
 
   async getCategoryDeepDive(categoryName: string, dateRange?: DateRange): Promise<CategoryDeepDive | null> {
-  const transactions = await this.getTransactionsInRange(dateRange);
-  const categoryTransactionsRaw = transactions
-      .filter(t => t.category === categoryName && (t.type === 'expense' || t.amount < 0))
+    const transactions = await this.getTransactionsInRange(dateRange);
+    const preferences = await userPreferencesService.getPreferences();
+    
+    const categoryTransactionsRaw = transactions
+      .filter(t => {
+        // Must match the category name
+        if (t.category !== categoryName) return false;
+        
+        // Check transaction type
+        if (t.type === 'transfer') return false;
+        if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
+        return t.type === 'expense' || t.amount < 0;
+      })
       .sort((a, b) => b.date.getTime() - a.date.getTime());
-  const categoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactionsRaw);
+    const categoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactionsRaw);
 
     if (categoryTransactions.length === 0) {
       return null;
@@ -227,9 +272,9 @@ class ReportsService {
   }
 
   async getBurnRateAnalysis(dateRange?: DateRange): Promise<BurnRateAnalysis> {
-  const allTransactions = await this.getTransactionsInRange(dateRange);
-  const convertedAll = await currencyDisplayService.convertTransactionsBatch(allTransactions);
-  const expenseTransactions = convertedAll.filter(t => t.type === 'expense' || t.amount < 0);
+    const allTransactions = await this.getTransactionsInRange(dateRange);
+    const convertedAll = await currencyDisplayService.convertTransactionsBatch(allTransactions);
+    const expenseTransactions = await this.filterTransactionsForReports(convertedAll, 'expense');
     
     if (expenseTransactions.length === 0) {
       return {

@@ -948,6 +948,7 @@ const Transactions: React.FC = () => {
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
+  const [showInvestmentTransactions, setShowInvestmentTransactions] = useState(false); // Hide investments by default
   const [showTransferMatchingPanel, setShowTransferMatchingPanel] = useState(false);
   const [transferFilter, setTransferFilter] = useState<'all' | 'matched' | 'unmatched'>('all');
   
@@ -2066,6 +2067,11 @@ const Transactions: React.FC = () => {
       filtered = filterNonReimbursed(filtered);
     }
 
+    // Filter out investment transactions if the toggle is off (default behavior)
+    if (!showInvestmentTransactions) {
+      filtered = filtered.filter((t: Transaction) => t.type !== 'asset-allocation');
+    }
+
     if (filters.category) {
       filtered = filtered.filter((t: Transaction) => t.category === filters.category);
     }
@@ -2099,7 +2105,7 @@ const Transactions: React.FC = () => {
     }
 
     setFilteredTransactions(filtered);
-  }, [transactions, filters, showReimbursedTransactions, transferFilter, filterNonReimbursed]);
+  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, transferFilter, filterNonReimbursed]);
 
   useEffect(() => {
     applyFilters();
@@ -2153,12 +2159,16 @@ const Transactions: React.FC = () => {
     return transactions.filter(tx => tx.reimbursed).length;
   };
 
+  const countInvestmentTransactions = (transactions: Transaction[]): number => {
+    return transactions.filter(tx => tx.type === 'asset-allocation').length;
+  };
+
   // Calculate stats in default currency using conversion batch
   useEffect(() => {
     const run = async () => {
       try {
         const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
-        const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer');
+        const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer' && t.type !== 'asset-allocation');
 
         await currencyDisplayService.initialize();
         const converted = await currencyDisplayService.convertTransactionsBatch(nonTransferTransactions);
@@ -2181,7 +2191,7 @@ const Transactions: React.FC = () => {
         console.error('Failed to compute totals with currency conversion:', e);
         // Fallback: compute without conversion
         const transactionsToCalculate = showReimbursedTransactions ? filteredTransactions : filterNonReimbursed(filteredTransactions);
-        const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer');
+        const nonTransferTransactions = transactionsToCalculate.filter((t: Transaction) => t.type !== 'transfer' && t.type !== 'asset-allocation');
         const totalIncome = nonTransferTransactions
           .filter((t: Transaction) => t.type === 'income')
           .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
@@ -3201,6 +3211,18 @@ const Transactions: React.FC = () => {
                 title="Toggle showing reimbursed transactions"
               >
                 💰 Show Reimbursed ({countReimbursedTransactions(transactions)})
+              </QuickFilterButton>
+            )}
+            
+            {countInvestmentTransactions(transactions) > 0 && (
+              <QuickFilterButton
+                isActive={showInvestmentTransactions}
+                activeColor="#FF6B35"
+                activeBackground="#ffebe5"
+                onClick={() => setShowInvestmentTransactions(!showInvestmentTransactions)}
+                title="Toggle showing investment transactions (asset allocation)"
+              >
+                📊 Show Investments ({countInvestmentTransactions(transactions)})
               </QuickFilterButton>
             )}
           </div>

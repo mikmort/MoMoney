@@ -17,7 +17,7 @@ export interface Transaction {
   category: string;
   subcategory?: string;
   account: string;
-  type: 'income' | 'expense' | 'transfer';
+  type: 'income' | 'expense' | 'transfer' | 'asset-allocation';
   isRecurring?: boolean;
   tags?: string[];
   notes?: string;
@@ -80,7 +80,7 @@ export interface Account {
 export interface Category {
   id: string;
   name: string;
-  type: 'income' | 'expense' | 'transfer';
+  type: 'income' | 'expense' | 'transfer' | 'asset-allocation';
   subcategories: Subcategory[];
   color?: string;
   icon?: string;
@@ -233,6 +233,9 @@ export interface UserPreferences {
   enableNotifications: boolean;
   budgetAlerts: boolean;
   autoCategorizationEnabled: boolean;
+  // Investment display preferences
+  showInvestments: boolean; // Show investment transactions in main list (default: false)
+  includeInvestmentsInReports: boolean; // Include investments in spending/income reports (advanced users)
 }
 
 export interface ReimbursementMatch {
@@ -322,7 +325,7 @@ export interface RuleAction {
   categoryName: string;
   subcategoryId?: string;
   subcategoryName?: string;
-  transactionType?: 'income' | 'expense' | 'transfer'; // Optional override for transaction type
+  transactionType?: 'income' | 'expense' | 'transfer' | 'asset-allocation'; // Optional override for transaction type
 }
 
 export interface RuleMatchResult {

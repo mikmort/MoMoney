@@ -15,6 +15,8 @@ export const mockUser = {
     defaultAccount: 'Chase Checking',
     enableNotifications: true,
     budgetAlerts: true,
-    autoCategorizationEnabled: true
+    autoCategorizationEnabled: true,
+    showInvestments: false, // Hide investment transactions by default
+    includeInvestmentsInReports: false // Don't include investments in spending/income reports by default
   }
 };
