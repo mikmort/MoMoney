@@ -632,6 +632,26 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
       };
     }
 
+    // Development mode fallback - return mock anomalies for testing
+    if (process.env.NODE_ENV === 'development' && (!process.env.REACT_APP_OPENAI_PROXY_URL && !process.env.REACT_APP_FUNCTION_BASE_URL)) {
+      console.log('🔧 Development mode: Using mock anomaly detection');
+      // Return mock anomaly for demonstration
+      const mockAnomalies: AnomalyResult[] = request.transactions.slice(0, 1).map(t => ({
+        transaction: t,
+        anomalyType: 'unusual_amount' as const,
+        severity: 'medium' as const,
+        confidence: 0.75,
+        reasoning: 'Development mode: Mock anomaly for testing purposes',
+        historicalContext: 'This is a simulated anomaly detection result'
+      }));
+
+      return {
+        anomalies: mockAnomalies,
+        totalAnalyzed: request.transactions.length,
+        processingTime: Date.now() - startTime
+      };
+    }
+
     try {
       // Prepare transaction data for analysis with PII sanitization
       const transactionData = request.transactions.map(t => {
@@ -674,77 +694,85 @@ Rules:
 - Be conservative - only flag clear anomalies with confidence > 0.6
 - If no anomalies found, return empty array: []`;
 
-      const userPrompt = `Analyze these transactions for anomalies:
+      // Calculate message size and chunk transactions if needed
+      const basePromptSize = systemPrompt.length + 100; // Buffer for message structure
+      const maxContentSize = 3500; // Conservative limit under 4000
+      const availableSize = maxContentSize - basePromptSize;
+
+      // Estimate transaction size and chunk if needed
+      const sampleJson = JSON.stringify(transactionData.slice(0, Math.min(3, transactionData.length)), null, 2);
+      const avgTransactionSize = sampleJson.length / Math.min(3, transactionData.length);
+      const maxTransactionsPerChunk = Math.floor(availableSize / avgTransactionSize);
+
+      let allAnomalies: any[] = [];
+      
+      // Process transactions in chunks if necessary
+      if (transactionData.length <= maxTransactionsPerChunk) {
+        // Small dataset - process all at once
+        const userPrompt = `Analyze these transactions for anomalies:
 ${JSON.stringify(transactionData, null, 2)}`;
 
-      const proxyRequest: OpenAIProxyRequest = {
-        deployment: this.deploymentName,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        max_tokens: 2000,
-        temperature: 0.2
-      };
-
-  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
-      
-      if (!response.success || !response.data) {
-        console.error('Anomaly detection proxy call failed:', response.error);
-        return {
-          anomalies: [],
-          totalAnalyzed: request.transactions.length,
-          processingTime: Date.now() - startTime
+        const proxyRequest: OpenAIProxyRequest = {
+          deployment: this.deploymentName,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          max_tokens: 2000,
+          temperature: 0.2
         };
-      }
 
-      const responseContent = response.data.choices[0]?.message?.content;
-      if (!responseContent) {
-        return {
-          anomalies: [],
-          totalAnalyzed: request.transactions.length,
-          processingTime: Date.now() - startTime
-        };
-      }
+        const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
+        
+        if (response.success && response.data) {
+          const responseContent = response.data.choices[0]?.message?.content;
+          if (responseContent) {
+            allAnomalies = this.parseAnomalyResponse(responseContent, request.transactions);
+          }
+        }
+      } else {
+        // Large dataset - process in chunks
+        console.log(`🔍 Processing ${transactionData.length} transactions in chunks of ${maxTransactionsPerChunk}`);
+        
+        for (let i = 0; i < transactionData.length; i += maxTransactionsPerChunk) {
+          const chunk = transactionData.slice(i, i + maxTransactionsPerChunk);
+          const userPrompt = `Analyze these transactions for anomalies (chunk ${Math.floor(i / maxTransactionsPerChunk) + 1}):
+${JSON.stringify(chunk, null, 2)}`;
 
-      // Clean and parse the response
-      const cleanedResponse = this.cleanAIResponse(responseContent);
-      
-      let anomalyData: any[] = [];
-      try {
-        const parsed = JSON.parse(cleanedResponse);
-        anomalyData = Array.isArray(parsed) ? parsed : [];
-      } catch (error) {
-        console.error('Error parsing anomaly detection response:', error);
-        console.error('Raw response:', responseContent);
-        // Return empty result if parsing fails
-        return {
-          anomalies: [],
-          totalAnalyzed: request.transactions.length,
-          processingTime: Date.now() - startTime
-        };
-      }
-
-      // Map the results back to full transaction objects
-      const anomalies: AnomalyResult[] = anomalyData
-        .filter(item => item.confidence > 0.6) // Only include high-confidence anomalies
-        .map(item => {
-          const transaction = request.transactions.find(t => t.id === item.transactionId);
-          if (!transaction) return null;
-
-          return {
-            transaction,
-            anomalyType: item.anomalyType || 'suspicious_pattern',
-            severity: item.severity || 'medium',
-            confidence: typeof item.confidence === 'number' ? item.confidence : 0.7,
-            reasoning: item.reasoning || 'Transaction flagged as anomalous',
-            historicalContext: item.historicalContext
+          const proxyRequest: OpenAIProxyRequest = {
+            deployment: this.deploymentName,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            max_tokens: 2000,
+            temperature: 0.2
           };
-        })
-        .filter(Boolean) as AnomalyResult[];
+
+          try {
+            const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
+            
+            if (response.success && response.data) {
+              const responseContent = response.data.choices[0]?.message?.content;
+              if (responseContent) {
+                const chunkAnomalies = this.parseAnomalyResponse(responseContent, request.transactions);
+                allAnomalies.push(...chunkAnomalies);
+              }
+            }
+          } catch (error) {
+            console.error(`Error processing chunk ${Math.floor(i / maxTransactionsPerChunk) + 1}:`, error);
+            // Continue with other chunks
+          }
+          
+          // Small delay between chunks to avoid rate limiting
+          if (i + maxTransactionsPerChunk < transactionData.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        }
+      }
 
       return {
-        anomalies,
+        anomalies: allAnomalies,
         totalAnalyzed: request.transactions.length,
         processingTime: Date.now() - startTime
       };
@@ -758,6 +786,49 @@ ${JSON.stringify(transactionData, null, 2)}`;
         totalAnalyzed: request.transactions.length,
         processingTime: Date.now() - startTime
       };
+    }
+  }
+
+  private parseAnomalyResponse(responseContent: string, transactions: any[]): AnomalyResult[] {
+    try {
+      // Clean and parse the response
+      const cleanedResponse = this.cleanAIResponse(responseContent);
+      
+      let anomalyData: any[] = [];
+      try {
+        const parsed = JSON.parse(cleanedResponse);
+        anomalyData = Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.error('Error parsing anomaly detection JSON:', error);
+        return [];
+      }
+
+      // Map the results to AnomalyResult objects with transaction lookup
+      const anomalies: AnomalyResult[] = anomalyData
+        .filter(item => item.confidence > 0.6) // Only include high-confidence anomalies
+        .map(item => {
+          const transaction = transactions.find(t => t.id === item.transactionId);
+          if (!transaction) {
+            console.warn(`Transaction ${item.transactionId} not found for anomaly result`);
+            return null;
+          }
+
+          return {
+            transaction,
+            anomalyType: item.anomalyType || 'suspicious_pattern',
+            severity: item.severity || 'medium',
+            confidence: typeof item.confidence === 'number' ? item.confidence : 0.7,
+            reasoning: item.reasoning || 'Transaction flagged as anomalous',
+            historicalContext: item.historicalContext
+          };
+        })
+        .filter(Boolean) as AnomalyResult[];
+
+      return anomalies;
+    } catch (error) {
+      console.error('Error parsing anomaly detection response:', error);
+      console.error('Raw response:', responseContent);
+      return [];
     }
   }
 
