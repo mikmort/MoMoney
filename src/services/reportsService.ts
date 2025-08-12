@@ -67,15 +67,84 @@ export interface DateRange {
 }
 
 class ReportsService {
+  // Helper method to comprehensively identify internal transfers
+  private isInternalTransfer(transaction: Transaction): boolean {
+    // Check by transaction type first (most reliable)
+    if (transaction.type === 'transfer') {
+      return true;
+    }
+    
+    // Check by category (catch misclassified transfers)
+    const category = transaction.category.toLowerCase();
+    const transferCategories = [
+      'internal transfer',
+      'transfer',
+      'transfers',
+      'between accounts',
+      'account transfer',
+      'bank transfer'
+    ];
+    
+    if (transferCategories.some(cat => category.includes(cat))) {
+      return true;
+    }
+    
+    // Check by description (catch transactions with transfer keywords)
+    const description = transaction.description.toLowerCase();
+    const transferKeywords = [
+      'transfer to',
+      'transfer from',
+      'transfer - ',
+      'online transfer',
+      'mobile transfer',
+      'atm withdrawal',
+      'atm deposit',
+      'cash withdrawal',
+      'cash deposit',
+      'withdrawal - atm',
+      'deposit - atm',
+      'zelle transfer',
+      'venmo transfer',
+      'paypal transfer',
+      'wire transfer',
+      'ach transfer',
+      'electronic transfer',
+      'internal transfer',
+      'between accounts',
+      'move money',
+      'fund transfer',
+      'account transfer',
+      'savings transfer',
+      'checking transfer'
+    ];
+    
+    if (transferKeywords.some(keyword => description.includes(keyword))) {
+      return true;
+    }
+    
+    // Check for common ATM patterns
+    if (/atm\s*(withdrawal|deposit|cash|#)/i.test(description)) {
+      return true;
+    }
+    
+    // Check for transfer patterns with account names
+    if (/transfer.*(?:saving|checking|account)/i.test(description) || 
+        /(?:saving|checking|account).*transfer/i.test(description)) {
+      return true;
+    }
+    
+    return false;
+  }
+
   // Helper method to filter transactions based on user preferences
   private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense', includeTransfers: boolean = false): Promise<Transaction[]> {
     const preferences = await userPreferencesService.getPreferences();
     
     return transactions.filter(t => {
-      // For transfer transactions, only include if explicitly requested AND they match the income/expense criteria
-      if (t.type === 'transfer') {
+      // Check if this is an internal transfer using comprehensive detection
+      if (this.isInternalTransfer(t)) {
         if (!includeTransfers) {
-          return false;
+          return false; // Exclude all types of internal transfers when not requested
         }
         // If including transfers, still apply income/expense filtering based on amount
         if (type === 'expense') {
@@ -164,7 +233,7 @@ class ReportsService {
     return Object.entries(monthlyData)
       .map(([monthKey, monthTransactions]) => {
         const expenseTransactions = monthTransactions.filter(t => {
-          if (t.type === 'transfer') {
+          if (this.isInternalTransfer(t)) {
             return includeTransfers && t.amount < 0;
           }
           if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
@@ -172,7 +241,7 @@ class ReportsService {
         });
         
         const incomeTransactions = monthTransactions.filter(t => {
-          if (t.type === 'transfer') {
+          if (this.isInternalTransfer(t)) {
             return includeTransfers && t.amount > 0;
           }
           if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
@@ -234,7 +303,7 @@ class ReportsService {
         if (t.category !== categoryName) return false;
         
         // Check transaction type
-        if (t.type === 'transfer') {
+        if (this.isInternalTransfer(t)) {
           return includeTransfers && t.amount < 0; // Only include negative transfers for expense analysis
         }
         if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
@@ -402,8 +471,8 @@ class ReportsService {
   private async getTransactionsInRange(dateRange?: DateRange, includeTransfers: boolean = false): Promise<Transaction[]> {
     const allTransactions = await dataService.getAllTransactions();
     
-    // Filter out transfers by default (unless specifically requested)
-    let filteredTransactions = includeTransfers ? allTransactions : allTransactions.filter(t => t.type !== 'transfer');
+    // Filter out transfers using comprehensive detection (unless specifically requested)
+    let filteredTransactions = includeTransfers ? allTransactions : allTransactions.filter(t => !this.isInternalTransfer(t));
     
     if (!dateRange) {
       return filteredTransactions;
