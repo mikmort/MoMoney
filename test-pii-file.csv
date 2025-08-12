@@ -1,0 +1,6 @@
+Date,Description,Amount,Account
+01/15/2024,"Payment from SSN 123-45-6789 to john.doe@gmail.com",-500.00,Account 1234567890123456
+01/16/2024,"Transfer to (555) 123-4567 at 123 Main Street, Anytown ST 12345",250.00,Account 9876543210987654
+01/17/2024,"Direct deposit from employer",2500.00,Routing 123456789
+01/18/2024,"Starbucks purchase",-4.50,Primary Checking
+01/19/2024,"Payment to credit card ending in 4567",-850.00,Primary Checking
