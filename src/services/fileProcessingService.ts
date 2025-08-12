@@ -9,6 +9,7 @@ import { transferDetectionService } from './transferDetectionService';
 import { defaultCategories } from '../data/defaultCategories';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
+import { sanitizeFileContent } from '../utils/piiSanitization';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface FileProcessingResult {
@@ -598,8 +599,11 @@ export class FileProcessingService {
       // Get a sample of the file content for AI analysis
       const sampleContent = this.getSampleContent(fileContent, fileType);
       
+      // Sanitize file content to remove PII before sending to AI
+      const sanitizedContent = sanitizeFileContent(sampleContent);
+      
       const request: AISchemaMappingRequest = {
-        fileContent: sampleContent,
+        fileContent: sanitizedContent,
         fileType,
         targetSchema: ['date', 'description', 'notes', 'category', 'subcategory', 'amount'],
       };
