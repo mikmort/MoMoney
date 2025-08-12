@@ -209,6 +209,7 @@ const Reports: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dateRangeType, setDateRangeType] = useState<DateRangeType>('last-12-months');
   const [customDateRange, setCustomDateRange] = useState<DateRange | null>(null);
+  const [includeTransfers, setIncludeTransfers] = useState(false); // Off by default
   const [spendingByCategory, setSpendingByCategory] = useState<SpendingByCategory[]>([]);
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
   const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
@@ -240,11 +241,11 @@ const Reports: React.FC = () => {
         const dateRange = getCurrentDateRange();
         
         const [categoryData, trendsData, analysisData, insightsData, burnRateData] = await Promise.all([
-          reportsService.getSpendingByCategory(dateRange),
-          reportsService.getMonthlySpendingTrends(dateRange),
-          reportsService.getIncomeExpenseAnalysis(dateRange),
-          reportsService.getSpendingInsights(dateRange),
-          reportsService.getBurnRateAnalysis(dateRange)
+          reportsService.getSpendingByCategory(dateRange, includeTransfers),
+          reportsService.getMonthlySpendingTrends(dateRange, includeTransfers),
+          reportsService.getIncomeExpenseAnalysis(dateRange, includeTransfers),
+          reportsService.getSpendingInsights(dateRange, includeTransfers),
+          reportsService.getBurnRateAnalysis(dateRange, includeTransfers)
         ]);
         
         setSpendingByCategory(categoryData);
@@ -260,7 +261,7 @@ const Reports: React.FC = () => {
     };
 
     loadReportsData();
-  }, [dateRangeType, customDateRange, getCurrentDateRange]);
+  }, [dateRangeType, customDateRange, includeTransfers, getCurrentDateRange]);
 
   const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
   useEffect(() => {
@@ -407,6 +408,15 @@ const Reports: React.FC = () => {
               />
             </div>
           )}
+          
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={includeTransfers}
+              onChange={(e) => setIncludeTransfers(e.target.checked)}
+            />
+            Include Internal Transfers
+          </label>
         </div>
       </Card>
 
@@ -682,6 +692,7 @@ const Reports: React.FC = () => {
         <CategoryDrilldownModal
           categoryName={selectedCategory}
           dateRange={getCurrentDateRange()}
+          includeTransfers={includeTransfers}
           onClose={() => setSelectedCategory(null)}
         />
       )}
