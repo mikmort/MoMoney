@@ -74,6 +74,36 @@ class BudgetService {
         isActive: true,
         alertThreshold: 75,
       },
+      {
+        id: uuidv4(),
+        name: 'Shopping Budget',
+        categoryId: 'shopping',
+        amount: 400,
+        period: 'monthly',
+        startDate: startOfMonth,
+        isActive: true,
+        alertThreshold: 80,
+      },
+      {
+        id: uuidv4(),
+        name: 'Personal Care Budget',
+        categoryId: 'personal',
+        amount: 300,
+        period: 'monthly',
+        startDate: startOfMonth,
+        isActive: true,
+        alertThreshold: 85,
+      },
+      {
+        id: uuidv4(),
+        name: 'Travel Budget',
+        categoryId: 'travel',
+        amount: 500,
+        period: 'monthly',
+        startDate: startOfMonth,
+        isActive: true,
+        alertThreshold: 90,
+      },
     ];
     this.saveBudgets();
   }
