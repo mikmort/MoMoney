@@ -1433,8 +1433,13 @@ const Transactions: React.FC = () => {
     
     const handleInfoClick = (e: React.MouseEvent) => {
       e.stopPropagation();
-      const transaction = params.data as Transaction;
-      setConfidencePopupData({ isOpen: true, transaction });
+      const gridTransaction = params.data as Transaction;
+      
+      // Find the current transaction from state to ensure we have up-to-date data
+      // This prevents showing stale AI reasoning when transaction data has been updated
+      const currentTransaction = transactions.find(t => t.id === gridTransaction.id) || gridTransaction;
+      
+      setConfidencePopupData({ isOpen: true, transaction: currentTransaction });
     };
     
     const infoIcon = (
