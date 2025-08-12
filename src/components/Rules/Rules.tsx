@@ -5,6 +5,7 @@ import { dataService } from '../../services/dataService';
 import { rulesService } from '../../services/rulesService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { Button, Card, PageHeader, FlexBox } from '../../styles/globalStyles';
+import { useNotification } from '../../contexts/NotificationContext';
 
 const RulesContainer = styled.div`
   display: flex;
@@ -196,6 +197,7 @@ const StatsCard = styled(Card)`
 `;
 
 const Rules: React.FC = () => {
+  const { showAlert, showConfirmation } = useNotification();
   const [rules, setRules] = useState<CategoryRule[]>([]);
   const [isAddingRule, setIsAddingRule] = useState(false);
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
@@ -278,7 +280,7 @@ const Rules: React.FC = () => {
 
   const handleAddRule = async () => {
     if (!newRule.name || !newRule.value || !newRule.categoryName) {
-      alert('Please fill in all required fields');
+      showAlert('error', 'Please fill in all required fields');
       return;
     }
 
@@ -320,7 +322,7 @@ const Rules: React.FC = () => {
       setIsAddingRule(false);
     } catch (error) {
       console.error('Failed to add rule:', error);
-      alert('Failed to add rule');
+      showAlert('error', 'Failed to add rule');
     }
   };
 
@@ -334,7 +336,14 @@ const Rules: React.FC = () => {
   };
 
   const handleDeleteRule = async (ruleId: string) => {
-    if (window.confirm('Are you sure you want to delete this rule?')) {
+    const confirmed = await showConfirmation('Are you sure you want to delete this rule?', {
+      title: 'Delete Rule',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      danger: true
+    });
+    
+    if (confirmed) {
       try {
         await dataService.deleteCategoryRule(ruleId);
         await loadRules();
@@ -346,12 +355,19 @@ const Rules: React.FC = () => {
 
   const handleDeleteAllRules = async () => {
     if (rules.length === 0) {
-      alert('No rules to delete.');
+      showAlert('info', 'No rules to delete.');
       return;
     }
 
     const confirmMessage = `Are you sure you want to delete ALL ${rules.length} rule(s)?\n\nThis action cannot be undone.`;
-    if (!window.confirm(confirmMessage)) {
+    const confirmed = await showConfirmation(confirmMessage, {
+      title: 'Delete All Rules',
+      confirmText: 'Delete All',
+      cancelText: 'Cancel',
+      danger: true
+    });
+    
+    if (!confirmed) {
       return;
     }
 
@@ -359,10 +375,10 @@ const Rules: React.FC = () => {
       setIsLoading(true);
       await rulesService.clearAllRules();
       await loadRules();
-      alert('All rules have been deleted successfully.');
+      showAlert('success', 'All rules have been deleted successfully.', 'Rules Deleted');
     } catch (error) {
       console.error('Failed to delete all rules:', error);
-      alert('Failed to delete all rules. Please try again.');
+      showAlert('error', 'Failed to delete all rules. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -375,13 +391,13 @@ const Rules: React.FC = () => {
       await loadRules();
       
       if (createdCount > 0) {
-        alert(`Successfully generated ${createdCount} new rule(s) from existing transactions.`);
+        showAlert('success', `Successfully generated ${createdCount} new rule(s) from existing transactions.`, 'Rules Generated');
       } else {
-        alert('No new rules were generated. This could be because rules already exist or there are no suitable transactions.');
+        showAlert('info', 'No new rules were generated. This could be because rules already exist or there are no suitable transactions.');
       }
     } catch (error) {
       console.error('Failed to generate rules:', error);
-      alert('Failed to generate rules from transactions.');
+      showAlert('error', 'Failed to generate rules from transactions.');
     } finally {
       setIsLoading(false);
     }

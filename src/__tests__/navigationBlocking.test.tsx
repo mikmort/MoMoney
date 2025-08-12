@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { ImportStateProvider, useImportState } from '../contexts/ImportStateContext';
+import { NotificationProvider } from '../contexts/NotificationContext';
 import { NavigationBlocker } from '../components/shared/NavigationBlocker';
 
 // Mock the entire react-router-dom module
@@ -51,25 +52,31 @@ const TestComponent: React.FC = () => {
 };
 
 const TestApp: React.FC = () => (
-  <ImportStateProvider>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<TestComponent />} />
-        <Route path="/other-page" element={<div>Other Page</div>} />
-      </Routes>
-    </BrowserRouter>
-  </ImportStateProvider>
+  <NotificationProvider>
+    <ImportStateProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<TestComponent />} />
+          <Route path="/other-page" element={<div>Other Page</div>} />
+        </Routes>
+      </BrowserRouter>
+    </ImportStateProvider>
+  </NotificationProvider>
 );
 
 describe('NavigationBlocker', () => {
   const mockProceed = jest.fn();
   const mockReset = jest.fn();
+  const mockShowConfirmation = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
     
-    // Mock window.confirm
-    global.confirm = jest.fn(() => true);
+    // Mock the notification hook - ensure showConfirmation returns a Promise
+    jest.spyOn(require('../contexts/NotificationContext'), 'useNotification').mockReturnValue({
+      showAlert: jest.fn(),
+      showConfirmation: mockShowConfirmation.mockResolvedValue(true) // Default to true
+    });
     
     // Mock window.addEventListener and removeEventListener
     global.addEventListener = jest.fn();
@@ -114,12 +121,18 @@ describe('NavigationBlocker', () => {
 
     render(<TestApp />);
     
-    // Start import
+    // Start import to trigger blocking
     fireEvent.click(screen.getByTestId('start-import'));
     
     await waitFor(() => {
-      expect(global.confirm).toHaveBeenCalledWith(
-        'Your transaction import for "test-file.csv" is still in progress.\n\nDo you want to cancel the import and leave this page?'
+      expect(mockShowConfirmation).toHaveBeenCalledWith(
+        'Your transaction import for "test-file.csv" is still in progress.\n\nDo you want to cancel the import and leave this page?',
+        {
+          title: 'Cancel Import?',
+          confirmText: 'Leave Page',
+          cancelText: 'Continue Import',
+          danger: true
+        }
       );
     });
   });
@@ -132,13 +145,18 @@ describe('NavigationBlocker', () => {
       reset: mockReset
     });
 
-    // Mock confirm to return true (user confirms)
-    global.confirm = jest.fn(() => true);
+    // Mock showConfirmation to resolve with true (user confirms)
+    mockShowConfirmation.mockResolvedValue(true);
 
     render(<TestApp />);
     
-    // Start import
+    // Start import to trigger blocking
     fireEvent.click(screen.getByTestId('start-import'));
+    
+    // Wait for the confirmation to be called and resolved
+    await waitFor(() => {
+      expect(mockShowConfirmation).toHaveBeenCalled();
+    });
     
     await waitFor(() => {
       expect(mockProceed).toHaveBeenCalled();
@@ -155,13 +173,18 @@ describe('NavigationBlocker', () => {
       reset: mockReset
     });
 
-    // Mock confirm to return false (user cancels)
-    global.confirm = jest.fn(() => false);
+    // Mock showConfirmation to resolve with false (user cancels)
+    mockShowConfirmation.mockResolvedValue(false);
 
     render(<TestApp />);
     
-    // Start import
+    // Start import to trigger blocking
     fireEvent.click(screen.getByTestId('start-import'));
+    
+    // Wait for the confirmation to be called and resolved
+    await waitFor(() => {
+      expect(mockShowConfirmation).toHaveBeenCalled();
+    });
     
     await waitFor(() => {
       expect(mockReset).toHaveBeenCalled();

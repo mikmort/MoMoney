@@ -6,6 +6,7 @@ import { msalConfig } from './config/authConfig';
 import { ThemeProvider } from 'styled-components';
 import { skipAuthentication } from './config/devConfig';
 import { ImportStateProvider } from './contexts/ImportStateContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { NavigationBlocker } from './components/shared/NavigationBlocker';
 // Lazy-loaded Components for code splitting
 import Navigation from './components/Layout/Navigation';
@@ -82,20 +83,22 @@ const App: React.FC = () => {
       <GlobalStyles />
       <DatabaseEventHandler />
       <ImportStateProvider>
-        {skipAuthentication ? (
-          // Development mode - bypass authentication
-          <RouterProvider router={router} future={{ v7_startTransition: true }} />
-        ) : (
-          // Production mode - use MSAL
-          <MsalProvider instance={msalInstance}>
-            <AuthenticatedTemplate>
-              <RouterProvider router={router} future={{ v7_startTransition: true }} />
-            </AuthenticatedTemplate>
-            <UnauthenticatedTemplate>
-              <LoginPage />
-            </UnauthenticatedTemplate>
-          </MsalProvider>
-        )}
+        <NotificationProvider>
+          {skipAuthentication ? (
+            // Development mode - bypass authentication
+            <RouterProvider router={router} future={{ v7_startTransition: true }} />
+          ) : (
+            // Production mode - use MSAL
+            <MsalProvider instance={msalInstance}>
+              <AuthenticatedTemplate>
+                <RouterProvider router={router} future={{ v7_startTransition: true }} />
+              </AuthenticatedTemplate>
+              <UnauthenticatedTemplate>
+                <LoginPage />
+              </UnauthenticatedTemplate>
+            </MsalProvider>
+          )}
+        </NotificationProvider>
       </ImportStateProvider>
     </ThemeProvider>
   );
