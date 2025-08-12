@@ -1443,7 +1443,36 @@ const Transactions: React.FC = () => {
       
       // Find the current transaction from state to ensure we have up-to-date data
       // This prevents showing stale AI reasoning when transaction data has been updated
-      const currentTransaction = transactions.find(t => t.id === gridTransaction.id) || gridTransaction;
+      const currentTransaction = transactions.find(t => t.id === gridTransaction.id);
+      
+      if (!currentTransaction) {
+        console.warn('AI Reasoning Display: Transaction not found in current state, ID:', gridTransaction.id);
+        console.warn('This could indicate stale grid data. Available transaction IDs:', 
+          transactions.map(t => t.id).slice(0, 10));
+        // Don't show popup with potentially stale data
+        return;
+      }
+      
+      // Additional validation to prevent showing mismatched reasoning
+      if (currentTransaction.reasoning && currentTransaction.description) {
+        const descWords = currentTransaction.description.toLowerCase().split(' ');
+        const reasoning = currentTransaction.reasoning.toLowerCase();
+        
+        // Basic sanity check: if the reasoning mentions specific terms that don't match the description,
+        // this could indicate data corruption or the bug we're fixing
+        const potentialMismatch = (
+          (reasoning.includes('hotel') && !descWords.some(word => word.includes('hotel'))) ||
+          (reasoning.includes('spotify') && !descWords.some(word => word.includes('spotify'))) ||
+          (reasoning.includes('amazon') && !descWords.some(word => word.includes('amazon'))) ||
+          (reasoning.includes('starbucks') && !descWords.some(word => word.includes('starbucks')))
+        );
+        
+        if (potentialMismatch) {
+          console.warn('AI Reasoning Display: Potential reasoning mismatch detected');
+          console.warn('Description:', currentTransaction.description);
+          console.warn('Reasoning:', currentTransaction.reasoning);
+        }
+      }
       
       setConfidencePopupData({ isOpen: true, transaction: currentTransaction });
     };
