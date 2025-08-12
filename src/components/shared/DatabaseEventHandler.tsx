@@ -10,11 +10,12 @@ const Toast = styled.div<{ $visible: boolean }>`
   padding: 16px 20px;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 10000;
+  z-index: 9999;
   opacity: ${props => props.$visible ? 1 : 0};
   transform: translateY(${props => props.$visible ? 0 : -20}px);
   transition: all 0.3s ease;
   max-width: 400px;
+  pointer-events: ${props => props.$visible ? 'auto' : 'none'};
   
   .title {
     font-weight: 600;
