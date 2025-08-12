@@ -59,36 +59,35 @@ describe('Fixed Transaction Categorization', () => {
       .mockResolvedValueOnce(mockBatchResponse.slice(0, 2)); // After rule creation, only 2 unmatched
 
     try {
-      // Test data: transactions that should get high confidence AI classifications
-      const parsedTransactions = [
-        {
-          date: new Date('2024-01-15'),
-          description: 'Spotify USA',
-          amount: -15.99,
-          notes: ''
-        },
-        {
-          date: new Date('2024-01-16'),
-          description: 'Netflix',
-          amount: -12.99,
-          notes: ''
-        },
-        {
-          date: new Date('2024-01-17'),
-          description: 'Amazon Purchase',
-          amount: -25.99,
-          notes: ''
-        }
+      // Test data: raw CSV-style data that matches the processTransactions signature
+      const rawData = [
+        ['2024-01-15', 'Spotify USA', '-15.99'],
+        ['2024-01-16', 'Netflix', '-12.99'],
+        ['2024-01-17', 'Amazon Purchase', '-25.99']
       ];
+
+      const schemaMapping = {
+        dateColumn: '0',
+        descriptionColumn: '1',
+        amountColumn: '2',
+        hasHeaders: false,
+        skipRows: 0,
+        dateFormat: 'YYYY-MM-DD',
+        amountFormat: 'negative for debits'
+      };
+
+      const subcategories = defaultCategories.flatMap(c => c.subcategories || []);
 
       console.log('🔧 Processing transactions with the FIXED logic...');
       
       // This should now work correctly without the index mismatch bug
       const result = await (fileProcessingService as any).processTransactions(
-        parsedTransactions,
-        'test-checking',
-        defaultCategories,
         'test-file-id',
+        rawData,
+        schemaMapping,
+        defaultCategories,
+        subcategories,
+        'test-checking',
         jest.fn()
       );
 
@@ -156,28 +155,32 @@ describe('Fixed Transaction Categorization', () => {
       .mockResolvedValueOnce([highConfidenceResults[1]]); // After Spotify rule is created
 
     try {
-      const parsedTransactions = [
-        {
-          date: new Date('2024-01-15'),
-          description: 'Spotify USA', 
-          amount: -15.99,
-          notes: ''
-        },
-        {
-          date: new Date('2024-01-16'),
-          description: 'Netflix',
-          amount: -12.99,
-          notes: ''
-        }
+      const rawData = [
+        ['2024-01-15', 'Spotify USA', '-15.99'],
+        ['2024-01-16', 'Netflix', '-12.99']
       ];
+
+      const schemaMapping = {
+        dateColumn: '0',
+        descriptionColumn: '1',
+        amountColumn: '2',
+        hasHeaders: false,
+        skipRows: 0,
+        dateFormat: 'YYYY-MM-DD',
+        amountFormat: 'negative for debits'
+      };
+
+      const subcategories = defaultCategories.flatMap(c => c.subcategories || []);
 
       console.log('Processing with auto-rule creation scenario...');
       
       const result = await (fileProcessingService as any).processTransactions(
-        parsedTransactions,
-        'test-checking', 
-        defaultCategories,
         'test-file-id',
+        rawData,
+        schemaMapping,
+        defaultCategories,
+        subcategories,
+        'test-checking',
         jest.fn()
       );
 
