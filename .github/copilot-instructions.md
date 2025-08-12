@@ -6,19 +6,45 @@ Mo Money is a React TypeScript web application for financial tracking and budget
 
 ## Working Effectively
 
+### Testing Strategy
+**Use proportional testing based on change scope to balance quality with efficiency:**
+
+#### Change Classification Quick Reference
+- **High Priority**: Core business logic, data processing, financial calculations, UI changes, service integrations
+- **Medium Priority**: Minor UI tweaks, configuration updates, non-critical documentation  
+- **Low Priority**: Pure documentation, development tooling, metadata, typo fixes
+
+#### Testing Matrix
+```
+Change Type          | Build | Lint | Tests | Manual | Screenshots
+---------------------|-------|------|-------|--------|------------
+High Priority        |  ✅   |  ✅  |  ✅   |   ✅   |     ✅
+Medium Priority      |  ✅   |  ✅  |  ⚠️*  |   ⚠️*  |     ⚠️*
+Low Priority         |  ❌   |  ❌  |  ❌   |   ❌   |     ❌
+
+* ⚠️ = Run if change might affect functionality
+```
+
 ### Bootstrap and Setup
 - **FAST**: `npm install` -- takes 5 seconds to complete. Set timeout to 2+ minutes to be safe.
 - Copy `.env.example` to `.env` for development mode: `cp .env.example .env`
 - Development mode bypasses authentication automatically (REACT_APP_SKIP_AUTH defaults to true)
 
-### Build and Test (VALIDATED!)
+### Build and Test (CONDITIONAL!)
+**Run these based on change type - see "Validation Scenarios" section for criteria:**
+
+#### Always Run (Core Changes)
 - **Build for production**: `npm run build` -- takes 22-23 seconds. NEVER CANCEL. Set timeout to 3+ minutes.
   - **IMPORTANT**: May require fixing ESLint issues first - build treats warnings as errors in CI mode
   - **VERIFIED**: Code splitting implemented - main bundle 133.4 KB gzipped (466 KB ungzipped)
-- **Test suite**: `npm test -- --watchAll=false --passWithNoTests` -- completes in 4 seconds
-  - **CORRECTED**: Unit tests DO exist in the project (5 test suites, 35+ tests)
-  - **NOTE**: Some tests may show console warnings but will pass
 - **Linting**: `npx eslint src --ext .ts,.tsx` -- runs in 4 seconds, may show some warnings
+
+#### Run for Functional Changes (Medium/High Priority Changes)
+- **Test suite**: `npm test -- --watchAll=false --passWithNoTests` -- completes in 4 seconds
+  - **CORRECTED**: Unit tests DO exist in the project (5 test suites, 35+ tests)  
+  - **NOTE**: Some tests may show console warnings but will pass
+
+#### Run for Performance-Related Changes Only
 - **Performance analysis**: `npm run perf:check` -- analyze bundle size, runs in under 1 second
 
 ### Run the Application
@@ -31,8 +57,30 @@ Mo Money is a React TypeScript web application for financial tracking and budget
 
 ## Validation Scenarios
 
-### **CRITICAL**: Manual Testing Requirements
-After making changes, **ALWAYS** run through these validation scenarios:
+### **CONDITIONAL**: Manual Testing Requirements  
+**Run validation scenarios based on the scope and type of changes made:**
+
+#### When to Run Full Validation (High Priority)
+- **Functional code changes**: Core business logic, data processing, financial calculations
+- **UI/UX changes**: Component modifications, user flows, interactive features  
+- **Service integrations**: Azure services, file processing, AI categorization
+- **Database/storage changes**: Data models, persistence layer, migrations
+- **Build/deployment changes**: Configuration, dependencies, CI/CD workflows
+
+#### When to Run Limited Validation (Medium Priority)
+- **Minor UI tweaks**: Styling changes, text updates, color adjustments
+- **Configuration updates**: Environment variables, feature flags (non-critical)
+- **Documentation changes**: Only if they affect user workflows or technical processes
+- **Test-only changes**: Adding/updating tests without modifying production code
+
+#### When Validation Can Be Skipped (Low Priority)
+- **Pure documentation**: README updates, code comments, markdown files
+- **Development tooling**: ESLint configs, formatting rules, IDE settings
+- **Non-functional metadata**: Package.json descriptions, author info
+- **Typo fixes**: Simple text corrections in comments or documentation
+
+### Manual Testing Procedures
+**Run these scenarios when validation is needed based on the criteria above:**
 
 #### Essential User Flows
 1. **Dashboard Validation**:
@@ -98,11 +146,10 @@ With sample data loaded, the dashboard shows:
 - ✅ **Other pages**: Categories, Budgets, Reports, Settings work normally
 
 ### For Screenshots and Demos
-**ALWAYS load sample data first** before taking screenshots or demonstrating features. Without sample data:
-- Dashboard shows "Welcome" message asking to add first account
-- Charts are empty or show placeholder states  
-- No meaningful transaction data to demonstrate features
-- Testing scenarios are limited
+**Load sample data when demonstrating features or taking screenshots:**
+- **Required for UI changes**: Load sample data first before taking screenshots or demonstrating features
+- **Skip for non-visual changes**: Documentation, configuration, or backend-only changes don't require screenshots
+- **Without sample data**: Dashboard shows "Welcome" message, charts are empty, limited testing scenarios
 
 ## Common Commands and Timing
 
@@ -209,20 +256,20 @@ src/
 
 ## Quick Reference
 
-### Most Common Commands (VALIDATED!)
+### Most Common Commands (CONDITIONAL!)
 ```bash
-# Initial setup
+# Initial setup (Always)
 npm install                                    # 5 sec - FAST!
 cp .env.example .env                          # Instant
 
-# Development workflow (VALIDATED!)
+# Core development workflow (High/Medium Priority Changes)
 npm run build                                 # 22-23 sec - NEVER CANCEL
-npm start                                     # 35 sec - NEVER CANCEL
-npm test -- --watchAll=false --passWithNoTests # 4 sec - tests exist!
+npm start                                     # 35 sec - NEVER CANCEL  
+npm test -- --watchAll=false --passWithNoTests # 4 sec - for functional changes
 
-# Code quality & analysis
+# Code quality & analysis (Medium Priority Changes)
 npx eslint src --ext .ts,.tsx                # 4 sec - may show warnings
-npm run perf:check                           # <1 sec - bundle analysis
+npm run perf:check                           # <1 sec - for performance changes
 npm run build:analyze                        # 23 sec - detailed analysis (has source map warnings)
 ```
 
