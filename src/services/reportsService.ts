@@ -68,12 +68,21 @@ export interface DateRange {
 
 class ReportsService {
   // Helper method to filter transactions based on user preferences
-  private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense'): Promise<Transaction[]> {
+  private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense', includeTransfers: boolean = false): Promise<Transaction[]> {
     const preferences = await userPreferencesService.getPreferences();
     
     return transactions.filter(t => {
-      // Always exclude transfer transactions from reports
+      // For transfer transactions, only include if explicitly requested AND they match the income/expense criteria
       if (t.type === 'transfer') {
+        if (!includeTransfers) {
+          return false;
+        }
+        // If including transfers, still apply income/expense filtering based on amount
+        if (type === 'expense') {
+          return t.amount < 0;
+        } else if (type === 'income') {
+          return t.amount > 0;
+        }
         return false;
       }
       
@@ -94,9 +103,9 @@ class ReportsService {
     });
   }
 
-  async getSpendingByCategory(dateRange?: DateRange): Promise<SpendingByCategory[]> {
-    const transactions = await this.getTransactionsInRange(dateRange);
-    const expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense');
+  async getSpendingByCategory(dateRange?: DateRange, includeTransfers: boolean = false): Promise<SpendingByCategory[]> {
+    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+    const expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense', includeTransfers);
     
     if (expenseTransactions.length === 0) {
       return [];
@@ -135,8 +144,8 @@ class ReportsService {
       .sort((a, b) => b.amount - a.amount);
   }
 
-  async getMonthlySpendingTrends(dateRange?: DateRange): Promise<MonthlySpendingTrend[]> {
-    const transactions = await this.getTransactionsInRange(dateRange);
+  async getMonthlySpendingTrends(dateRange?: DateRange, includeTransfers: boolean = false): Promise<MonthlySpendingTrend[]> {
+    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
     const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
     const monthlyData: { [monthKey: string]: Transaction[] } = {};
 
@@ -155,13 +164,17 @@ class ReportsService {
     return Object.entries(monthlyData)
       .map(([monthKey, monthTransactions]) => {
         const expenseTransactions = monthTransactions.filter(t => {
-          if (t.type === 'transfer') return false;
+          if (t.type === 'transfer') {
+            return includeTransfers && t.amount < 0;
+          }
           if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
           return t.type === 'expense' || t.amount < 0;
         });
         
         const incomeTransactions = monthTransactions.filter(t => {
-          if (t.type === 'transfer') return false;
+          if (t.type === 'transfer') {
+            return includeTransfers && t.amount > 0;
+          }
           if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
           return t.type === 'income' || t.amount > 0;
         });
@@ -186,12 +199,12 @@ class ReportsService {
       .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
   }
 
-  async getIncomeExpenseAnalysis(dateRange?: DateRange): Promise<IncomeExpenseAnalysis> {
-    const transactions = await this.getTransactionsInRange(dateRange);
+  async getIncomeExpenseAnalysis(dateRange?: DateRange, includeTransfers: boolean = false): Promise<IncomeExpenseAnalysis> {
+    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
     const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
     
-    const incomeTransactions = await this.filterTransactionsForReports(converted, 'income');
-    const expenseTransactions = await this.filterTransactionsForReports(converted, 'expense');
+    const incomeTransactions = await this.filterTransactionsForReports(converted, 'income', includeTransfers);
+    const expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', includeTransfers);
     
     const totalIncome = incomeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const totalExpenses = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
@@ -211,8 +224,8 @@ class ReportsService {
     };
   }
 
-  async getCategoryDeepDive(categoryName: string, dateRange?: DateRange): Promise<CategoryDeepDive | null> {
-    const transactions = await this.getTransactionsInRange(dateRange);
+  async getCategoryDeepDive(categoryName: string, dateRange?: DateRange, includeTransfers: boolean = false): Promise<CategoryDeepDive | null> {
+    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
     const preferences = await userPreferencesService.getPreferences();
     
     const categoryTransactionsRaw = transactions
@@ -221,7 +234,9 @@ class ReportsService {
         if (t.category !== categoryName) return false;
         
         // Check transaction type
-        if (t.type === 'transfer') return false;
+        if (t.type === 'transfer') {
+          return includeTransfers && t.amount < 0; // Only include negative transfers for expense analysis
+        }
         if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
         return t.type === 'expense' || t.amount < 0;
       })
@@ -271,10 +286,10 @@ class ReportsService {
     };
   }
 
-  async getBurnRateAnalysis(dateRange?: DateRange): Promise<BurnRateAnalysis> {
-    const allTransactions = await this.getTransactionsInRange(dateRange);
+  async getBurnRateAnalysis(dateRange?: DateRange, includeTransfers: boolean = false): Promise<BurnRateAnalysis> {
+    const allTransactions = await this.getTransactionsInRange(dateRange, includeTransfers);
     const convertedAll = await currencyDisplayService.convertTransactionsBatch(allTransactions);
-    const expenseTransactions = await this.filterTransactionsForReports(convertedAll, 'expense');
+    const expenseTransactions = await this.filterTransactionsForReports(convertedAll, 'expense', includeTransfers);
     
     if (expenseTransactions.length === 0) {
       return {
@@ -357,8 +372,8 @@ class ReportsService {
     };
   }
 
-  async getSpendingInsights(dateRange?: DateRange): Promise<SpendingInsights> {
-    const transactions = await this.getTransactionsInRange(dateRange);
+  async getSpendingInsights(dateRange?: DateRange, includeTransfers: boolean = false): Promise<SpendingInsights> {
+    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
     
     const totalTransactions = transactions.length;
     const verifiedTransactions = transactions.filter(t => t.isVerified === true).length;

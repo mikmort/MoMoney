@@ -94,12 +94,14 @@ const TransactionsList = styled.div`
 interface CategoryDrilldownModalProps {
   categoryName: string;
   dateRange?: DateRange;
+  includeTransfers?: boolean;
   onClose: () => void;
 }
 
 const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
   categoryName,
   dateRange,
+  includeTransfers = false,
   onClose
 }) => {
   const [loading, setLoading] = useState(true);
@@ -109,7 +111,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     const loadCategoryData = async () => {
       setLoading(true);
       try {
-        const data = await reportsService.getCategoryDeepDive(categoryName, dateRange);
+        const data = await reportsService.getCategoryDeepDive(categoryName, dateRange, includeTransfers);
         setCategoryData(data);
       } catch (error) {
         console.error('Failed to load category data:', error);
@@ -119,7 +121,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     };
 
     loadCategoryData();
-  }, [categoryName, dateRange]);
+  }, [categoryName, dateRange, includeTransfers]);
 
   const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
   useEffect(() => {
