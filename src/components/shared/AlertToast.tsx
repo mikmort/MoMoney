@@ -34,6 +34,7 @@ const Overlay = styled.div`
   pointer-events: none;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
   padding-top: 20px;
 `;
 
