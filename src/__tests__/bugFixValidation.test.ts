@@ -49,15 +49,18 @@ describe('Transaction Categorization Bug Fix Validation', () => {
         amountFormat: 'negative for debits'
       };
 
+      const subcategories = defaultCategories.flatMap(c => c.subcategories || []);
+
       console.log('Processing Spotify transaction through the fixed logic...');
       
       // Use the actual file processing method that would be called during CSV import
       const result = await (fileProcessingService as any).processTransactions(
+        'test-file-id',
         csvData,
         schemaMapping,
-        'test-account',
         defaultCategories,
-        'test-file-id',
+        subcategories,
+        'test-account',
         jest.fn()
       );
 
@@ -131,14 +134,17 @@ describe('Transaction Categorization Bug Fix Validation', () => {
         amountFormat: 'negative for debits'
       };
 
+      const subcategories = defaultCategories.flatMap(c => c.subcategories || []);
+
       console.log('Processing transaction that should match a rule...');
       
       const result = await (fileProcessingService as any).processTransactions(
+        'test-file-id',
         csvData,
         schemaMapping,
-        'test-account',
         defaultCategories,
-        'test-file-id',
+        subcategories,
+        'test-account',
         jest.fn()
       );
 
@@ -219,14 +225,17 @@ describe('Transaction Categorization Bug Fix Validation', () => {
         amountFormat: 'negative for debits'
       };
 
+      const subcategories = defaultCategories.flatMap(c => c.subcategories || []);
+
       console.log('Processing mixed rule/AI scenario...');
       
       const result = await (fileProcessingService as any).processTransactions(
+        'test-file-id',
         csvData,
         schemaMapping,
-        'test-account',
         defaultCategories,
-        'test-file-id',
+        subcategories,
+        'test-account',
         jest.fn()
       );
 

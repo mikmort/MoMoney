@@ -46,26 +46,34 @@ describe('Transaction Categorization Regression Bug', () => {
     azureOpenAIService.classifyTransactionsBatch = jest.fn().mockResolvedValue(mockBatchResponse);
 
     try {
-      // Create a set of parsed transactions like those from file import
-      const parsedTransactions = [
-        {
-          date: new Date('2024-01-15'),
-          description: 'Spotify USA',
-          amount: -15.99,
-          notes: '',
-          // These fields will be set during processing
-        }
+      // Create raw data like CSV import would provide
+      const rawData = [
+        ['2024-01-15', 'Spotify USA', '-15.99']
       ];
 
+      const schemaMapping = {
+        dateColumn: '0',
+        descriptionColumn: '1',
+        amountColumn: '2',
+        hasHeaders: false,
+        skipRows: 0,
+        dateFormat: 'YYYY-MM-DD',
+        amountFormat: 'negative for debits'
+      };
+
+      const subcategories = defaultCategories.flatMap(c => c.subcategories || []);
+
       console.log('🧪 Testing transaction processing with high-confidence AI mock...');
-      console.log('Input transaction:', parsedTransactions[0]);
+      console.log('Input raw data:', rawData[0]);
 
       // Call the processTransactions method that contains the bug
       const result = await (fileProcessingService as any).processTransactions(
-        parsedTransactions,
-        'test-checking',
-        defaultCategories,
         'test-file-id',
+        rawData,
+        schemaMapping,
+        defaultCategories,
+        subcategories,
+        'test-checking',
         jest.fn() // onProgress callback
       );
 
@@ -141,20 +149,29 @@ describe('Transaction Categorization Regression Bug', () => {
       expect(subName).toBe('Streaming Services');
 
       // Now test the full transaction processing to see where it might break
-      const parsedTransactions = [
-        {
-          date: new Date('2024-01-15'),
-          description: 'Spotify USA',
-          amount: -15.99,
-          notes: '',
-        }
+      const rawData = [
+        ['2024-01-15', 'Spotify USA', '-15.99']
       ];
 
+      const schemaMapping = {
+        dateColumn: '0',
+        descriptionColumn: '1',
+        amountColumn: '2',
+        hasHeaders: false,
+        skipRows: 0,
+        dateFormat: 'YYYY-MM-DD',
+        amountFormat: 'negative for debits'
+      };
+
+      const subcategories = defaultCategories.flatMap(c => c.subcategories || []);
+
       const result = await (fileProcessingService as any).processTransactions(
-        parsedTransactions,
-        'test-checking',
-        defaultCategories,
         'test-file-id',
+        rawData,
+        schemaMapping,
+        defaultCategories,
+        subcategories,
+        'test-checking',
         jest.fn()
       );
 

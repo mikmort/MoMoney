@@ -164,26 +164,23 @@ describe('Transfer Filtering Fix - Include Internal Transfers Checkbox', () => {
     expect(incomeExpenseResult.totalExpenses).toBe(495);
   });
 
-  test('current implementation (before fix) - should demonstrate the problem', async () => {
+  test('current implementation (after fix) - should demonstrate proper transfer filtering', async () => {
     // Add mock transactions
     for (const transaction of mockTransactions) {
       await dataService.addTransaction(transaction);
     }
 
-    // Current implementation should miss the problematic transfers
+    // The implementation should now properly filter out problematic transfers
     const spendingResult = await reportsService.getSpendingByCategory(undefined, false);
     const incomeExpenseResult = await reportsService.getIncomeExpenseAnalysis(undefined, false);
     
-    // This test documents the current broken behavior
-    // Currently, it only filters type: 'transfer', so problematic cases remain
-    
-    // Expected broken behavior: should include problematic transfers
+    // This test validates the fixed behavior
+    // Fixed behavior: should exclude problematic transfers
     // Regular expenses: $50 (grocery) + $30 (gas) = $80
-    // Problematic "transfers": $200 + $75 + $40 = $315
-    // Total should be $80 + $315 = $395 (broken behavior)
+    // Problematic "transfers" are now properly filtered out: $200 + $75 + $40 = excluded
+    // Total should be exactly $80 (fixed behavior)
     
-    // NOTE: This test will initially PASS (documenting the bug), 
-    // but FAIL after we fix the implementation (proving the fix works)
-    expect(incomeExpenseResult.totalExpenses).toBeGreaterThan(80); // Shows the problem exists
+    // This test now passes after the fix is implemented
+    expect(incomeExpenseResult.totalExpenses).toBe(80); // Shows the fix is working
   });
 });

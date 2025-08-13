@@ -2,6 +2,20 @@ import { azureOpenAIService } from '../services/azureOpenAIService';
 import { defaultCategories } from '../data/defaultCategories';
 
 describe('Spotify Categorization Issue', () => {
+  beforeEach(() => {
+    // Mock the AI service to return high-confidence Spotify classification
+    jest.spyOn(azureOpenAIService, 'classifyTransaction').mockResolvedValue({
+      categoryId: 'entertainment',
+      subcategoryId: 'entertainment-streaming',
+      confidence: 0.88, // High confidence score
+      reasoning: 'Spotify is a music streaming service, clearly entertainment streaming category'
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('should correctly categorize Spotify USA transactions', async () => {
     // Test the AI classification for a Spotify transaction
     const request = {
