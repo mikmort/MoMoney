@@ -173,12 +173,12 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
   }
 
   // Prepare chart data
-  const monthlyTrendData = {
-    labels: categoryData.monthlyTrend.map(item => item.month),
+  const trendData = {
+    labels: categoryData.trend.map(item => item.label),
     datasets: [
       {
         label: `${categoryName} Spending`,
-        data: categoryData.monthlyTrend.map(item => item.amount),
+        data: categoryData.trend.map(item => item.amount),
         backgroundColor: 'rgba(244, 67, 54, 0.6)',
         borderColor: 'rgba(244, 67, 54, 1)',
         borderWidth: 2,
@@ -218,13 +218,13 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
             </StatCard>
           </StatsGrid>
 
-          {/* Monthly Trend Chart */}
-          {categoryData.monthlyTrend.length > 0 && (
+          {/* Dynamic Trend Chart */}
+          {categoryData.trend.length > 0 && (
             <>
-              <h3>Monthly Spending Trend</h3>
+              <h3>{categoryData.trendTitle}</h3>
               <ChartContainer>
                 <Line
-                  data={monthlyTrendData}
+                  data={trendData}
                   options={{
                     responsive: true,
                     maintainAspectRatio: false,
