@@ -14,6 +14,7 @@ import LoginPage from './components/Auth/LoginPage';
 import DatabaseEventHandler from './components/shared/DatabaseEventHandler';
 import ExchangeRateNotifications from './components/shared/ExchangeRateNotifications';
 import { GlobalStyles, lightTheme } from './styles/globalStyles';
+import styled from 'styled-components';
 
 // Lazy load heavy components to reduce initial bundle size
 import { lazyWithRetry } from './utils/lazyWithRetry';
@@ -44,17 +45,23 @@ const LoadingFallback: React.FC = () => (
   </div>
 );
 
+const MainContent = styled.main`
+  flex: 1;
+  padding: 20px;
+  background-color: ${props => props.theme.background};
+`;
+
 // Root layout for Data Router with Suspense + Outlet
 const RootLayout: React.FC = () => (
   <div style={{ display: 'flex', minHeight: '100vh' }}>
     <Navigation />
-    <main style={{ flex: 1, padding: '20px', backgroundColor: '#f5f5f5' }}>
+    <MainContent>
       <Suspense fallback={<LoadingFallback />}>
         <NavigationBlocker />
         <ExchangeRateNotifications />
         <Outlet />
       </Suspense>
-    </main>
+    </MainContent>
   </div>
 );
 
