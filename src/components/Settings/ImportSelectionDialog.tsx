@@ -15,49 +15,17 @@ interface ImportSelectionDialogProps {
 const DialogContent = styled.div`
   .description {
     color: #666;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
     line-height: 1.5;
-  }
-
-  .data-preview {
-    background: #f8f9fa;
-    padding: 16px;
-    border-radius: 8px;
-    margin-bottom: 24px;
-    border-left: 4px solid #2196f3;
-
-    .preview-title {
-      font-weight: 600;
-      color: #333;
-      margin-bottom: 8px;
-    }
-
-    .preview-item {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 4px;
-      font-size: 14px;
-
-      &:last-child {
-        margin-bottom: 0;
-      }
-
-      .item-label {
-        color: #666;
-      }
-
-      .item-count {
-        color: #333;
-        font-weight: 500;
-      }
-    }
   }
 `;
 
 const OptionsGrid = styled.div`
   display: grid;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 20px;
+  max-height: 400px;
+  overflow-y: auto;
 
   .option-item {
     display: flex;
@@ -113,7 +81,9 @@ const ButtonRow = styled.div`
   display: flex;
   gap: 12px;
   justify-content: flex-end;
-  margin-top: 24px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
 
   .select-buttons {
     display: flex;
@@ -210,47 +180,14 @@ export const ImportSelectionDialog: React.FC<ImportSelectionDialogProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Select Data to Import"
-      maxWidth="600px"
+      maxWidth="480px"
+      maxHeight="70vh"
     >
       <DialogContent>
         <div className="description">
           Choose which types of data you want to import from <strong>{fileName}</strong>. 
           All options are selected by default, but you can customize what gets imported.
         </div>
-
-        {dataCounts && (
-          <div className="data-preview">
-            <div className="preview-title">📊 Available Data in Backup File</div>
-            <div className="preview-item">
-              <span className="item-label">Transactions:</span>
-              <span className="item-count">{dataCounts.transactions}</span>
-            </div>
-            <div className="preview-item">
-              <span className="item-label">Accounts:</span>
-              <span className="item-count">{dataCounts.accounts}</span>
-            </div>
-            <div className="preview-item">
-              <span className="item-label">Categories:</span>
-              <span className="item-count">{dataCounts.categories}</span>
-            </div>
-            <div className="preview-item">
-              <span className="item-label">Budgets:</span>
-              <span className="item-count">{dataCounts.budgets}</span>
-            </div>
-            <div className="preview-item">
-              <span className="item-label">Rules:</span>
-              <span className="item-count">{dataCounts.rules}</span>
-            </div>
-            <div className="preview-item">
-              <span className="item-label">Preferences:</span>
-              <span className="item-count">{dataCounts.preferences}</span>
-            </div>
-            <div className="preview-item">
-              <span className="item-label">History Entries:</span>
-              <span className="item-count">{dataCounts.transactionHistory}</span>
-            </div>
-          </div>
-        )}
 
         <OptionsGrid>
           <div className={`option-item ${options.accounts ? 'selected' : ''}`}>
