@@ -51,14 +51,13 @@ const MultiSelectDropdown = styled.div`
   overflow-y: auto;
   z-index: 1000;
   margin-top: 2px;
-  min-width: max-content;
-  min-width: 160px;
+  width: max-content;
 `;
 
 const MultiSelectOption = styled.label`
   display: flex;
   align-items: center;
-  padding: 6px 2px 6px 4px;
+  padding: 6px 0px 6px 2px;
   cursor: pointer;
   font-size: 0.9rem;
   color: #333;
@@ -69,7 +68,9 @@ const MultiSelectOption = styled.label`
   }
   
   input[type="checkbox"] {
-    margin-right: 8px;
+    margin-right: 4px;
+    margin-left: 0;
+    padding: 0;
     cursor: pointer;
     flex-shrink: 0;
   }
