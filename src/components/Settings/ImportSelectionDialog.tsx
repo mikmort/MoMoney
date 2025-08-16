@@ -121,6 +121,9 @@ export const ImportSelectionDialog: React.FC<ImportSelectionDialogProps> = ({
     rules: true,
     budgets: true,
     categories: true,
+    balanceHistory: true,
+    currencyRates: true,
+    transferMatches: true,
     preferences: true,
     transactionHistory: true
   });
@@ -139,6 +142,9 @@ export const ImportSelectionDialog: React.FC<ImportSelectionDialogProps> = ({
       rules: true,
       budgets: true,
       categories: true,
+      balanceHistory: true,
+      currencyRates: true,
+      transferMatches: true,
       preferences: true,
       transactionHistory: true
     });
@@ -151,6 +157,9 @@ export const ImportSelectionDialog: React.FC<ImportSelectionDialogProps> = ({
       rules: false,
       budgets: false,
       categories: false,
+      balanceHistory: false,
+      currencyRates: false,
+      transferMatches: false,
       preferences: false,
       transactionHistory: false
     });
@@ -171,6 +180,9 @@ export const ImportSelectionDialog: React.FC<ImportSelectionDialogProps> = ({
     rules: importData.rules?.length || 0,
     budgets: importData.budgets?.length || 0,
     categories: importData.categories?.length || 0,
+    balanceHistory: importData.balanceHistory?.length || 0,
+    currencyRates: importData.currencyRates?.length || 0,
+    transferMatches: importData.transferMatches?.length || 0,
     preferences: importData.preferences ? 1 : 0,
     transactionHistory: importData.transactionHistory?.length || 0
   } : null;
@@ -271,6 +283,57 @@ export const ImportSelectionDialog: React.FC<ImportSelectionDialogProps> = ({
               </div>
               {dataCounts && dataCounts.rules > 0 && (
                 <div className="option-count">{dataCounts.rules} rule(s) available</div>
+              )}
+            </div>
+          </div>
+
+          <div className={`option-item ${options.balanceHistory ? 'selected' : ''}`}>
+            <input
+              type="checkbox"
+              checked={options.balanceHistory}
+              onChange={(e) => handleOptionChange('balanceHistory', e.target.checked)}
+            />
+            <div className="option-content">
+              <div className="option-title">📈 Balance History</div>
+              <div className="option-description">
+                Import historical account balance data for trend analysis
+              </div>
+              {dataCounts && dataCounts.balanceHistory > 0 && (
+                <div className="option-count">{dataCounts.balanceHistory} account histories available</div>
+              )}
+            </div>
+          </div>
+
+          <div className={`option-item ${options.currencyRates ? 'selected' : ''}`}>
+            <input
+              type="checkbox"
+              checked={options.currencyRates}
+              onChange={(e) => handleOptionChange('currencyRates', e.target.checked)}
+            />
+            <div className="option-content">
+              <div className="option-title">💱 Currency Rates</div>
+              <div className="option-description">
+                Import cached currency exchange rates for multi-currency support
+              </div>
+              {dataCounts && dataCounts.currencyRates > 0 && (
+                <div className="option-count">{dataCounts.currencyRates} exchange rate(s) available</div>
+              )}
+            </div>
+          </div>
+
+          <div className={`option-item ${options.transferMatches ? 'selected' : ''}`}>
+            <input
+              type="checkbox"
+              checked={options.transferMatches}
+              onChange={(e) => handleOptionChange('transferMatches', e.target.checked)}
+            />
+            <div className="option-content">
+              <div className="option-title">🔄 Transfer Matches</div>
+              <div className="option-description">
+                Import matched transfer relationships between accounts
+              </div>
+              {dataCounts && dataCounts.transferMatches > 0 && (
+                <div className="option-count">{dataCounts.transferMatches} transfer match(es) available</div>
               )}
             </div>
           </div>
