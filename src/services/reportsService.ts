@@ -30,6 +30,8 @@ export interface IncomeExpenseAnalysis {
   savingsRate: number; // (income - expenses) / income * 100
 }
 
+export type TrendGranularity = 'daily' | 'weekly' | 'monthly';
+
 export interface CategoryDeepDive {
   categoryName: string;
   totalAmount: number;
@@ -38,7 +40,9 @@ export interface CategoryDeepDive {
   largestTransaction: Transaction;
   smallestTransaction: Transaction;
   recentTransactions: Transaction[];
-  monthlyTrend: { month: string; amount: number }[];
+  trend: { label: string; amount: number }[];
+  trendGranularity: TrendGranularity;
+  trendTitle: string;
 }
 
 export interface SpendingInsights {
@@ -293,6 +297,61 @@ class ReportsService {
     };
   }
 
+  // Helper method to determine appropriate granularity based on date range
+  private determineTrendGranularity(dateRange?: DateRange): { granularity: TrendGranularity; title: string } {
+    if (!dateRange) {
+      return { granularity: 'monthly', title: 'Monthly Trend' };
+    }
+
+    const daysDiff = Math.ceil((dateRange.endDate.getTime() - dateRange.startDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (daysDiff <= 7) {
+      return { granularity: 'daily', title: 'Daily Trend' };
+    } else if (daysDiff <= 31) {
+      return { granularity: 'daily', title: 'Daily Trend' };
+    } else if (daysDiff <= 62) {
+      return { granularity: 'weekly', title: 'Weekly Trend' };
+    } else {
+      return { granularity: 'monthly', title: 'Monthly Trend' };
+    }
+  }
+
+  // Helper method to format period labels based on granularity
+  private formatPeriodLabel(date: Date, granularity: TrendGranularity, weekStart?: Date): string {
+    switch (granularity) {
+      case 'daily':
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      case 'weekly':
+        if (weekStart) {
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekStart.getDate() + 6);
+          return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}-${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+        }
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      case 'monthly':
+      default:
+        return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+  }
+
+  // Helper method to get period key for grouping
+  private getPeriodKey(date: Date, granularity: TrendGranularity): string {
+    switch (granularity) {
+      case 'daily':
+        return date.toISOString().slice(0, 10); // YYYY-MM-DD
+      case 'weekly':
+        // Get the Monday of the week
+        const weekStart = new Date(date);
+        const day = weekStart.getDay();
+        const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+        weekStart.setDate(diff);
+        return weekStart.toISOString().slice(0, 10); // Monday of the week
+      case 'monthly':
+      default:
+        return date.toISOString().slice(0, 7); // YYYY-MM
+    }
+  }
+
   async getCategoryDeepDive(categoryName: string, dateRange?: DateRange, includeTransfers: boolean = false): Promise<CategoryDeepDive | null> {
     const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
     const preferences = await userPreferencesService.getPreferences();
@@ -328,20 +387,31 @@ class ReportsService {
     // Get recent transactions (up to 100 most recent)
     const recentTransactions = categoryTransactions.slice(0, 100);
     
-    // Calculate monthly trend for this category
-  const monthlyTotals: { [monthKey: string]: number } = {};
-  categoryTransactions.forEach(transaction => {
-      const monthKey = transaction.date.toISOString().slice(0, 7);
-      monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + Math.abs(transaction.amount);
+    // Determine granularity and calculate trend
+    const { granularity, title } = this.determineTrendGranularity(dateRange);
+    const trendTotals: { [periodKey: string]: { amount: number; date: Date } } = {};
+    
+    categoryTransactions.forEach(transaction => {
+      const periodKey = this.getPeriodKey(transaction.date, granularity);
+      if (!trendTotals[periodKey]) {
+        trendTotals[periodKey] = { amount: 0, date: transaction.date };
+      }
+      trendTotals[periodKey].amount += Math.abs(transaction.amount);
     });
     
-    const monthlyTrend = Object.entries(monthlyTotals)
-      .map(([monthKey, amount]) => {
-        const date = new Date(monthKey + '-01');
-        const month = date.toLocaleDateString('en-US', { month: 'short' });
-        return { month, amount };
+    const trend = Object.entries(trendTotals)
+      .map(([periodKey, data]) => {
+        let label: string;
+        if (granularity === 'weekly') {
+          // For weekly, parse the period key to get the Monday date
+          const weekStart = new Date(periodKey);
+          label = this.formatPeriodLabel(data.date, granularity, weekStart);
+        } else {
+          label = this.formatPeriodLabel(data.date, granularity);
+        }
+        return { label, amount: data.amount };
       })
-      .sort((a, b) => a.month.localeCompare(b.month));
+      .sort((a, b) => a.label.localeCompare(b.label));
 
     return {
       categoryName,
@@ -351,7 +421,9 @@ class ReportsService {
       largestTransaction,
       smallestTransaction,
       recentTransactions,
-      monthlyTrend
+      trend,
+      trendGranularity: granularity,
+      trendTitle: title
     };
   }
 
