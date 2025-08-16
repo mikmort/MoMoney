@@ -1,8 +1,12 @@
-import { Transaction, UserPreferences, Account, Category, CategoryRule } from '../types';
+import { Transaction, UserPreferences, Account, Category, CategoryRule, Budget } from '../types';
 import { db } from './db';
 import { accountManagementService } from './accountManagementService';
 import { rulesService } from './rulesService';
+import { budgetService } from './budgetService';
+import { currencyExchangeService } from './currencyExchangeService';
+import { transferMatchingService } from './transferMatchingService';
 import { defaultCategories } from '../data/defaultCategories';
+import * as XLSX from 'xlsx';
 
 export interface ExportData {
   version: string;
@@ -14,6 +18,10 @@ export interface ExportData {
   accounts?: Account[];
   rules?: CategoryRule[];
   categories?: Category[];
+  budgets?: Budget[];
+  balanceHistory?: any[];
+  currencyRates?: any[];
+  transferMatches?: any[];
 }
 
 class SimplifiedImportExportService {
@@ -28,6 +36,7 @@ class SimplifiedImportExportService {
     const historyEntries = await db.transactionHistory.toArray();
     const accounts = accountManagementService.getAccounts();
     const rules = await rulesService.getAllRules();
+    
     // Categories are stored in localStorage
     const categoriesKey = 'mo-money-categories';
     let categories: Category[] | undefined = undefined;
@@ -43,6 +52,61 @@ class SimplifiedImportExportService {
       categories = defaultCategories;
     }
 
+    // Get budgets data
+    const budgets = budgetService.getAllBudgets();
+
+    // Get balance history for all accounts
+    let balanceHistory: any[] = [];
+    try {
+      for (const account of accounts) {
+        const accountBalanceHistory = await accountManagementService.calculateMonthlyBalanceHistory(account.id);
+        balanceHistory.push({
+          accountId: account.id,
+          accountName: account.name,
+          history: accountBalanceHistory
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to export balance history:', err);
+      balanceHistory = [];
+    }
+
+    // Get currency exchange rates
+    let currencyRates: any[] = [];
+    try {
+      const rateDebugInfo = currencyExchangeService.getDebugInfo();
+      currencyRates = rateDebugInfo.storedRates.map(rate => ({
+        currencyPair: rate.key,
+        rate: rate.rate,
+        age: rate.age,
+        source: rate.source
+      }));
+    } catch (err) {
+      console.warn('Failed to export currency rates:', err);
+      currencyRates = [];
+    }
+
+    // Get transfer matches metadata
+    let transferMatches: any[] = [];
+    try {
+      if (transactions.length > 0) {
+        transferMatches = transferMatchingService.getMatchedTransfers(transactions).map(match => ({
+          id: match.id,
+          sourceTransactionId: match.sourceTransactionId,
+          targetTransactionId: match.targetTransactionId,
+          confidence: match.confidence,
+          matchType: match.matchType,
+          dateDifference: match.dateDifference,
+          amountDifference: match.amountDifference,
+          reasoning: match.reasoning,
+          isVerified: match.isVerified
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to export transfer matches:', err);
+      transferMatches = [];
+    }
+
     return {
       version: '1.0',
       exportDate: new Date().toISOString(),
@@ -52,7 +116,11 @@ class SimplifiedImportExportService {
       transactionHistory: historyEntries,
       accounts,
       rules,
-      categories
+      categories,
+      budgets,
+      balanceHistory,
+      currencyRates,
+      transferMatches
     };
   }
 
@@ -207,8 +275,222 @@ class SimplifiedImportExportService {
   }
 
   /**
-   * Download JSON file
+   * Export all app data to Excel format with multiple sheets
    */
+  async exportToExcel(): Promise<void> {
+    try {
+      // Get all data
+      const exportData = await this.exportData();
+      
+      // Create a new workbook
+      const workbook = XLSX.utils.book_new();
+      
+      // Helper function to safely format dates for Excel
+      const formatDateForExcel = (date: any) => {
+        if (!date) return '';
+        try {
+          return date instanceof Date ? date.toISOString().split('T')[0] : new Date(date).toISOString().split('T')[0];
+        } catch {
+          return String(date);
+        }
+      };
+
+      // Helper function to safely format numbers
+      const formatNumber = (num: any) => {
+        if (num === null || num === undefined) return '';
+        return typeof num === 'number' ? num : parseFloat(String(num)) || 0;
+      };
+
+      // 1. Transactions Sheet
+      if (exportData.transactions && exportData.transactions.length > 0) {
+        const transactionsData = exportData.transactions.map(tx => ({
+          ID: tx.id || '',
+          Date: formatDateForExcel(tx.date),
+          Amount: formatNumber(tx.amount),
+          Description: tx.description || '',
+          Category: tx.category || '',
+          Subcategory: tx.subcategory || '',
+          Account: tx.account || '',
+          Type: tx.type || '',
+          Vendor: tx.vendor || '',
+          Location: tx.location || '',
+          Notes: tx.notes || '',
+          'Is Recurring': tx.isRecurring ? 'Yes' : 'No',
+          'Is Verified': tx.isVerified ? 'Yes' : 'No',
+          'AI Confidence': formatNumber(tx.confidence),
+          'AI Reasoning': tx.reasoning || '',
+          Tags: tx.tags ? tx.tags.join(', ') : '',
+          'Original Currency': tx.originalCurrency || '',
+          'Exchange Rate': formatNumber(tx.exchangeRate),
+          'Is Reimbursed': tx.reimbursed ? 'Yes' : 'No',
+          'Reimbursement ID': tx.reimbursementId || '',
+          'Added Date': formatDateForExcel(tx.addedDate),
+          'Last Modified': formatDateForExcel(tx.lastModifiedDate)
+        }));
+        
+        const transactionsSheet = XLSX.utils.json_to_sheet(transactionsData);
+        XLSX.utils.book_append_sheet(workbook, transactionsSheet, 'Transactions');
+      }
+
+      // 2. Accounts Sheet
+      if (exportData.accounts && exportData.accounts.length > 0) {
+        const accountsData = exportData.accounts.map(acc => ({
+          ID: acc.id || '',
+          Name: acc.name || '',
+          Institution: acc.institution || '',
+          Type: acc.type || '',
+          'Masked Account Number': acc.maskedAccountNumber || '',
+          Balance: formatNumber(acc.balance),
+          Currency: acc.currency || 'USD',
+          'Is Active': acc.isActive ? 'Yes' : 'No',
+          'Last Sync': formatDateForExcel(acc.lastSyncDate),
+          'Historical Balance': formatNumber(acc.historicalBalance),
+          'Historical Balance Date': formatDateForExcel(acc.historicalBalanceDate)
+        }));
+        
+        const accountsSheet = XLSX.utils.json_to_sheet(accountsData);
+        XLSX.utils.book_append_sheet(workbook, accountsSheet, 'Accounts');
+      }
+
+      // 3. Budgets Sheet
+      if (exportData.budgets && exportData.budgets.length > 0) {
+        const budgetsData = exportData.budgets.map(budget => ({
+          ID: budget.id || '',
+          Name: budget.name || '',
+          'Category ID': budget.categoryId || '',
+          Amount: formatNumber(budget.amount),
+          Period: budget.period || '',
+          'Start Date': formatDateForExcel(budget.startDate),
+          'End Date': formatDateForExcel(budget.endDate),
+          'Is Active': budget.isActive ? 'Yes' : 'No',
+          'Alert Threshold': formatNumber(budget.alertThreshold)
+        }));
+        
+        const budgetsSheet = XLSX.utils.json_to_sheet(budgetsData);
+        XLSX.utils.book_append_sheet(workbook, budgetsSheet, 'Budgets');
+      }
+
+      // 4. Categories Sheet
+      if (exportData.categories && exportData.categories.length > 0) {
+        const categoriesData = exportData.categories.map(cat => ({
+          ID: cat.id || '',
+          Name: cat.name || '',
+          Type: cat.type || '',
+          Color: cat.color || '',
+          Icon: cat.icon || '',
+          Description: cat.description || '',
+          'Budget Amount': formatNumber(cat.budgetAmount),
+          'Subcategories Count': cat.subcategories?.length || 0
+        }));
+        
+        const categoriesSheet = XLSX.utils.json_to_sheet(categoriesData);
+        XLSX.utils.book_append_sheet(workbook, categoriesSheet, 'Categories');
+      }
+
+      // 5. Rules Sheet
+      if (exportData.rules && exportData.rules.length > 0) {
+        const rulesData = exportData.rules.map(rule => ({
+          ID: rule.id || '',
+          Name: rule.name || '',
+          Description: rule.description || '',
+          'Is Active': rule.isActive ? 'Yes' : 'No',
+          Priority: formatNumber(rule.priority),
+          'Created Date': formatDateForExcel(rule.createdDate),
+          'Last Modified': formatDateForExcel(rule.lastModifiedDate),
+          'Conditions Count': rule.conditions?.length || 0,
+          'Action Category ID': rule.action?.categoryId || '',
+          'Action Category Name': rule.action?.categoryName || '',
+          'Action Subcategory ID': rule.action?.subcategoryId || '',
+          'Action Subcategory Name': rule.action?.subcategoryName || '',
+          'Transaction Type Override': rule.action?.transactionType || ''
+        }));
+        
+        const rulesSheet = XLSX.utils.json_to_sheet(rulesData);
+        XLSX.utils.book_append_sheet(workbook, rulesSheet, 'Rules');
+      }
+
+      // 6. Currency Rates Sheet
+      if (exportData.currencyRates && exportData.currencyRates.length > 0) {
+        const currencyData = exportData.currencyRates.map(rate => ({
+          'Currency Pair': rate.currencyPair || '',
+          Rate: formatNumber(rate.rate),
+          Age: rate.age || '',
+          Source: rate.source || ''
+        }));
+        
+        const currencySheet = XLSX.utils.json_to_sheet(currencyData);
+        XLSX.utils.book_append_sheet(workbook, currencySheet, 'Currency Rates');
+      }
+
+      // 7. Balance History Sheet
+      if (exportData.balanceHistory && exportData.balanceHistory.length > 0) {
+        const balanceData: any[] = [];
+        exportData.balanceHistory.forEach(accountHistory => {
+          if (accountHistory.history && accountHistory.history.length > 0) {
+            accountHistory.history.forEach((entry: any) => {
+              balanceData.push({
+                'Account ID': accountHistory.accountId || '',
+                'Account Name': accountHistory.accountName || '',
+                Date: entry.formattedDate || formatDateForExcel(entry.date),
+                Balance: formatNumber(entry.balance)
+              });
+            });
+          }
+        });
+        
+        if (balanceData.length > 0) {
+          const balanceSheet = XLSX.utils.json_to_sheet(balanceData);
+          XLSX.utils.book_append_sheet(workbook, balanceSheet, 'Balance History');
+        }
+      }
+
+      // 8. Transfer Matches Sheet
+      if (exportData.transferMatches && exportData.transferMatches.length > 0) {
+        const transferData = exportData.transferMatches.map(match => ({
+          ID: match.id || '',
+          'Source Transaction ID': match.sourceTransactionId || '',
+          'Target Transaction ID': match.targetTransactionId || '',
+          Confidence: formatNumber(match.confidence),
+          'Match Type': match.matchType || '',
+          'Date Difference (days)': formatNumber(match.dateDifference),
+          'Amount Difference': formatNumber(match.amountDifference),
+          Reasoning: match.reasoning || '',
+          'Is Verified': match.isVerified ? 'Yes' : 'No'
+        }));
+        
+        const transferSheet = XLSX.utils.json_to_sheet(transferData);
+        XLSX.utils.book_append_sheet(workbook, transferSheet, 'Transfer Matches');
+      }
+
+      // 9. Summary/Metadata Sheet
+      const summaryData = [
+        { Field: 'Export Version', Value: exportData.version || '' },
+        { Field: 'Export Date', Value: formatDateForExcel(exportData.exportDate) },
+        { Field: 'App Version', Value: exportData.appVersion || '' },
+        { Field: 'Total Transactions', Value: exportData.transactions?.length || 0 },
+        { Field: 'Total Accounts', Value: exportData.accounts?.length || 0 },
+        { Field: 'Total Budgets', Value: exportData.budgets?.length || 0 },
+        { Field: 'Total Categories', Value: exportData.categories?.length || 0 },
+        { Field: 'Total Rules', Value: exportData.rules?.length || 0 },
+        { Field: 'Total Currency Rates', Value: exportData.currencyRates?.length || 0 },
+        { Field: 'Total Transfer Matches', Value: exportData.transferMatches?.length || 0 }
+      ];
+      
+      const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+
+      // Generate filename and download
+      const timestamp = new Date().toISOString().split('T')[0];
+      const filename = `momoney-export-${timestamp}.xlsx`;
+      
+      // Write the file
+      XLSX.writeFile(workbook, filename);
+      
+    } catch (error) {
+      console.error('Failed to export to Excel:', error);
+      throw new Error(`Failed to export to Excel: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
   downloadFile(data: ExportData, filename: string = 'momoney-backup.json') {
     const jsonString = JSON.stringify(data, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
