@@ -1586,6 +1586,31 @@ Return ONLY a clean JSON response:
   private extractAmount(row: any, column?: string): number | null {
     if (!column) return null;
     
+    // Handle combined withdrawal/deposit column mapping
+    if (column.toLowerCase().includes('withdrawal') && column.toLowerCase().includes('deposit')) {
+      // Try to find separate Withdrawal and Deposit columns
+      const withdrawalAmount = this.extractAmountFromColumn(row, 'Withdrawal') || 
+                               this.extractAmountFromColumn(row, 'withdrawal');
+      const depositAmount = this.extractAmountFromColumn(row, 'Deposit') || 
+                            this.extractAmountFromColumn(row, 'deposit');
+      
+      // If both have values, prioritize deposit (income)
+      if (depositAmount !== null && depositAmount !== 0) {
+        return depositAmount;
+      }
+      
+      // Otherwise use withdrawal (make it negative for expense)
+      if (withdrawalAmount !== null && withdrawalAmount !== 0) {
+        return withdrawalAmount > 0 ? -withdrawalAmount : withdrawalAmount;
+      }
+      
+      return null;
+    }
+    
+    return this.extractAmountFromColumn(row, column);
+  }
+
+  private extractAmountFromColumn(row: any, column: string): number | null {
     const value = this.getColumnValue(row, column);
     if (!value) return null;
 
