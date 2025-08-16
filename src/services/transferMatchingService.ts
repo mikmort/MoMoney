@@ -58,9 +58,16 @@ class TransferMatchingService {
         if (matchedIds.has(targetTx.id) || sourceTx.id === targetTx.id) continue;
 
         // Check if amounts are inverse (one positive, one negative, similar magnitude)
+        // New requirement: If amounts aren't identical AND both have same currency (no conversion), don't auto-match
+        const sameCurrency = this.haveSameCurrency(sourceTx, targetTx);
+        const amountsIdentical = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)) < 0.01;
+        
         const amountMatch = this.areAmountsMatching(sourceTx.amount, targetTx.amount, tolerancePercentage);
         
         if (!amountMatch) continue;
+        
+        // If same currency and amounts not identical, only create potential matches
+        const shouldAutoMatch = !sameCurrency || amountsIdentical;
 
         // Check date proximity
         const dateDiff = Math.abs((sourceTx.date.getTime() - targetTx.date.getTime()) / (1000 * 60 * 60 * 24));
@@ -74,17 +81,25 @@ class TransferMatchingService {
           sourceTransactionId: sourceTx.id,
           targetTransactionId: targetTx.id,
           confidence: this.calculateMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(sourceTx.amount - Math.abs(targetTx.amount))),
-          matchType: dateDiff === 0 && amountMatch ? 'exact' : 'approximate',
+          matchType: shouldAutoMatch && dateDiff === 0 && amountMatch ? 'exact' : 'approximate',
           dateDifference: dateDiff,
           amountDifference: Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)),
-          reasoning: `Transfer match: ${sourceTx.account} ↔ ${targetTx.account}, ${dateDiff} days apart`,
+          reasoning: shouldAutoMatch 
+            ? `Transfer match: ${sourceTx.account} ↔ ${targetTx.account}, ${dateDiff} days apart`
+            : `Potential match (non-identical amounts, same currency): ${sourceTx.account} ↔ ${targetTx.account}`,
           isVerified: false
         };
 
-        matches.push(match);
-        matchedIds.add(sourceTx.id);
-        matchedIds.add(targetTx.id);
-        break; // Found a match for this transaction
+        // Only add to auto-matches if it should auto-match, otherwise it will be a potential match
+        if (shouldAutoMatch) {
+          matches.push(match);
+          matchedIds.add(sourceTx.id);
+          matchedIds.add(targetTx.id);
+          break; // Found a match for this transaction
+        } else {
+          // This will be handled as a potential match
+          matches.push(match);
+        }
       }
     }
 
@@ -142,6 +157,17 @@ class TransferMatchingService {
     
     // Check if amounts are similar within tolerance
     return avgAmount > 0 && (diff / avgAmount) <= tolerance;
+  }
+
+  private haveSameCurrency(tx1: Transaction, tx2: Transaction): boolean {
+    // If both transactions have no original currency, they're in the default currency (same)
+    if (!tx1.originalCurrency && !tx2.originalCurrency) return true;
+    
+    // If one has original currency and the other doesn't, they're different currencies
+    if (!tx1.originalCurrency || !tx2.originalCurrency) return false;
+    
+    // Both have original currencies - compare them
+    return tx1.originalCurrency === tx2.originalCurrency;
   }
 
   private calculateMatchConfidence(
