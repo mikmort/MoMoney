@@ -133,6 +133,8 @@ export interface FileImportProgress {
   totalRows: number;
   errors: string[];
   fileName?: string; // For identifying which file this progress is for
+  accountId?: string; // Account ID for the file
+  accountName?: string; // Account name for display
 }
 
 export interface MultiFileImportProgress {

@@ -180,19 +180,22 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           const detectionResult = await detectAccount(detectionRequest);
           
           const CONFIDENCE_THRESHOLD = 0.95;
+          
+          // For multi-file uploads, always require account selection regardless of confidence
+          const isMultiFileUpload = files.length > 1;
+          const shouldAutoAssign = !isMultiFileUpload && detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD;
+          
           const item: FileImportItem = {
             fileId,
             file,
-            needsAccountSelection: !(detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD),
+            needsAccountSelection: !shouldAutoAssign,
             accountDetectionResult: {
               detectedAccountId: detectionResult.detectedAccountId,
               confidence: detectionResult.confidence,
               reasoning: detectionResult.reasoning,
               suggestedAccounts: detectionResult.suggestedAccounts || []
             },
-            accountId: (detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD) 
-              ? detectionResult.detectedAccountId 
-              : undefined
+            accountId: shouldAutoAssign ? detectionResult.detectedAccountId : undefined
           };
           
           importItems.push(item);
@@ -242,6 +245,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     
     const filesMap = new Map<string, FileImportProgress>();
     items.forEach(item => {
+      const account = item.accountId ? accounts.find(acc => acc.id === item.accountId) : null;
       filesMap.set(item.fileId, {
         fileId: item.fileId,
         status: 'pending',
@@ -250,7 +254,9 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         processedRows: 0,
         totalRows: 0,
         errors: [],
-        fileName: item.file.name
+        fileName: item.file.name,
+        accountId: item.accountId,
+        accountName: account?.name
       });
     });
 
@@ -712,8 +718,15 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
                 backgroundColor: '#f9f9f9'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>
-                    {fileProgress.fileName || `File ${fileId.slice(-8)}`}
+                  <div>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>
+                      {fileProgress.fileName || `File ${fileId.slice(-8)}`}
+                    </div>
+                    {fileProgress.accountName && (
+                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        → {fileProgress.accountName}
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontSize: '0.8rem' }}>
                     {Math.round(fileProgress.progress)}%
