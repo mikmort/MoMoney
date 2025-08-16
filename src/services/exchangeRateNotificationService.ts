@@ -204,12 +204,17 @@ class ExchangeRateNotificationService {
    * Dismiss a notification
    */
   dismissNotification(notificationId: string): void {
+    console.log(`[ExchangeRate] Attempting to dismiss notification: ${notificationId}`);
     const notification = this.notifications.get(notificationId);
     if (notification && notification.canDismiss) {
+      console.log(`[ExchangeRate] Dismissing notification: ${notificationId}`);
       this.notifications.delete(notificationId);
       // Track dismissal time for cooloff period
       this.dismissedNotifications.set(notificationId, new Date());
+      console.log(`[ExchangeRate] Notification dismissed. Remaining notifications: ${this.notifications.size}`);
       this.notifyListeners();
+    } else {
+      console.warn(`[ExchangeRate] Cannot dismiss notification: ${notificationId}. Notification exists: ${!!notification}, Can dismiss: ${notification?.canDismiss}`);
     }
   }
 

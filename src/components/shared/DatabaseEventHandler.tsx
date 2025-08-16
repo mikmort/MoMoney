@@ -61,18 +61,35 @@ const Toast = styled.div<{ $visible: boolean }>`
 const DatabaseEventHandler: React.FC = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [lastEventTime, setLastEventTime] = useState<Date | null>(null);
 
   useEffect(() => {
     const handleDBBlocked = (event: any) => {
+      // Prevent duplicate events within 5 seconds
+      const now = new Date();
+      if (lastEventTime && (now.getTime() - lastEventTime.getTime()) < 5000) {
+        console.log('[DB Event] Ignoring duplicate db-blocked event');
+        return;
+      }
+      
       console.warn('[DB Event] Database upgrade blocked:', event.detail);
       setToastMessage(event.detail.message || 'Database upgrade blocked. Please close other Mo Money tabs and refresh.');
       setShowToast(true);
+      setLastEventTime(now);
     };
 
     const handleDBVersionChange = () => {
+      // Prevent duplicate events within 5 seconds
+      const now = new Date();
+      if (lastEventTime && (now.getTime() - lastEventTime.getTime()) < 5000) {
+        console.log('[DB Event] Ignoring duplicate db-versionchange event');
+        return;
+      }
+      
       console.warn('[DB Event] Database version change detected in another tab');
       setToastMessage('Database updated in another tab. Please refresh to get the latest version.');
       setShowToast(true);
+      setLastEventTime(now);
     };
 
     // Listen for custom database events
@@ -83,14 +100,20 @@ const DatabaseEventHandler: React.FC = () => {
       window.removeEventListener('db-blocked', handleDBBlocked);
       window.removeEventListener('db-versionchange', handleDBVersionChange);
     };
-  }, []);
+  }, [lastEventTime]);
 
   const handleRefresh = () => {
     window.location.reload();
   };
 
   const handleDismiss = () => {
-    setShowToast(false);
+    console.log('Dismissing database notification');
+    try {
+      setShowToast(false);
+      console.log('Database notification dismissed successfully');
+    } catch (error) {
+      console.error('Error dismissing database notification:', error);
+    }
   };
 
   return (

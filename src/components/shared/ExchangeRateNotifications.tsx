@@ -145,7 +145,13 @@ const ExchangeRateNotifications: React.FC = () => {
   }, []);
 
   const handleDismiss = (notificationId: string) => {
-    exchangeRateNotificationService.dismissNotification(notificationId);
+    console.log('Dismissing notification:', notificationId);
+    try {
+      exchangeRateNotificationService.dismissNotification(notificationId);
+      console.log('Notification dismissed successfully');
+    } catch (error) {
+      console.error('Error dismissing notification:', error);
+    }
   };
 
   const handleAction = (notification: ExchangeRateNotification) => {
