@@ -866,8 +866,8 @@ const Transactions: React.FC = () => {
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
   const [showInvestmentTransactions, setShowInvestmentTransactions] = useState(false); // Hide investments by default
-  const [showMatchedTransactions, setShowMatchedTransactions] = useState(true);
-  const [showUnmatchedTransactions, setShowUnmatchedTransactions] = useState(true);
+  const [showMatchedTransactions, setShowMatchedTransactions] = useState(false);
+  const [showUnmatchedTransactions, setShowUnmatchedTransactions] = useState(false);
   
   const [collapsedTransfers, setCollapsedTransfers] = useState<CollapsedTransfer[]>([]);
   
@@ -2073,21 +2073,28 @@ const Transactions: React.FC = () => {
       filtered = filtered.filter((t: Transaction) => t.type !== 'asset-allocation');
     }
 
-    // Filter matched/unmatched transfer transactions based on toggles
-    if (!showMatchedTransactions) {
-      // Hide matched transfers - keep all non-transfers and unmatched transfers
-      const matchedTransferIds = new Set(getMatchedTransfers(transactions).flatMap(match => [match.sourceTransactionId, match.targetTransactionId]));
-      filtered = filtered.filter((t: Transaction) => 
-        t.type !== 'transfer' || !matchedTransferIds.has(t.id)
-      );
-    }
-    if (!showUnmatchedTransactions) {
-      // Hide unmatched transfers - keep all non-transfers and matched transfers  
-      const unmatchedTransfers = getUnmatchedTransfers(transactions);
-      const unmatchedTransferIds = new Set(unmatchedTransfers.map(t => t.id));
-      filtered = filtered.filter((t: Transaction) => 
-        t.type !== 'transfer' || !unmatchedTransferIds.has(t.id)
-      );
+    // Quick filter for matched/unmatched transfer transactions
+    // When both are false (default), show all transactions
+    // When one is true, show only those matching that filter  
+    // When both are true, show nothing (no transaction can be both matched and unmatched)
+    if (showMatchedTransactions || showUnmatchedTransactions) {
+      if (showMatchedTransactions && showUnmatchedTransactions) {
+        // Both selected - empty set (no transaction can be both matched and unmatched)
+        filtered = [];
+      } else if (showMatchedTransactions) {
+        // Show only matched transfer transactions
+        const matchedTransferIds = new Set(getMatchedTransfers(transactions).flatMap(match => [match.sourceTransactionId, match.targetTransactionId]));
+        filtered = filtered.filter((t: Transaction) => 
+          t.type === 'transfer' && matchedTransferIds.has(t.id)
+        );
+      } else if (showUnmatchedTransactions) {
+        // Show only unmatched transfer transactions
+        const unmatchedTransfers = getUnmatchedTransfers(transactions);
+        const unmatchedTransferIds = new Set(unmatchedTransfers.map(t => t.id));
+        filtered = filtered.filter((t: Transaction) => 
+          t.type === 'transfer' && unmatchedTransferIds.has(t.id)
+        );
+      }
     }
 
     if (filters.category.length > 0) {
@@ -3096,8 +3103,17 @@ const Transactions: React.FC = () => {
                 isActive={showMatchedTransactions}
                 activeColor="#28a745"
                 activeBackground="#d4edda"
-                onClick={() => setShowMatchedTransactions(!showMatchedTransactions)}
-                title="Toggle showing matched transfer transactions"
+                onClick={() => {
+                  if (showMatchedTransactions) {
+                    // If already active, turn it off
+                    setShowMatchedTransactions(false);
+                  } else {
+                    // Turn this on and turn the other off
+                    setShowMatchedTransactions(true);
+                    setShowUnmatchedTransactions(false);
+                  }
+                }}
+                title="Show only matched transfer transactions"
               >
                 ✅ Transfer Matched ({countMatchedTransferTransactions(transactions)})
               </QuickFilterButton>
@@ -3108,8 +3124,17 @@ const Transactions: React.FC = () => {
                 isActive={showUnmatchedTransactions}
                 activeColor="#ffc107"
                 activeBackground="#fff3cd"
-                onClick={() => setShowUnmatchedTransactions(!showUnmatchedTransactions)}
-                title="Toggle showing unmatched transfer transactions"
+                onClick={() => {
+                  if (showUnmatchedTransactions) {
+                    // If already active, turn it off
+                    setShowUnmatchedTransactions(false);
+                  } else {
+                    // Turn this on and turn the other off
+                    setShowUnmatchedTransactions(true);
+                    setShowMatchedTransactions(false);
+                  }
+                }}
+                title="Show only unmatched transfer transactions"
               >
                 ⚠️ Unmatched Transfers ({countUnmatchedTransferTransactions(transactions)})
               </QuickFilterButton>
