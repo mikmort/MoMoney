@@ -1584,7 +1584,7 @@ Return ONLY a clean JSON response:
   }
 
   private extractAmount(row: any, column?: string): number | null {
-    if (!column) return null;
+    if (!column || typeof column !== 'string') return null;
     
     // Handle combined withdrawal/deposit column mapping
     if (column.toLowerCase().includes('withdrawal') && column.toLowerCase().includes('deposit')) {
