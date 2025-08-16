@@ -438,20 +438,49 @@ export const TransferMatchesPage: React.FC = () => {
   const handleManualMatch = async () => {
     if (!selectedSource || !selectedTarget) return;
 
+    const validation = validateManualMatch();
+    if (!validation?.isValid) return;
+
     try {
-      const updatedTransactions = await manuallyMatchTransfers(
-        transactions,
-        selectedSource,
-        selectedTarget
-      );
+      const sourceTx = transactions.find(t => t.id === selectedSource);
+      const targetTx = transactions.find(t => t.id === selectedTarget);
+      
+      if (!sourceTx || !targetTx) return;
+
+      // Determine if this is a same-account match or regular transfer
+      const isSameAccount = sourceTx.account === targetTx.account;
+      const matchNote = isSameAccount ? '[Manual Matched Transaction]' : '[Manual Transfer Match]';
+
+      // Use the same linking mechanism regardless of match type
+      // The service method validation will be updated to allow same-account matches
+      const updatedTransactions = [...transactions];
+      const sourceIndex = updatedTransactions.findIndex(tx => tx.id === selectedSource);
+      const targetIndex = updatedTransactions.findIndex(tx => tx.id === selectedTarget);
+
+      if (sourceIndex !== -1 && targetIndex !== -1) {
+        updatedTransactions[sourceIndex] = {
+          ...updatedTransactions[sourceIndex],
+          reimbursementId: selectedTarget,
+          notes: (updatedTransactions[sourceIndex].notes || '') + '\n' + matchNote
+        };
+        
+        updatedTransactions[targetIndex] = {
+          ...updatedTransactions[targetIndex],
+          reimbursementId: selectedSource,
+          notes: (updatedTransactions[targetIndex].notes || '') + '\n' + matchNote
+        };
+      }
+
+      // Update the database
       await dataService.updateTransaction(selectedSource, {
         reimbursementId: selectedTarget,
-        notes: (transactions.find(t => t.id === selectedSource)?.notes || '') + '\n[Manual Transfer Match]'
+        notes: (transactions.find(t => t.id === selectedSource)?.notes || '') + '\n' + matchNote
       });
       await dataService.updateTransaction(selectedTarget, {
         reimbursementId: selectedSource,
-        notes: (transactions.find(t => t.id === selectedTarget)?.notes || '') + '\n[Manual Transfer Match]'
+        notes: (transactions.find(t => t.id === selectedTarget)?.notes || '') + '\n' + matchNote
       });
+      
       setTransactions(updatedTransactions);
       setSelectedSource('');
       setSelectedTarget('');
@@ -521,12 +550,32 @@ export const TransferMatchesPage: React.FC = () => {
 
     if (!sourceTx || !targetTx) return null;
 
-    // Check if same account
+    // Check if same account - allow if opposite amounts (matched transactions)
     if (sourceTx.account === targetTx.account) {
-      return { isValid: false, reason: 'Cannot match transfers within the same account' };
+      // Allow same-account matching if they have opposite amounts (matched transactions)
+      const hasOppositeAmounts = (sourceTx.amount > 0) !== (targetTx.amount > 0);
+      if (!hasOppositeAmounts) {
+        return { isValid: false, reason: 'Same account transactions must have opposite amounts to be matched' };
+      }
+      // For same-account matches, we're more lenient since they're typically cancellations
+      const amountDiff = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount));
+      const tolerance = 0.01; // 1% tolerance
+      const avgAmount = (Math.abs(sourceTx.amount) + Math.abs(targetTx.amount)) / 2;
+      const isAmountValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
+      
+      return {
+        isValid: isAmountValid,
+        reason: isAmountValid 
+          ? `Same-account matched transaction: $${amountDiff.toFixed(2)} difference`
+          : `Large amount difference ($${amountDiff.toFixed(2)}). This may not be a valid cancellation/reversal.`,
+        sourceTx,
+        targetTx,
+        amountDiff,
+        matchType: 'same-account' as const
+      };
     }
 
-    // Check amount similarity
+    // Different accounts - regular transfer validation
     const amountDiff = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount));
     const tolerance = 0.01; // 1% tolerance
     const avgAmount = (Math.abs(sourceTx.amount) + Math.abs(targetTx.amount)) / 2;
@@ -535,7 +584,7 @@ export const TransferMatchesPage: React.FC = () => {
     return {
       isValid: isAmountValid,
       reason: isAmountValid 
-        ? `Amounts match within tolerance ($${amountDiff.toFixed(2)} difference)`
+        ? `Transfer match: $${amountDiff.toFixed(2)} difference`
         : `Large amount difference ($${amountDiff.toFixed(2)}). This may not be a valid transfer match.`,
       sourceTx,
       targetTx,
