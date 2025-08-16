@@ -208,22 +208,30 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   // State for tracking edited account names
   const [editedAccountNames, setEditedAccountNames] = useState<{[index: number]: string}>({});
 
+  // Multiple file upload state
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [multipleFilesResult, setMultipleFilesResult] = useState<MultipleAccountAnalysisResponse | null>(null);
+
   // Balance history modal
   const [showBalanceHistoryModal, setShowBalanceHistoryModal] = useState(false);
   const [selectedAccountForHistory, setSelectedAccountForHistory] = useState<Account | null>(null);
 
-  // Initialize edited account names when multipleAccountsResult changes
+  // Initialize edited account names when multipleAccountsResult or multipleFilesResult changes
   useEffect(() => {
-    if (multipleAccountsResult) {
+    const accountsResult = multipleFilesResult || multipleAccountsResult;
+    if (accountsResult) {
       const initialNames: {[index: number]: string} = {};
-      multipleAccountsResult.accounts.forEach((account, index) => {
-        initialNames[index] = account.accountName || `Account ${index + 1}`;
+      accountsResult.accounts.forEach((account, index) => {
+        // Include source file name if available for multiple files
+        const baseName = account.accountName || `Account ${index + 1}`;
+        const nameWithSource = account.sourceFile ? `${baseName} (from ${account.sourceFile})` : baseName;
+        initialNames[index] = nameWithSource;
       });
       setEditedAccountNames(initialNames);
     } else {
       setEditedAccountNames({});
     }
-  }, [multipleAccountsResult]);
+  }, [multipleAccountsResult, multipleFilesResult]);
 
   const sanitizeReasoning = (reason?: string): string => {
     if (!reason) return '';
@@ -380,6 +388,113 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     }
   };
 
+  // Handle multiple file uploads
+  const handleMultipleFileUploads = async (files: File[]) => {
+    setUploadedFiles(files);
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+    setMultipleAccountsResult(null);
+    setMultipleFilesResult(null);
+
+    try {
+      // Process each file and collect all detected accounts
+      const allAccountsFromFiles: AccountStatementAnalysisResponse[] = [];
+      const fileResults: {
+        file: File;
+        result: any;
+        accounts: AccountStatementAnalysisResponse[];
+      }[] = [];
+      let totalAccountsFound = 0;
+      let hasAutoCreatedAccounts = false;
+      const autoCreatedAccounts: Account[] = [];
+      
+      // Process files sequentially to avoid overwhelming the system
+      for (const file of files) {
+        try {
+          const result = await accountManagementService.detectMultipleAccountsFromStatement(file);
+          
+          if (result.success) {
+            if (result.accounts && result.accounts.length > 0) {
+              // Auto-created accounts (high confidence)
+              hasAutoCreatedAccounts = true;
+              autoCreatedAccounts.push(...result.accounts);
+            } else if (result.multipleAccountsResult) {
+              // Add detected accounts with file source information
+              const accountsWithFileInfo = result.multipleAccountsResult.accounts.map(account => ({
+                ...account,
+                sourceFile: file.name // Add source file name to track which file this account came from
+              }));
+              allAccountsFromFiles.push(...accountsWithFileInfo);
+              totalAccountsFound += result.multipleAccountsResult.totalAccountsFound;
+              
+              fileResults.push({
+                file,
+                result,
+                accounts: accountsWithFileInfo
+              });
+            }
+          } else {
+            console.warn(`Failed to process file ${file.name}:`, result.error);
+            // Continue processing other files even if one fails
+          }
+        } catch (error) {
+          console.error(`Error processing file ${file.name}:`, error);
+          // Continue processing other files even if one fails
+        }
+      }
+
+      // If we have auto-created accounts, close the dialog and refresh
+      if (hasAutoCreatedAccounts) {
+        setShowStatementUpload(false);
+        refreshAccounts();
+        return;
+      }
+
+      // If we have accounts that need user review, show them in the dialog
+      if (allAccountsFromFiles.length > 0) {
+        const multipleFilesAnalysisResult: MultipleAccountAnalysisResponse = {
+          accounts: allAccountsFromFiles,
+          totalAccountsFound: totalAccountsFound,
+          confidence: fileResults.length > 0 ? 
+            fileResults.reduce((sum, fr) => sum + (fr.result.multipleAccountsResult?.confidence || 0), 0) / fileResults.length : 0,
+          reasoning: `Detected ${totalAccountsFound} accounts across ${files.length} files: ${files.map(f => f.name).join(', ')}`,
+          hasMultipleAccounts: true
+        };
+
+        setMultipleFilesResult(multipleFilesAnalysisResult);
+        
+        // Check for warning (large number of accounts)
+        if (totalAccountsFound > 10) {
+          setWarningMessage(`These ${files.length} files contain ${totalAccountsFound} accounts. This is a large number of accounts to create. Please review carefully before proceeding.`);
+          setShowWarningDialog(true);
+        } else {
+          // Show multiple accounts dialog directly
+          setShowMultipleAccountsDialog(true);
+          // Pre-select all accounts by default
+          setSelectedAccountsForCreation(
+            allAccountsFromFiles.map((_, index) => index)
+          );
+        }
+      } else {
+        // No accounts were detected from any files
+        setAnalysisResult({
+          confidence: 0,
+          reasoning: `No accounts could be detected from the ${files.length} uploaded files. Please try adding accounts manually.`,
+          extractedFields: []
+        });
+      }
+    } catch (error) {
+      console.error('Error processing multiple files:', error);
+      setAnalysisResult({
+        confidence: 0,
+        reasoning: 'Failed to process files: ' + (error instanceof Error ? error.message : 'Unknown error'),
+        extractedFields: []
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(true);
@@ -396,14 +511,27 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      handleFileUpload(files[0]);
+      if (files.length === 1) {
+        // Single file - use existing logic
+        handleFileUpload(files[0]);
+      } else {
+        // Multiple files - use new logic
+        handleMultipleFileUploads(files);
+      }
     }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      handleFileUpload(files[0]);
+      const fileArray = Array.from(files);
+      if (fileArray.length === 1) {
+        // Single file - use existing logic
+        handleFileUpload(fileArray[0]);
+      } else {
+        // Multiple files - use new logic  
+        handleMultipleFileUploads(fileArray);
+      }
     }
   };
 
@@ -440,9 +568,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     setShowWarningDialog(false);
     setShowMultipleAccountsDialog(true);
     // Pre-select all accounts by default
-    if (multipleAccountsResult) {
+    const accountsResult = multipleFilesResult || multipleAccountsResult;
+    if (accountsResult) {
       setSelectedAccountsForCreation(
-        multipleAccountsResult.accounts.map((_, index) => index)
+        accountsResult.accounts.map((_, index) => index)
       );
     }
   };
@@ -452,8 +581,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     setShowWarningDialog(false);
     setShowStatementUpload(false);
     setMultipleAccountsResult(null);
+    setMultipleFilesResult(null);
     setEditedAccountNames({}); // Reset edited names
     setUploadedFile(null);
+    setUploadedFiles([]);
   };
 
   // Handler for toggling account selection
@@ -469,26 +600,28 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
 
   // Handler for selecting/deselecting all accounts
   const handleSelectAllAccounts = () => {
-    if (!multipleAccountsResult) return;
+    const accountsResult = multipleFilesResult || multipleAccountsResult;
+    if (!accountsResult) return;
     
-    if (selectedAccountsForCreation.length === multipleAccountsResult.accounts.length) {
+    if (selectedAccountsForCreation.length === accountsResult.accounts.length) {
       // Deselect all
       setSelectedAccountsForCreation([]);
     } else {
       // Select all
       setSelectedAccountsForCreation(
-        multipleAccountsResult.accounts.map((_, index) => index)
+        accountsResult.accounts.map((_, index) => index)
       );
     }
   };
 
   // Handler for creating selected accounts
   const handleCreateSelectedAccounts = async () => {
-    if (!multipleAccountsResult || selectedAccountsForCreation.length === 0) return;
+    const accountsResult = multipleFilesResult || multipleAccountsResult;
+    if (!accountsResult || selectedAccountsForCreation.length === 0) return;
 
     try {
       const result = await accountManagementService.createAccountsFromMultipleAnalysis(
-        multipleAccountsResult,
+        accountsResult,
         selectedAccountsForCreation,
         editedAccountNames // Pass the edited account names
       );
@@ -498,9 +631,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         setShowMultipleAccountsDialog(false);
         setShowStatementUpload(false);
         setMultipleAccountsResult(null);
+        setMultipleFilesResult(null);
         setSelectedAccountsForCreation([]);
         setEditedAccountNames({}); // Reset edited names
         setUploadedFile(null);
+        setUploadedFiles([]);
         refreshAccounts();
 
         // Show success message if there were errors
@@ -521,9 +656,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
     setShowMultipleAccountsDialog(false);
     setShowStatementUpload(false);
     setMultipleAccountsResult(null);
+    setMultipleFilesResult(null);
     setSelectedAccountsForCreation([]);
     setEditedAccountNames({}); // Reset edited names
     setUploadedFile(null);
+    setUploadedFiles([]);
   };
 
   const handleAccountClick = (accountName: string) => {
@@ -1008,10 +1145,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
               >
                 <div>
                   <div style={{ fontWeight: '600', marginBottom: '4px' }}>
-                    📄 Create account by uploading statement
+                    📄 Create accounts by uploading statements
                   </div>
                   <div style={{ fontSize: '0.9em', color: '#666' }}>
-                    Upload a bank statement (PDF, CSV, Excel) and let AI extract account details automatically
+                    Upload one or multiple bank statements (PDF, CSV, Excel) and let AI extract account details automatically
                   </div>
                 </div>
               </Button>
@@ -1060,19 +1197,21 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
               >
-                <p><strong>Upload a bank statement to automatically create an account</strong></p>
-                <p>Drag & drop a statement file here, or</p>
+                <p><strong>Upload bank statements to automatically create accounts</strong></p>
+                <p>Drag & drop one or multiple statement files here, or</p>
                 <Button as="label" variant="outline" style={{ cursor: 'pointer' }}>
-                  Choose File
+                  Choose Files
                   <input
                     type="file"
                     accept=".pdf,.csv,.xlsx,.xls,.png,.jpg,.jpeg"
+                    multiple
                     onChange={handleFileInput}
                     style={{ display: 'none' }}
                   />
                 </Button>
                 <div className="upload-note">
                   <p>📋 Supported formats: PDF, CSV, Excel, Images</p>
+                  <p>📁 Multiple files supported - accounts will be detected from all files</p>
                   <p>🔒 Account numbers are masked for security (only last 3 digits shown)</p>
                   <p>💡 AI will extract account name, institution, balance, and other details</p>
                 </div>
@@ -1259,26 +1398,37 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       )}
 
       {/* Multiple Accounts Selection Dialog */}
-      {showMultipleAccountsDialog && multipleAccountsResult && (
+      {showMultipleAccountsDialog && (multipleAccountsResult || multipleFilesResult) && (
         <EditModalOverlay onClick={handleCancelMultipleAccounts}>
           <EditModalContent 
             onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: '700px', maxHeight: '80vh' }}
           >
-            <h2>
-              {multipleAccountsResult.hasMultipleAccounts 
-                ? `${multipleAccountsResult.totalAccountsFound} Accounts Detected` 
-                : 'Account Detected'
-              }
-            </h2>
+            {(() => {
+              const accountsResult = multipleFilesResult || multipleAccountsResult;
+              if (!accountsResult) return null;
+              
+              return (
+                <>
+                  <h2>
+                    {accountsResult.hasMultipleAccounts 
+                      ? `${accountsResult.totalAccountsFound} Accounts Detected` 
+                      : 'Account Detected'
+                    }
+                    {multipleFilesResult && uploadedFiles.length > 1 && (
+                      <div style={{ fontSize: '0.8em', color: '#666', fontWeight: 'normal', marginTop: '4px' }}>
+                        From {uploadedFiles.length} files
+                      </div>
+                    )}
+                  </h2>
             
-            <p>{multipleAccountsResult.reasoning}</p>
+                  <p>{accountsResult.reasoning}</p>
             
-            {multipleAccountsResult.hasMultipleAccounts && (
+            {accountsResult.hasMultipleAccounts && (
               <p>
                 Select which accounts you want to create. 
                 <span className="confidence medium" style={{ marginLeft: 8 }}>
-                  Confidence: {Math.round(multipleAccountsResult.confidence * 100)}%
+                  Confidence: {Math.round(accountsResult.confidence * 100)}%
                 </span>
               </p>
             )}
@@ -1289,18 +1439,18 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                 onClick={handleSelectAllAccounts}
                 style={{ fontSize: '0.9em', padding: '6px 12px' }}
               >
-                {selectedAccountsForCreation.length === multipleAccountsResult.accounts.length 
+                {selectedAccountsForCreation.length === accountsResult.accounts.length 
                   ? 'Deselect All' 
                   : 'Select All'
                 }
               </Button>
               <span style={{ color: '#666', fontSize: '0.9em' }}>
-                {selectedAccountsForCreation.length} of {multipleAccountsResult.accounts.length} selected
+                {selectedAccountsForCreation.length} of {accountsResult.accounts.length} selected
               </span>
             </div>
 
             <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: 20 }}>
-              {multipleAccountsResult.accounts.map((account, index) => (
+              {accountsResult.accounts.map((account, index) => (
                 <div 
                   key={index}
                   style={{
@@ -1408,6 +1558,9 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
                 Create {selectedAccountsForCreation.length} Account{selectedAccountsForCreation.length !== 1 ? 's' : ''}
               </Button>
             </div>
+                </>
+              );
+            })()}
           </EditModalContent>
         </EditModalOverlay>
       )}

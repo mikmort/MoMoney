@@ -463,6 +463,7 @@ export interface AccountStatementAnalysisResponse {
   confidence: number; // 0-1 confidence in the extraction
   reasoning: string; // AI explanation of extraction
   extractedFields: string[]; // List of fields that were successfully extracted
+  sourceFile?: string; // Optional filename for multi-file uploads
 }
 
 // Multiple account detection response
