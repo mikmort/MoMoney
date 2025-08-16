@@ -1055,8 +1055,13 @@ const Transactions: React.FC = () => {
     addAccount
   } = useAccountManagement();
 
-  // Transfer matching functionality (minimal for TransferList component)
-  const { unmatchTransfers } = useTransferMatching();
+  // Transfer matching functionality
+  const { 
+    unmatchTransfers,
+    getUnmatchedTransfers,
+    countUnmatchedTransfers,
+    getMatchedTransfers 
+  } = useTransferMatching();
 
   // Helper function to parse category string (e.g., "Food > Restaurants" or "Food")
   const parseCategoryString = (categoryString: string): { category: string; subcategory?: string } => {
@@ -2068,12 +2073,21 @@ const Transactions: React.FC = () => {
       filtered = filtered.filter((t: Transaction) => t.type !== 'asset-allocation');
     }
 
-    // Filter matched/unmatched transactions based on toggles
+    // Filter matched/unmatched transfer transactions based on toggles
     if (!showMatchedTransactions) {
-      filtered = filtered.filter((t: Transaction) => !t.reimbursementId);
+      // Hide matched transfers - keep all non-transfers and unmatched transfers
+      const matchedTransferIds = new Set(getMatchedTransfers(transactions).flatMap(match => [match.sourceTransactionId, match.targetTransactionId]));
+      filtered = filtered.filter((t: Transaction) => 
+        t.type !== 'transfer' || !matchedTransferIds.has(t.id)
+      );
     }
     if (!showUnmatchedTransactions) {
-      filtered = filtered.filter((t: Transaction) => t.reimbursementId);
+      // Hide unmatched transfers - keep all non-transfers and matched transfers  
+      const unmatchedTransfers = getUnmatchedTransfers(transactions);
+      const unmatchedTransferIds = new Set(unmatchedTransfers.map(t => t.id));
+      filtered = filtered.filter((t: Transaction) => 
+        t.type !== 'transfer' || !unmatchedTransferIds.has(t.id)
+      );
     }
 
     if (filters.category.length > 0) {
@@ -2100,7 +2114,7 @@ const Transactions: React.FC = () => {
     // Remove transfer filter functionality
     
     setFilteredTransactions(filtered);
-  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, showMatchedTransactions, showUnmatchedTransactions, filterNonReimbursed]);
+  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, showMatchedTransactions, showUnmatchedTransactions, filterNonReimbursed, getMatchedTransfers, getUnmatchedTransfers]);
 
   useEffect(() => {
     applyFilters();
@@ -2152,12 +2166,12 @@ const Transactions: React.FC = () => {
     return transactions.filter(tx => tx.type === 'asset-allocation').length;
   };
 
-  const countMatchedTransactions = (transactions: Transaction[]): number => {
-    return transactions.filter(tx => tx.reimbursementId).length;
+  const countMatchedTransferTransactions = (transactions: Transaction[]): number => {
+    return getMatchedTransfers(transactions).length;
   };
 
-  const countUnmatchedTransactions = (transactions: Transaction[]): number => {
-    return transactions.filter(tx => !tx.reimbursementId).length;
+  const countUnmatchedTransferTransactions = (transactions: Transaction[]): number => {
+    return countUnmatchedTransfers(transactions);
   };
 
   // Calculate stats in default currency using conversion batch
@@ -3070,7 +3084,7 @@ const Transactions: React.FC = () => {
               </QuickFilterButton>
             )}
             
-            {countMatchedTransactions(transactions) > 0 && (
+            {countMatchedTransferTransactions(transactions) > 0 && (
               <QuickFilterButton
                 isActive={showMatchedTransactions}
                 activeColor="#28a745"
@@ -3078,11 +3092,11 @@ const Transactions: React.FC = () => {
                 onClick={() => setShowMatchedTransactions(!showMatchedTransactions)}
                 title="Toggle showing matched transfer transactions"
               >
-                ✅ Matched ({countMatchedTransactions(transactions)})
+                ✅ Transfer Matched ({countMatchedTransferTransactions(transactions)})
               </QuickFilterButton>
             )}
             
-            {countUnmatchedTransactions(transactions) > 0 && (
+            {countUnmatchedTransferTransactions(transactions) > 0 && (
               <QuickFilterButton
                 isActive={showUnmatchedTransactions}
                 activeColor="#ffc107"
@@ -3090,7 +3104,7 @@ const Transactions: React.FC = () => {
                 onClick={() => setShowUnmatchedTransactions(!showUnmatchedTransactions)}
                 title="Toggle showing unmatched transfer transactions"
               >
-                ⚠️ Unmatched ({countUnmatchedTransactions(transactions)})
+                ⚠️ Unmatched Transfers ({countUnmatchedTransferTransactions(transactions)})
               </QuickFilterButton>
             )}
           </div>
