@@ -1,7 +1,8 @@
-import { Transaction, UserPreferences, Account, Category, CategoryRule } from '../types';
+import { Transaction, UserPreferences, Account, Category, CategoryRule, Budget } from '../types';
 import { db } from './db';
 import { accountManagementService } from './accountManagementService';
 import { rulesService } from './rulesService';
+import { budgetService } from './budgetService';
 import { defaultCategories } from '../data/defaultCategories';
 
 export interface ExportData {
@@ -14,6 +15,18 @@ export interface ExportData {
   accounts?: Account[];
   rules?: CategoryRule[];
   categories?: Category[];
+  budgets?: Budget[];
+}
+
+export interface ImportOptions {
+  accounts: boolean;
+  transactions: boolean;
+  rules: boolean;
+  budgets: boolean;
+  categories: boolean;
+  // These are typically always imported with transactions
+  preferences?: boolean;
+  transactionHistory?: boolean;
 }
 
 class SimplifiedImportExportService {
@@ -28,6 +41,8 @@ class SimplifiedImportExportService {
     const historyEntries = await db.transactionHistory.toArray();
     const accounts = accountManagementService.getAccounts();
     const rules = await rulesService.getAllRules();
+    const budgets = budgetService.getAllBudgets();
+    
     // Categories are stored in localStorage
     const categoriesKey = 'mo-money-categories';
     let categories: Category[] | undefined = undefined;
@@ -52,112 +67,137 @@ class SimplifiedImportExportService {
       transactionHistory: historyEntries,
       accounts,
       rules,
-      categories
+      categories,
+      budgets
     };
   }
 
   /**
-   * Import data from JSON file
+   * Import data from JSON file with selective options
    */
-  async importData(data: ExportData): Promise<{
+  async importData(data: ExportData, options?: ImportOptions): Promise<{
     transactions: number;
     preferences: boolean;
     historyEntries: number;
-  accounts?: number;
-  rules?: number;
-  categories?: number;
+    accounts?: number;
+    rules?: number;
+    categories?: number;
+    budgets?: number;
   }> {
+    // Default options - import everything if not specified
+    const importOptions: ImportOptions = {
+      accounts: true,
+      transactions: true,
+      rules: true,
+      budgets: true,
+      categories: true,
+      preferences: true,
+      transactionHistory: true,
+      ...options
+    };
+
     // Validate data structure
-    if (!data.version || !data.transactions) {
-      throw new Error('Invalid backup file format');
+    if (!data.version) {
+      throw new Error('Invalid backup file format - missing version');
     }
 
-    // Pre-validate all data to ensure we have at least some valid content before clearing existing data
-    const processedTransactions: any[] = [];
-    let skippedCount = 0;
-    let hasValidTransactions = false;
-    
-    if (data.transactions.length > 0) {
-      for (const t of data.transactions) {
-        try {
-          // Validate required fields - for completely corrupted data, fail fast
-          if (!t.id || !t.description) {
-            // If ALL transactions are missing core fields, this is corrupted data - fail completely
-            if (data.transactions.every(tx => !tx.id || !tx.description)) {
-              throw new Error('All transactions missing required fields (id, description)');
-            }
-            console.warn(`Skipping transaction with missing required fields:`, t);
-            skippedCount++;
-            continue;
-          }
-          if (!t.date) {
-            if (data.transactions.every(tx => !tx.date)) {
-              throw new Error('All transactions missing required date field');
-            }
-            console.warn(`Skipping transaction with missing date field:`, t);
-            skippedCount++;
-            continue;
-          }
-          if (t.amount === undefined || t.amount === null) {
-            if (data.transactions.every(tx => tx.amount === undefined || tx.amount === null)) {
-              throw new Error('All transactions missing required amount field');
-            }
-            console.warn(`Skipping transaction with missing amount field:`, t);
-            skippedCount++;
-            continue;
-          }
+    let transactionsImported = 0;
+    let accountsImported = 0;
+    let rulesImported = 0;
+    let categoriesImported = 0;
+    let budgetsImported = 0;
+    let preferencesImported = false;
+    let historyEntriesImported = 0;
 
-          // Ensure proper data types and set defaults
-          const processedTransaction = {
-            ...t,
-            date: new Date(t.date),
-            amount: typeof t.amount === 'string' ? parseFloat(t.amount) : Number(t.amount),
-            addedDate: t.addedDate ? new Date(t.addedDate) : new Date(),
-            lastModifiedDate: t.lastModifiedDate ? new Date(t.lastModifiedDate) : new Date(),
-          };
+    // TRANSACTIONS - validate and import if selected
+    if (importOptions.transactions && data.transactions) {
+      const processedTransactions: any[] = [];
+      let skippedCount = 0;
+      let hasValidTransactions = false;
+      
+      if (data.transactions.length > 0) {
+        for (const t of data.transactions) {
+          try {
+            // Validate required fields - for completely corrupted data, fail fast
+            if (!t.id || !t.description) {
+              // If ALL transactions are missing core fields, this is corrupted data - fail completely
+              if (data.transactions.every(tx => !tx.id || !tx.description)) {
+                throw new Error('All transactions missing required fields (id, description)');
+              }
+              console.warn(`Skipping transaction with missing required fields:`, t);
+              skippedCount++;
+              continue;
+            }
+            if (!t.date) {
+              if (data.transactions.every(tx => !tx.date)) {
+                throw new Error('All transactions missing required date field');
+              }
+              console.warn(`Skipping transaction with missing date field:`, t);
+              skippedCount++;
+              continue;
+            }
+            if (t.amount === undefined || t.amount === null) {
+              if (data.transactions.every(tx => tx.amount === undefined || tx.amount === null)) {
+                throw new Error('All transactions missing required amount field');
+              }
+              console.warn(`Skipping transaction with missing amount field:`, t);
+              skippedCount++;
+              continue;
+            }
 
-          // Validate amount is a valid number - skip invalid ones
-          if (!isFinite(processedTransaction.amount) || isNaN(processedTransaction.amount)) {
-            console.warn(`Skipping transaction with invalid amount: ${t.amount}`, t);
+            // Ensure proper data types and set defaults
+            const processedTransaction = {
+              ...t,
+              date: new Date(t.date),
+              amount: typeof t.amount === 'string' ? parseFloat(t.amount) : Number(t.amount),
+              addedDate: t.addedDate ? new Date(t.addedDate) : new Date(),
+              lastModifiedDate: t.lastModifiedDate ? new Date(t.lastModifiedDate) : new Date(),
+            };
+
+            // Validate amount is a valid number - skip invalid ones
+            if (!isFinite(processedTransaction.amount) || isNaN(processedTransaction.amount)) {
+              console.warn(`Skipping transaction with invalid amount: ${t.amount}`, t);
+              skippedCount++;
+              continue;
+            }
+
+            processedTransactions.push(processedTransaction);
+            hasValidTransactions = true;
+          } catch (error) {
+            console.warn(`Skipping invalid transaction:`, t, error);
             skippedCount++;
             continue;
           }
+        }
+      }
 
-          processedTransactions.push(processedTransaction);
-          hasValidTransactions = true;
-        } catch (error) {
-          console.warn(`Skipping invalid transaction:`, t, error);
-          skippedCount++;
-          continue;
+      // If no valid transactions found and we were supposed to import them, treat as corrupted data
+      if (!hasValidTransactions && data.transactions.length > 0) {
+        throw new Error('No valid transactions found in import data');
+      }
+
+      if (skippedCount > 0) {
+        console.warn(`Skipped ${skippedCount} invalid transactions during import`);
+      }
+
+      // Clear existing transactions and import
+      if (importOptions.transactions) {
+        await db.clearAll(); // This clears transactions and transaction history
+        if (processedTransactions.length > 0) {
+          await db.transactions.bulkAdd(processedTransactions);
+          transactionsImported = processedTransactions.length;
         }
       }
     }
 
-    // If no valid transactions found, treat as corrupted data
-    if (!hasValidTransactions && data.transactions.length > 0) {
-      throw new Error('No valid transactions found in import data');
-    }
-
-    if (skippedCount > 0) {
-      console.warn(`Skipped ${skippedCount} invalid transactions during import`);
-    }
-
-    // Only clear and import after validation passes
-    await db.clearAll();
-    await rulesService.clearAllRules();
-    
-    // Import valid transactions
-    if (processedTransactions.length > 0) {
-      await db.transactions.bulkAdd(processedTransactions);
-    }
-    
-  // Import preferences
-    if (data.preferences) {
+    // PREFERENCES - import if selected (usually always import with transactions)
+    if (importOptions.preferences && data.preferences) {
       await db.saveUserPreferences(data.preferences);
+      preferencesImported = true;
     }
     
-    // Import history
-    if (data.transactionHistory && data.transactionHistory.length > 0) {
+    // TRANSACTION HISTORY - import if selected (usually always import with transactions)
+    if (importOptions.transactionHistory && data.transactionHistory && data.transactionHistory.length > 0) {
       const processedHistory = data.transactionHistory.map((entry: any) => ({
         ...entry,
         data: {
@@ -169,25 +209,33 @@ class SimplifiedImportExportService {
       }));
       
       await db.transactionHistory.bulkAdd(processedHistory);
+      historyEntriesImported = processedHistory.length;
     }
 
-    // Import accounts (optional)
-    let accountsImported = 0;
-    if (data.accounts && Array.isArray(data.accounts)) {
+    // ACCOUNTS - import if selected
+    if (importOptions.accounts && data.accounts && Array.isArray(data.accounts)) {
       accountManagementService.replaceAccounts(data.accounts);
       accountsImported = data.accounts.length;
     }
 
-    // Import rules (optional)
-    let rulesImported = 0;
-    if (data.rules && Array.isArray(data.rules)) {
-      await rulesService.importRules(data.rules);
+    // RULES - import if selected
+    if (importOptions.rules && data.rules && Array.isArray(data.rules)) {
+      if (importOptions.transactions) {
+        // If we're importing transactions, we already cleared rules above
+        await rulesService.importRules(data.rules);
+      } else {
+        // If we're only importing rules, clear them first
+        await rulesService.clearAllRules();
+        await rulesService.importRules(data.rules);
+      }
       rulesImported = data.rules.length;
+    } else if (!importOptions.rules && importOptions.transactions) {
+      // If we're importing transactions but NOT rules, still clear existing rules
+      await rulesService.clearAllRules();
     }
 
-    // Import categories (optional)
-    let categoriesImported = 0;
-    if (data.categories && Array.isArray(data.categories)) {
+    // CATEGORIES - import if selected
+    if (importOptions.categories && data.categories && Array.isArray(data.categories)) {
       try {
         localStorage.setItem('mo-money-categories', JSON.stringify(data.categories));
         categoriesImported = data.categories.length;
@@ -195,14 +243,33 @@ class SimplifiedImportExportService {
         console.error('Failed to import categories to storage:', err);
       }
     }
+
+    // BUDGETS - import if selected
+    if (importOptions.budgets && data.budgets && Array.isArray(data.budgets)) {
+      try {
+        // Clear existing budgets and import new ones
+        const budgetsWithDates = data.budgets.map((budget: any) => ({
+          ...budget,
+          startDate: new Date(budget.startDate),
+          endDate: budget.endDate ? new Date(budget.endDate) : undefined,
+        }));
+        
+        // Replace all budgets via the budget service
+        localStorage.setItem('mo-money-budgets', JSON.stringify(budgetsWithDates));
+        budgetsImported = budgetsWithDates.length;
+      } catch (err) {
+        console.error('Failed to import budgets to storage:', err);
+      }
+    }
     
     return {
-      transactions: data.transactions.length,
-      preferences: !!data.preferences,
-      historyEntries: data.transactionHistory?.length || 0,
+      transactions: transactionsImported,
+      preferences: preferencesImported,
+      historyEntries: historyEntriesImported,
       accounts: accountsImported || undefined,
       rules: rulesImported || undefined,
-      categories: categoriesImported || undefined
+      categories: categoriesImported || undefined,
+      budgets: budgetsImported || undefined
     };
   }
 

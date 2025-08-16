@@ -3,11 +3,12 @@ import styled from 'styled-components';
 import { PageHeader, Card, Button } from '../../styles/globalStyles';
 import { dataService } from '../../services/dataService';
 import { userPreferencesService } from '../../services/userPreferencesService';
-import { simplifiedImportExportService } from '../../services/simplifiedImportExportService';
+import { simplifiedImportExportService, ExportData, ImportOptions } from '../../services/simplifiedImportExportService';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { currencyExchangeService } from '../../services/currencyExchangeService';
 import { useNotification } from '../../contexts/NotificationContext';
 import { UserPreferences, CurrencyExchangeRate } from '../../types';
+import ImportSelectionDialog from './ImportSelectionDialog';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -291,6 +292,11 @@ const Settings: React.FC = () => {
   const [exchangeRates, setExchangeRates] = useState<CurrencyExchangeRate[]>([]);
   const [isLoadingRates, setIsLoadingRates] = useState(false);
   const [isSyncingRates, setIsSyncingRates] = useState(false);
+  
+  // Import selection dialog state
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [pendingImportData, setPendingImportData] = useState<ExportData | null>(null);
+  const [pendingFileName, setPendingFileName] = useState<string>('');
 
   useEffect(() => {
     loadPreferences();
@@ -457,31 +463,83 @@ const Settings: React.FC = () => {
       return;
     }
 
-    setIsImporting(true);
     try {
       const fileText = await simplifiedImportExportService.readFileAsText(file);
       const importData = JSON.parse(fileText);
-      const result = await simplifiedImportExportService.importData(importData);
       
-      showAlert('success', 
-        `Data imported successfully!\n\n` +
-        `• ${result.transactions} transactions imported\n` +
-        `• ${result.preferences ? 'Preferences imported' : 'No preferences found'}\n` +
-        `• ${result.historyEntries} history entries imported\n\n` +
-        `The page will reload to reflect the changes.`,
-        'Import Complete',
-        { autoClose: false }
-      );
+      // Validate the import data structure
+      if (!importData.version) {
+        showAlert('error', 'Invalid backup file format - missing version information');
+        return;
+      }
+
+      // Store the data and show selection dialog
+      setPendingImportData(importData);
+      setPendingFileName(file.name);
+      setShowImportDialog(true);
+    } catch (error) {
+      console.error('Failed to read import file:', error);
+      showAlert('error', 'Failed to read backup file. Please ensure you selected a valid Mo Money backup file and try again.');
+    } finally {
+      // Clear the file input
+      event.target.value = '';
+    }
+  };
+
+  const handleImportWithOptions = async (data: ExportData, options: ImportOptions) => {
+    setIsImporting(true);
+    setShowImportDialog(false);
+    
+    try {
+      const result = await simplifiedImportExportService.importData(data, options);
       
-      setTimeout(() => window.location.reload(), 4000);
+      // Build success message based on what was imported
+      const importedItems: string[] = [];
+      if (options.transactions && result.transactions > 0) {
+        importedItems.push(`• ${result.transactions} transactions imported`);
+      }
+      if (options.accounts && result.accounts && result.accounts > 0) {
+        importedItems.push(`• ${result.accounts} accounts imported`);
+      }
+      if (options.categories && result.categories && result.categories > 0) {
+        importedItems.push(`• ${result.categories} categories imported`);
+      }
+      if (options.budgets && result.budgets && result.budgets > 0) {
+        importedItems.push(`• ${result.budgets} budgets imported`);
+      }
+      if (options.rules && result.rules && result.rules > 0) {
+        importedItems.push(`• ${result.rules} categorization rules imported`);
+      }
+      if (options.preferences && result.preferences) {
+        importedItems.push(`• Preferences imported`);
+      }
+      if (options.transactionHistory && result.historyEntries > 0) {
+        importedItems.push(`• ${result.historyEntries} history entries imported`);
+      }
+
+      const message = importedItems.length > 0 
+        ? `Selected data imported successfully!\n\n${importedItems.join('\n')}\n\nThe page will reload to reflect the changes.`
+        : 'No data was imported. Please check your selections and file contents.';
+
+      showAlert('success', message, 'Import Complete', { autoClose: false });
+      
+      if (importedItems.length > 0) {
+        setTimeout(() => window.location.reload(), 4000);
+      }
     } catch (error) {
       console.error('Failed to import data:', error);
       showAlert('error', 'Failed to import data. Please ensure you selected a valid Mo Money backup file and try again.');
     } finally {
       setIsImporting(false);
-      // Clear the file input
-      event.target.value = '';
+      setPendingImportData(null);
+      setPendingFileName('');
     }
+  };
+
+  const handleCloseImportDialog = () => {
+    setShowImportDialog(false);
+    setPendingImportData(null);
+    setPendingFileName('');
   };
 
   const handleExportSupportBundle = async () => {
@@ -988,6 +1046,14 @@ const Settings: React.FC = () => {
           </ConfirmContent>
         </ConfirmDialog>
       )}
+
+      <ImportSelectionDialog
+        isOpen={showImportDialog}
+        onClose={handleCloseImportDialog}
+        onImport={handleImportWithOptions}
+        importData={pendingImportData}
+        fileName={pendingFileName}
+      />
     </div>
   );
 };
