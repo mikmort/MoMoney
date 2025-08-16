@@ -116,6 +116,25 @@ const SupportedFormats = styled.div`
   color: #666;
 `;
 
+const CloseErrorButton = styled.button`
+  background: none;
+  border: none;
+  color: #f44336;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 16px;
+  border-radius: 4px;
+  margin-left: 8px;
+  
+  &:hover {
+    background-color: rgba(244, 67, 54, 0.1);
+  }
+  
+  &:focus {
+    outline: 2px solid rgba(244, 67, 54, 0.3);
+  }
+`;
+
 interface FileImportProps {
   onImportComplete: (transactions: number) => void;
 }
@@ -143,6 +162,10 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicateDetectionResult, setDuplicateDetectionResult] = useState<DuplicateDetectionResult | null>(null);
   const [pendingTransactions, setPendingTransactions] = useState<Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[]>([]);
+  
+  // Error dismissal state
+  const [dismissedMultiFileErrors, setDismissedMultiFileErrors] = useState(false);
+  const [dismissedSingleFileErrors, setDismissedSingleFileErrors] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -352,15 +375,36 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         setMultiFileProgress({...multiProgress});
       }
     } finally {
-      // Clean up state
-      setTimeout(() => {
-        setMultiFileProgress(null);
+      // Clean up state - but preserve errors unless dismissed
+      const hasErrors = multiProgress.overallStatus === 'error' || multiProgress.overallStatus === 'partial';
+      
+      if (!hasErrors || dismissedMultiFileErrors) {
+        // Clear progress after delay if no errors or errors were dismissed
+        setTimeout(() => {
+          setMultiFileProgress(null);
+          setIsImporting(false);
+          setIsCancelling(false);
+          setGlobalImportState(false);
+          setFileImportItems([]);
+          setActiveFileIds(new Set());
+          setDismissedMultiFileErrors(false); // Reset dismissal state
+        }, isCancelling ? 1000 : 3000); // Shorter delay if cancelled
+      } else {
+        // Keep progress visible with errors, but clean up other states
         setIsImporting(false);
         setIsCancelling(false);
         setGlobalImportState(false);
         setFileImportItems([]);
         setActiveFileIds(new Set());
-      }, isCancelling ? 1000 : 3000); // Shorter delay if cancelled
+        
+        // Log errors to console as requested
+        console.log('🔴 Import completed with errors:');
+        multiProgress.files.forEach((fileProgress, fileId) => {
+          if (fileProgress.errors.length > 0) {
+            console.error(`  ${fileProgress.fileName || fileId}:`, fileProgress.errors);
+          }
+        });
+      }
     }
   };
 
@@ -514,6 +558,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           setIsImporting(false);
           setGlobalImportState(false);
           setCurrentFileId(null);
+          setDismissedSingleFileErrors(false); // Reset dismissal state
         }, 2000);
       } else if (result.needsDuplicateResolution && result.duplicateDetection) {
         // Handle duplicate detection
@@ -540,15 +585,25 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         console.log('📋 Import was cancelled by user');
         // Progress is already set by handleStopImport, don't override it
       } else {
-        setProgress({
+        const errorProgress = {
           fileId: '',
-          status: 'error',
+          status: 'error' as const,
           progress: 0,
           currentStep: 'Import failed',
           processedRows: 0,
           totalRows: 0,
           errors: [errorMessage],
-        });
+        };
+        setProgress(errorProgress);
+        
+        // Log error to console as requested
+        console.log('🔴 Import failed with error:');
+        console.error(`  ${errorMessage}`);
+        
+        // Don't auto-clear error progress unless dismissed
+        if (!dismissedSingleFileErrors) {
+          // Keep error visible until manually dismissed
+        }
       }
     } finally {
       // Ensure input is cleared after processing completes or fails
@@ -699,6 +754,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         setIsImporting(false);
         setGlobalImportState(false);
         setCurrentFileId(null);
+        setDismissedSingleFileErrors(false); // Reset dismissal state
       }, 2000);
     } catch (error) {
       console.error('Failed to import duplicates:', error);
@@ -727,12 +783,25 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         setIsImporting(false);
         setGlobalImportState(false);
         setCurrentFileId(null);
+        setDismissedSingleFileErrors(false); // Reset dismissal state
       }, 2000);
     } catch (error) {
       console.error('Failed to ignore duplicates:', error);
       setIsImporting(false);
       setGlobalImportState(false);
     }
+  };
+
+  const handleDismissMultiFileErrors = () => {
+    console.log('🗑️ User dismissed multi-file import errors');
+    setDismissedMultiFileErrors(true);
+    setMultiFileProgress(null);
+  };
+
+  const handleDismissSingleFileErrors = () => {
+    console.log('🗑️ User dismissed single-file import errors');
+    setDismissedSingleFileErrors(true);
+    setProgress(null);
   };
 
   const handleButtonClick = (e: React.MouseEvent) => {
@@ -836,7 +905,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         disabled={isImporting || isProcessingFiles}
       />
 
-      {multiFileProgress && (
+      {multiFileProgress && !dismissedMultiFileErrors && (
         <ProgressContainer>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <strong>Processing {multiFileProgress.totalFiles} Files</strong>
@@ -910,20 +979,32 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           )}
           
           {multiFileProgress.overallStatus === 'partial' && (
-            <div style={{ color: '#ff9800', fontWeight: 'bold', marginTop: '16px' }}>
-              ⚠️ Some files completed, some failed ({multiFileProgress.completedFiles} successful, {multiFileProgress.failedFiles} failed)
+            <div style={{ color: '#ff9800', fontWeight: 'bold', marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>⚠️ Some files completed, some failed ({multiFileProgress.completedFiles} successful, {multiFileProgress.failedFiles} failed)</span>
+              <CloseErrorButton 
+                onClick={handleDismissMultiFileErrors}
+                title="Dismiss errors"
+              >
+                ×
+              </CloseErrorButton>
             </div>
           )}
           
           {multiFileProgress.overallStatus === 'error' && (
-            <div style={{ color: '#f44336', fontWeight: 'bold', marginTop: '16px' }}>
-              ❌ All files failed to process
+            <div style={{ color: '#f44336', fontWeight: 'bold', marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>❌ All files failed to process</span>
+              <CloseErrorButton 
+                onClick={handleDismissMultiFileErrors}
+                title="Dismiss errors"
+              >
+                ×
+              </CloseErrorButton>
             </div>
           )}
         </ProgressContainer>
       )}
 
-      {progress && (
+      {progress && !dismissedSingleFileErrors && (
         <ProgressContainer>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <strong>{progress.currentStep}</strong>
@@ -943,8 +1024,14 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           )}
 
           {progress.status === 'error' && (
-            <div style={{ color: '#f44336', marginTop: '8px' }}>
-              ❌ Import failed
+            <div style={{ color: '#f44336', marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>❌ Import failed</span>
+              <CloseErrorButton 
+                onClick={handleDismissSingleFileErrors}
+                title="Dismiss error"
+              >
+                ×
+              </CloseErrorButton>
             </div>
           )}
 
