@@ -57,7 +57,7 @@ const MultiSelectDropdown = styled.div`
 const MultiSelectOption = styled.label`
   display: flex;
   align-items: center;
-  padding: 6px 0px 6px 2px;
+  padding: 6px 0px 6px 8px;
   cursor: pointer;
   font-size: 0.9rem;
   color: #333;
