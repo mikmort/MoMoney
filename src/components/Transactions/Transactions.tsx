@@ -28,6 +28,7 @@ import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { receiptProcessingService } from '../../services/receiptProcessingService';
 import { FileViewer } from '../shared/FileViewer';
 import { ReceiptImport } from './ReceiptImport';
+import { MultiSelectFilter } from '../shared/MultiSelectFilter';
 import { AttachedFile } from '../../types';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -909,11 +910,11 @@ const Transactions: React.FC = () => {
   const [isDuplicateDetectionLoading, setIsDuplicateDetectionLoading] = useState(false);
   
   const [filters, setFilters] = useState({
-    category: '',
-    type: '',
+    category: [] as string[],
+    type: [] as string[],
     dateFrom: '',
     dateTo: '',
-    account: '',
+    account: [] as string[],
     search: ''
   });
 
@@ -1333,6 +1334,15 @@ const Transactions: React.FC = () => {
       gridApi.setFilterModel(null);
       gridApi.onFilterChanged();
     }
+    // Clear custom filters as well
+    setFilters({
+      category: [],
+      type: [],
+      dateFrom: '',
+      dateTo: '',
+      account: [],
+      search: ''
+    });
   };
 
   // Confidence cell renderer component
@@ -1491,7 +1501,7 @@ const Transactions: React.FC = () => {
     if (accountParam) {
       setFilters(prevFilters => ({
         ...prevFilters,
-        account: accountParam
+        account: [accountParam]
       }));
     }
   }, [searchParams]);
@@ -2056,14 +2066,14 @@ const Transactions: React.FC = () => {
       filtered = filtered.filter((t: Transaction) => t.type !== 'asset-allocation');
     }
 
-    if (filters.category) {
-      filtered = filtered.filter((t: Transaction) => t.category === filters.category);
+    if (filters.category.length > 0) {
+      filtered = filtered.filter((t: Transaction) => filters.category.includes(t.category));
     }
-    if (filters.type) {
-      filtered = filtered.filter((t: Transaction) => t.type === filters.type);
+    if (filters.type.length > 0) {
+      filtered = filtered.filter((t: Transaction) => filters.type.includes(t.type));
     }
-    if (filters.account) {
-      filtered = filtered.filter((t: Transaction) => t.account === filters.account);
+    if (filters.account.length > 0) {
+      filtered = filtered.filter((t: Transaction) => filters.account.includes(t.account));
     }
     if (filters.search) {
       filtered = filtered.filter((t: Transaction) => 
@@ -2953,41 +2963,35 @@ const Transactions: React.FC = () => {
         <div className="filter-row">
           <div className="filter-group">
             <label>Category</label>
-            <select
-              value={filters.category}
-              onChange={(e) => setFilters({...filters, category: e.target.value})}
-            >
-              <option value="">All Categories</option>
-              {uniqueCategories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
+            <MultiSelectFilter
+              label="Category"
+              options={uniqueCategories}
+              selectedValues={filters.category}
+              onChange={(selectedValues) => setFilters({...filters, category: selectedValues})}
+              placeholder="All Categories"
+            />
           </div>
           
           <div className="filter-group">
             <label>Type</label>
-            <select
-              value={filters.type}
-              onChange={(e) => setFilters({...filters, type: e.target.value})}
-            >
-              <option value="">All Types</option>
-              <option value="income">Income</option>
-              <option value="expense">Expense</option>
-              <option value="transfer">Transfer</option>
-            </select>
+            <MultiSelectFilter
+              label="Type"
+              options={['income', 'expense', 'transfer']}
+              selectedValues={filters.type}
+              onChange={(selectedValues) => setFilters({...filters, type: selectedValues})}
+              placeholder="All Types"
+            />
           </div>
           
           <div className="filter-group">
             <label>Account</label>
-            <select
-              value={filters.account}
-              onChange={(e) => setFilters({...filters, account: e.target.value})}
-            >
-              <option value="">All Accounts</option>
-              {uniqueAccounts.map(account => (
-                <option key={account} value={account}>{account}</option>
-              ))}
-            </select>
+            <MultiSelectFilter
+              label="Account"
+              options={uniqueAccounts}
+              selectedValues={filters.account}
+              onChange={(selectedValues) => setFilters({...filters, account: selectedValues})}
+              placeholder="All Accounts"
+            />
           </div>
           
           <div className="filter-group">
@@ -3005,10 +3009,19 @@ const Transactions: React.FC = () => {
           <div className="quick-filters-label">Quick Filters</div>
           <div className="quick-filters-container">
             <QuickFilterButton
-              isActive={filters.category === 'Uncategorized'}
+              isActive={filters.category.includes('Uncategorized')}
               activeColor="#ff9800"
               activeBackground="#fff3e0"
-              onClick={() => setFilters({...filters, category: filters.category === 'Uncategorized' ? '' : 'Uncategorized'})}
+              onClick={() => {
+                const hasUncategorized = filters.category.includes('Uncategorized');
+                if (hasUncategorized) {
+                  // Remove Uncategorized from the filter
+                  setFilters({...filters, category: filters.category.filter(cat => cat !== 'Uncategorized')});
+                } else {
+                  // Add Uncategorized to the filter
+                  setFilters({...filters, category: [...filters.category, 'Uncategorized']});
+                }
+              }}
             >
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </QuickFilterButton>
