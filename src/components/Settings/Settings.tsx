@@ -280,6 +280,7 @@ const Settings: React.FC = () => {
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<'success' | 'error' | null>(null);
@@ -445,6 +446,19 @@ const Settings: React.FC = () => {
       showAlert('error', 'Failed to export data. Please try again.');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleExportToExcel = async () => {
+    setIsExportingExcel(true);
+    try {
+      await simplifiedImportExportService.exportToExcel();
+      showAlert('success', 'Data exported to Excel successfully! Your XLSX file has been downloaded with separate sheets for transactions, accounts, budgets, categories, rules, and more.');
+    } catch (error) {
+      console.error('Failed to export to Excel:', error);
+      showAlert('error', 'Failed to export to Excel. Please try again.');
+    } finally {
+      setIsExportingExcel(false);
     }
   };
 
@@ -756,6 +770,14 @@ const Settings: React.FC = () => {
             >
               {isExporting ? 'Exporting...' : '💾 Export Data'}
             </Button>
+
+            <Button 
+              onClick={handleExportToExcel}
+              disabled={isExportingExcel}
+              style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white', minWidth: '140px' }}
+            >
+              {isExportingExcel ? 'Exporting...' : '📊 Export to Excel'}
+            </Button>
             
             <label style={{ position: 'relative', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
               <Button 
@@ -784,7 +806,7 @@ const Settings: React.FC = () => {
           </div>
           
           <div style={{ marginTop: '12px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', fontSize: '14px', color: '#1976d2' }}>
-            <strong>💡 Tip:</strong> Regular backups help protect your financial data. Export files are in JSON format and contain all transactions, categories, transaction history, and settings. The format is structured similarly to SQLite database schemas for compatibility.
+            <strong>💡 Tip:</strong> Regular backups help protect your financial data. Export files contain ALL your data including transactions, accounts, budgets, categories, rules, balance history, currency rates, and transfer matches. JSON format is structured for compatibility, while Excel format provides multiple sheets for easy analysis.
           </div>
           
           <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
