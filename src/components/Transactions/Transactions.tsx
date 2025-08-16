@@ -1975,6 +1975,12 @@ const Transactions: React.FC = () => {
     try {
       let updateCount = 0;
 
+      // Check if all selected transactions have the same description for auto-rule creation
+      const shouldCreateAutoRule = bulkEditForm.operation === 'set-category' && 
+                                   bulkEditForm.category && 
+                                   selectedTransactions.length > 1 &&
+                                   selectedTransactions.every(t => t.description === selectedTransactions[0].description);
+
       for (const transaction of selectedTransactions) {
         let updatedTransaction: Partial<Transaction> = {};
         let note = '';
@@ -2013,6 +2019,34 @@ const Transactions: React.FC = () => {
         }
       }
 
+      // Create auto-rule if all transactions have the same description
+      if (shouldCreateAutoRule && updateCount > 0) {
+        try {
+          const firstTransaction = selectedTransactions[0];
+          const result = await rulesService.createOrUpdateRuleFromUserEdit(
+            firstTransaction.account,
+            firstTransaction.description,
+            bulkEditForm.category,
+            bulkEditForm.subcategory || undefined,
+            false // Don't apply to existing transactions as we just updated them
+          );
+          
+          showAlert('success', 
+            `Bulk edit completed for ${updateCount} transactions!\n\n` +
+            `${result.isNew ? 'Created' : 'Updated'} auto-rule for "${firstTransaction.description}" ` +
+            `to automatically categorize future transactions as "${bulkEditForm.category}"` +
+            `${bulkEditForm.subcategory ? ' → ' + bulkEditForm.subcategory : ''}.`,
+            'Bulk Edit with Auto-Rule'
+          );
+        } catch (ruleError) {
+          // If rule creation fails, still show success for the bulk edit itself
+          console.warn('❌ Auto-rule creation failed during bulk edit:', ruleError);
+          showAlert('success', `Bulk edit completed for ${updateCount} transactions!`);
+        }
+      } else {
+        showAlert('success', `Bulk edit completed for ${updateCount} transactions!`);
+      }
+
       // Refresh transactions
       const allTransactions = await dataService.getAllTransactions();
       setTransactions(allTransactions);
@@ -2025,7 +2059,7 @@ const Transactions: React.FC = () => {
       setSelectedTransactions([]);
       setShowBulkEditModal(false);
 
-      console.log(`✅ Bulk edit completed for ${updateCount} transactions`);
+      console.log(`✅ Bulk edit completed for ${updateCount} transactions${shouldCreateAutoRule ? ' with auto-rule creation' : ''}`);
     } catch (error) {
       console.error('❌ Error during bulk edit:', error);
       showAlert('error', 'Failed to update transactions. Please try again.');
@@ -3431,6 +3465,23 @@ const Transactions: React.FC = () => {
                         <option key={sub.id} value={sub.name}>{sub.name}</option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {bulkEditForm.category && selectedTransactions.length > 1 && (
+                  <div style={{ background: '#e3f2fd', padding: '12px', borderRadius: '4px', marginTop: '8px', border: '1px solid #bbdefb' }}>
+                    {selectedTransactions.every(t => t.description === selectedTransactions[0].description) ? (
+                      <div>
+                        <strong>🤖 Auto-Rule:</strong> Since all selected transactions have the same description 
+                        ("{selectedTransactions[0].description}"), an auto-rule will be created to automatically 
+                        categorize future transactions with this description.
+                      </div>
+                    ) : (
+                      <div>
+                        <strong>ℹ️ Note:</strong> Selected transactions have different descriptions, so no auto-rule 
+                        will be created. Only the selected transactions will be updated.
+                      </div>
+                    )}
                   </div>
                 )}
               </>
