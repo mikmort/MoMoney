@@ -1547,20 +1547,7 @@ const Transactions: React.FC = () => {
         const allTransactions = await dataService.getAllTransactions();
         console.log(`📊 Loaded ${allTransactions.length} transactions`);
         
-        // Run anomaly detection only if we have sufficient data and it's needed
-        let finalTransactions = allTransactions;
-        if (allTransactions.length > 0 && dataService.getNeedsAnomalyDetection()) {
-          console.log('🔍 Running anomaly detection...');
-          await dataService.detectAnomalies();
-          // Reload transactions to get the updated anomaly flags
-          finalTransactions = await dataService.getAllTransactions();
-          const anomalies = finalTransactions.filter(t => t.isAnomaly);
-          if (anomalies.length > 0) {
-            console.log(`⚠️ Found ${anomalies.length} anomalous transactions`);
-          }
-        }
-        
-        setTransactions(finalTransactions);
+        setTransactions(allTransactions);
         
         if (allTransactions.length > 0) {
           // Load collapsed transfers
@@ -1569,7 +1556,7 @@ const Transactions: React.FC = () => {
           
           // Filter transactions based on transfer display options
           const displayTransactions = transferDisplayOptions.showTransfers 
-            ? finalTransactions 
+            ? allTransactions 
             : await dataService.getTransactionsWithoutTransfers();
           
           setFilteredTransactions(displayTransactions);
