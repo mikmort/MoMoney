@@ -122,6 +122,7 @@ interface FileImportProps {
 
 export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const [isImporting, setIsImporting] = useState(false);
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false); // New state for account detection phase
   const [multiFileProgress, setMultiFileProgress] = useState<MultiFileImportProgress | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [fileImportItems, setFileImportItems] = useState<FileImportItem[]>([]);
@@ -166,6 +167,9 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   };
 
   const processMultipleFiles = async (files: File[]) => {
+    // Set processing state immediately when files are selected
+    setIsProcessingFiles(true);
+    
     try {
       // Create FileImportItem for each file
       const importItems: FileImportItem[] = [];
@@ -225,6 +229,8 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       
       if (filesNeedingAccounts.length > 0) {
         console.log(`⚠️ ${filesNeedingAccounts.length} file(s) need account selection`);
+        // Clear processing state before showing account selection
+        setIsProcessingFiles(false);
         // Show account selection for the first file that needs it
         setCurrentAccountSelectionItem(filesNeedingAccounts[0]);
         setShowAccountSelection(true);
@@ -233,11 +239,15 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       } else {
         // All files have high-confidence account detection, start processing all
         console.log(`✅ All ${importItems.length} file(s) have high-confidence account detection`);
+        // Clear processing state before starting import
+        setIsProcessingFiles(false);
         await startMultiFileProcessing(importItems);
       }
       
     } catch (error) {
       console.error('Error processing multiple files:', error);
+      // Clear processing state on error
+      setIsProcessingFiles(false);
       // Clear the input so selecting the same files again triggers onChange
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -434,6 +444,9 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   // Keep original processFile function for backward compatibility with account selection
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const processFile = async (file: File) => {
+    // Set processing state immediately
+    setIsProcessingFiles(true);
+    
     try {
       // First, try to detect the account
       const detectionRequest = {
@@ -447,8 +460,12 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       // If detection confidence is very high, proceed directly (95% confidence)
       const CONFIDENCE_THRESHOLD = 0.95;
       if (detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD) {
+        // Clear processing state before starting import
+        setIsProcessingFiles(false);
         await startFileProcessing(file, detectionResult.detectedAccountId);
       } else {
+        // Clear processing state before showing account selection
+        setIsProcessingFiles(false);
         // Show account selection dialog
         setPendingFile(file);
         setShowAccountSelection(true);
@@ -457,6 +474,8 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       }
     } catch (error) {
       console.error('Account detection failed:', error);
+      // Clear processing state on error
+      setIsProcessingFiles(false);
       // Fallback to showing account selection
       setPendingFile(file);
       setShowAccountSelection(true);
@@ -766,9 +785,9 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           <div style={{ marginTop: '12px' }}>
             <ImportButton 
               onClick={handleButtonClick}
-              disabled={isImporting}
+              disabled={isImporting || isProcessingFiles}
             >
-              {isImporting ? 'Processing...' : 'Choose Files'}
+              {isProcessingFiles ? 'Processing...' : isImporting ? 'Processing...' : 'Choose Files'}
             </ImportButton>
             
             <SupportedFormats>
@@ -778,7 +797,25 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         </div>
       </FileDropZone>
 
-      {isImporting && (
+      {/* Processing indicator for account detection */}
+      {isProcessingFiles && (
+        <div style={{ 
+          marginTop: '16px', 
+          padding: '16px', 
+          background: '#f0f8ff', 
+          border: '1px solid #cce7ff',
+          borderRadius: '6px',
+          textAlign: 'center',
+          color: '#1976d2'
+        }}>
+          <strong>🤖 Processing files...</strong>
+          <div style={{ fontSize: '14px', marginTop: '4px' }}>
+            AI is analyzing your files to detect accounts. This may take a few moments.
+          </div>
+        </div>
+      )}
+
+      {(isImporting || isProcessingFiles) && (
         <div style={{ marginTop: '12px' }}>
           <StopButton 
             onClick={handleStopImport}
@@ -796,7 +833,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         accept={getSupportedFormats()}
         multiple={true}
         onChange={(e) => handleFileSelect(e.target.files)}
-        disabled={isImporting}
+        disabled={isImporting || isProcessingFiles}
       />
 
       {multiFileProgress && (
