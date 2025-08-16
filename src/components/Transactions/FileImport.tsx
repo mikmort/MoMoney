@@ -183,6 +183,12 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     if (!files || files.length === 0) return;
     
     console.log(`📁 Selected ${files.length} file(s) for import`);
+    console.log(`📊 File details:`, Array.from(files).map(f => ({
+      name: f.name, 
+      size: f.size, 
+      type: f.type,
+      lastModified: new Date(f.lastModified).toISOString()
+    })));
     
     // Convert FileList to array and process each file
     const fileArray = Array.from(files);
@@ -192,6 +198,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const processMultipleFiles = async (files: File[]) => {
     // Set processing state immediately when files are selected
     setIsProcessingFiles(true);
+    console.log(`🔄 Starting to process ${files.length} files for account detection...`);
     
     try {
       // Create FileImportItem for each file
@@ -200,7 +207,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       for (const file of files) {
         const fileId = `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         
-        console.log(`🔍 Processing file: ${file.name}`);
+        console.log(`🔍 Processing file: ${file.name} (${file.size} bytes, type: ${file.type})`);
         
         // Try to detect account for each file
         const detectionRequest = {
@@ -208,13 +215,28 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         };
 
         try {
+          console.log(`🤖 Starting account detection for: ${file.name}`);
           const detectionResult = await detectAccount(detectionRequest);
+          
+          console.log(`📊 Account detection result for ${file.name}:`, {
+            detectedAccountId: detectionResult.detectedAccountId,
+            confidence: detectionResult.confidence,
+            reasoning: detectionResult.reasoning,
+            suggestedAccountsCount: detectionResult.suggestedAccounts?.length || 0
+          });
           
           const CONFIDENCE_THRESHOLD = 0.95;
           
           // For multi-file uploads, always require account selection regardless of confidence
           const isMultiFileUpload = files.length > 1;
           const shouldAutoAssign = !isMultiFileUpload && detectionResult.detectedAccountId && detectionResult.confidence >= CONFIDENCE_THRESHOLD;
+          
+          console.log(`📋 Auto-assignment decision for ${file.name}:`, {
+            isMultiFileUpload,
+            shouldAutoAssign,
+            confidenceThreshold: CONFIDENCE_THRESHOLD,
+            actualConfidence: detectionResult.confidence
+          });
           
           const item: FileImportItem = {
             fileId,
@@ -231,7 +253,13 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           
           importItems.push(item);
         } catch (error) {
-          console.error(`Account detection failed for ${file.name}:`, error);
+          console.error(`❌ Account detection failed for ${file.name}:`, error);
+          console.log(`📊 Error details:`, {
+            fileName: file.name,
+            errorMessage: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : undefined
+          });
+          
           // Fallback - require manual account selection
           const item: FileImportItem = {
             fileId,
@@ -250,8 +278,16 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       // Check if any files need account selection
       const filesNeedingAccounts = importItems.filter(item => item.needsAccountSelection);
       
+      console.log(`📋 Account selection summary:`, {
+        totalFiles: importItems.length,
+        filesNeedingAccounts: filesNeedingAccounts.length,
+        filesWithAutoAssignment: importItems.length - filesNeedingAccounts.length
+      });
+      
       if (filesNeedingAccounts.length > 0) {
         console.log(`⚠️ ${filesNeedingAccounts.length} file(s) need account selection`);
+        console.log(`📋 Files needing account selection:`, filesNeedingAccounts.map(f => f.file.name));
+        
         // Clear processing state before showing account selection
         setIsProcessingFiles(false);
         // Show account selection for the first file that needs it
@@ -261,14 +297,21 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         if (fileInputRef.current) fileInputRef.current.value = '';
       } else {
         // All files have high-confidence account detection, start processing all
-        console.log(`✅ All ${importItems.length} file(s) have high-confidence account detection`);
+        console.log(`✅ All ${importItems.length} file(s) have high-confidence account detection, proceeding with import`);
+        
         // Clear processing state before starting import
         setIsProcessingFiles(false);
         await startMultiFileProcessing(importItems);
       }
       
     } catch (error) {
-      console.error('Error processing multiple files:', error);
+      console.error('💥 Error processing multiple files:', error);
+      console.log(`📊 Processing error details:`, {
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        fileCount: files.length
+      });
+      
       // Clear processing state on error
       setIsProcessingFiles(false);
       // Clear the input so selecting the same files again triggers onChange
@@ -277,6 +320,13 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   };
 
   const startMultiFileProcessing = async (items: FileImportItem[]) => {
+    console.log(`🚀 Starting multi-file processing for ${items.length} files`);
+    console.log(`📊 Files to process:`, items.map(item => ({
+      fileName: item.file.name,
+      accountId: item.accountId,
+      needsAccountSelection: item.needsAccountSelection
+    })));
+    
     setIsImporting(true);
     setIsCancelling(false);
     setGlobalImportState(true, `${items.length} files`);
@@ -284,9 +334,9 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     const filesMap = new Map<string, FileImportProgress>();
     items.forEach(item => {
       const account = item.accountId ? accounts.find(acc => acc.id === item.accountId) : null;
-      filesMap.set(item.fileId, {
+      const initialProgress = {
         fileId: item.fileId,
-        status: 'pending',
+        status: 'pending' as const,
         progress: 0,
         currentStep: 'Initializing...',
         processedRows: 0,
@@ -295,7 +345,10 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         fileName: item.file.name,
         accountId: item.accountId,
         accountName: account?.name
-      });
+      };
+      
+      filesMap.set(item.fileId, initialProgress);
+      console.log(`📋 Initialized progress tracking for ${item.file.name} -> ${account?.name || 'Unknown Account'}`);
     });
 
     const multiProgress: MultiFileImportProgress = {
@@ -315,6 +368,8 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       const MAX_CONCURRENT = 3;
       const results = [];
       
+      console.log(`⚡ Processing files with max concurrency: ${MAX_CONCURRENT}`);
+      
       for (let i = 0; i < items.length; i += MAX_CONCURRENT) {
         // Check for cancellation before processing each batch
         if (isCancelling) {
@@ -323,53 +378,95 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         }
         
         const batch = items.slice(i, i + MAX_CONCURRENT);
+        console.log(`📦 Processing batch ${Math.floor(i/MAX_CONCURRENT) + 1}: ${batch.map(b => b.file.name).join(', ')}`);
+        
         const batchPromises = batch.map(item => processFileItem(item, multiProgress));
         const batchResults = await Promise.allSettled(batchPromises);
         results.push(...batchResults);
+        
+        console.log(`✅ Batch ${Math.floor(i/MAX_CONCURRENT) + 1} completed`);
       }
       
-      // Count successful imports
+      // Count files by their final status
       let completedFiles = 0;
       let failedFiles = 0;
+      let filesNeedingAttention = 0;
       
       results.forEach((result, index) => {
         if (result.status === 'fulfilled') {
           totalTransactions += result.value;
           completedFiles++;
+          console.log(`✅ File ${items[index].file.name} fulfilled with ${result.value} transactions`);
         } else {
-          console.error(`Failed to process file ${items[index].file.name}:`, result.reason);
+          console.error(`❌ File ${items[index].file.name} failed:`, result.reason);
           failedFiles++;
         }
       });
       
-      // Update final status
+      // Also check the actual file statuses to count files needing attention
+      multiProgress.files.forEach((fileProgress, fileId) => {
+        if (fileProgress.status === 'needs-attention') {
+          filesNeedingAttention++;
+          console.log(`⚠️ File ${fileProgress.fileName || fileId} needs attention: ${fileProgress.currentStep}`);
+          // Don't count as failed since attention is needed but it's not an error
+          if (failedFiles > 0) failedFiles--; // Adjust if we previously counted it as failed
+        }
+      });
+      
+      // Update final status based on comprehensive file states
       multiProgress.completedFiles = completedFiles;
       multiProgress.failedFiles = failedFiles;
-      multiProgress.overallStatus = failedFiles > 0 
-        ? (completedFiles > 0 ? 'partial' : 'error')
-        : 'completed';
+      
+      // Determine overall status with enhanced logic
+      if (failedFiles > 0 && completedFiles > 0) {
+        multiProgress.overallStatus = 'partial'; // Some succeeded, some failed
+        console.log(`⚠️ Mixed results: ${completedFiles} completed, ${failedFiles} failed`);
+      } else if (failedFiles > 0) {
+        multiProgress.overallStatus = 'error'; // All failed
+        console.log(`❌ All files failed: ${failedFiles} failed`);
+      } else if (filesNeedingAttention > 0) {
+        multiProgress.overallStatus = 'partial'; // Files need user attention/duplicate resolution
+        console.log(`⚠️ Files need attention: ${filesNeedingAttention} need user interaction`);
+      } else {
+        multiProgress.overallStatus = 'completed'; // All completed successfully
+        console.log(`✅ All files completed successfully`);
+      }
       
       setMultiFileProgress({...multiProgress});
       
-      console.log(`🎉 Multi-file import completed: ${completedFiles} successful, ${failedFiles} failed, ${totalTransactions} total transactions`);
+      console.log(`🎉 Multi-file import completed:`, {
+        completedFiles,
+        failedFiles, 
+        filesNeedingAttention,
+        totalTransactions,
+        overallStatus: multiProgress.overallStatus
+      });
       
       if (!isCancelling) {
         onImportComplete(totalTransactions);
       }
       
     } catch (error) {
-      console.error('Multi-file processing error:', error);
+      console.error('💥 Multi-file processing error:', error);
+      console.log(`📊 Error details:`, {
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        filesProcessed: items.length,
+        isCancelling
+      });
       
       // Update progress to reflect cancellation or error
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       if (errorMessage.includes('cancelled')) {
         multiProgress.overallStatus = 'error';
+        console.log('🛑 Marking all pending/processing files as cancelled');
         // Mark all pending files as cancelled
         multiProgress.files.forEach((fileProgress, fileId) => {
           if (fileProgress.status === 'pending' || fileProgress.status === 'processing') {
             fileProgress.status = 'error';
             fileProgress.currentStep = 'Import cancelled by user';
             fileProgress.errors.push('Import cancelled by user');
+            console.log(`🛑 Cancelled: ${fileProgress.fileName || fileId}`);
           }
         });
         setMultiFileProgress({...multiProgress});
@@ -461,12 +558,41 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         fileProgress.currentStep = 'Import completed successfully!';
         multiProgress.files.set(item.fileId, fileProgress);
         
+        console.log(`✅ File ${item.file.name} completed successfully with ${result.statementFile.transactionCount || 0} transactions`);
         return result.statementFile.transactionCount || 0;
-      } else {
-        // File had issues (e.g., needs duplicate resolution)
-        fileProgress.status = 'error';
-        fileProgress.errors.push('File processing incomplete - may need duplicate resolution');
+      } else if (result.statementFile.status === 'awaiting-duplicate-resolution' && result.needsDuplicateResolution) {
+        // File needs duplicate resolution - this is not an error, it's a normal workflow state
+        fileProgress.status = 'needs-attention';
+        fileProgress.progress = 100;
+        fileProgress.currentStep = `Found ${result.duplicateDetection?.duplicates.length || 0} duplicate transactions - manual review required`;
+        fileProgress.errors = []; // Clear any previous errors since this isn't actually an error
         multiProgress.files.set(item.fileId, fileProgress);
+        
+        console.log(`⚠️ File ${item.file.name} needs duplicate resolution: ${result.duplicateDetection?.duplicates.length || 0} duplicates found`);
+        console.log(`📊 Duplicate detection details:`, {
+          totalTransactions: (result.duplicateDetection?.duplicates.length || 0) + (result.duplicateDetection?.uniqueTransactions.length || 0),
+          duplicateCount: result.duplicateDetection?.duplicates.length || 0,
+          uniqueCount: result.duplicateDetection?.uniqueTransactions.length || 0
+        });
+        
+        // TODO: For multi-file import, we should collect files needing duplicate resolution
+        // and show a combined duplicate resolution dialog after all files are processed
+        // For now, return 0 as no transactions have been saved yet
+        return 0;
+      } else {
+        // File had actual errors during processing
+        const errorMessage = result.statementFile.errorMessage || 'File processing failed';
+        fileProgress.status = 'error';
+        fileProgress.errors.push(errorMessage);
+        multiProgress.files.set(item.fileId, fileProgress);
+        
+        console.log(`❌ File ${item.file.name} failed with error: ${errorMessage}`);
+        console.log(`📊 File processing details:`, {
+          status: result.statementFile.status,
+          errorMessage: result.statementFile.errorMessage,
+          needsDuplicateResolution: result.needsDuplicateResolution
+        });
+        
         return 0;
       }
     } catch (error) {
@@ -950,6 +1076,12 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
                   </div>
                 )}
                 
+                {fileProgress.status === 'needs-attention' && (
+                  <div style={{ color: '#ff9800', fontSize: '0.8rem', marginTop: '4px' }}>
+                    ⚠️ Needs Attention
+                  </div>
+                )}
+                
                 {fileProgress.status === 'error' && (
                   <div style={{ color: '#f44336', fontSize: '0.8rem', marginTop: '4px' }}>
                     ❌ Failed
@@ -980,10 +1112,16 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           
           {multiFileProgress.overallStatus === 'partial' && (
             <div style={{ color: '#ff9800', fontWeight: 'bold', marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>⚠️ Some files completed, some failed ({multiFileProgress.completedFiles} successful, {multiFileProgress.failedFiles} failed)</span>
+              <span>
+                ⚠️ Import completed with issues ({multiFileProgress.completedFiles} successful
+                {multiFileProgress.failedFiles > 0 && `, ${multiFileProgress.failedFiles} failed`}
+                {Array.from(multiFileProgress.files.values()).filter(f => f.status === 'needs-attention').length > 0 && 
+                  `, ${Array.from(multiFileProgress.files.values()).filter(f => f.status === 'needs-attention').length} need attention`}
+                )
+              </span>
               <CloseErrorButton 
                 onClick={handleDismissMultiFileErrors}
-                title="Dismiss errors"
+                title="Dismiss status"
               >
                 ×
               </CloseErrorButton>
