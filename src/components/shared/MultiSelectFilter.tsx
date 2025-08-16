@@ -60,6 +60,7 @@ const MultiSelectOption = styled.label`
   padding: 8px 12px;
   cursor: pointer;
   font-size: 0.9rem;
+  color: #333;
   
   &:hover {
     background: #f5f5f5;
