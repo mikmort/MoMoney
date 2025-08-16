@@ -48,10 +48,10 @@ describe('Account Management Critical Path Tests', () => {
     it('should generate consistent IDs for accounts with similar names', async () => {
       // Test cases that could generate conflicting IDs
       const similarAccounts = [
-        { name: 'Checking Account', institution: 'Chase', expected: 'chase-checking-account' },
-        { name: 'Checking', institution: 'Chase Bank', expected: 'chase-bank-checking' },
-        { name: 'Business Checking', institution: 'Chase', expected: 'chase-business-checking' },
-        { name: 'Chase Checking', institution: 'JP Morgan', expected: 'jp-morgan-chase-checking' }
+        { name: 'Checking Account', institution: 'Chase', expected: 'chase-checking-account-checking' },
+        { name: 'Checking', institution: 'Chase Bank', expected: 'chase-bank-checking-checking' },
+        { name: 'Business Checking', institution: 'Chase', expected: 'chase-business-checking-checking' },
+        { name: 'Chase Checking', institution: 'JP Morgan', expected: 'jp-morgan-chase-checking-checking' }
       ];
 
       const createdIds = [];
