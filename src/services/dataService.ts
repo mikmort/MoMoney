@@ -38,6 +38,15 @@ class DataService {
       // Load data from IndexedDB
       await this.loadFromDB();
       
+      // Perform data migrations after loading data
+      const migrationResult = await this.migrateInternalTransferTypes();
+      if (migrationResult.fixed > 0 || migrationResult.errors.length > 0) {
+        txLog(`[TX] Internal Transfer migration completed: ${migrationResult.fixed} fixed, ${migrationResult.errors.length} errors`);
+        if (migrationResult.errors.length > 0) {
+          txError('[TX] Migration errors:', migrationResult.errors);
+        }
+      }
+      
       // Perform health check after loading data
       const { needsReset, healthCheck } = await performPostInitHealthCheck();
       this.healthCheckResults = healthCheck;
@@ -768,6 +777,70 @@ class DataService {
       this.transactions = [];
       this.history = {};
     }
+  }
+
+  /**
+   * Data migration to fix transactions with 'Internal Transfer' category but incorrect type
+   * This ensures all Internal Transfer transactions have type='transfer'
+   */
+  private async migrateInternalTransferTypes(): Promise<{ fixed: number; errors: string[] }> {
+    const __IS_TEST__ = process.env.NODE_ENV === 'test';
+    const txLog = (...args: any[]) => { if (!__IS_TEST__) console.log(...args); };
+    
+    let fixedCount = 0;
+    const errors: string[] = [];
+    
+    try {
+      txLog('[TX] Checking for Internal Transfer transactions with incorrect type...');
+      
+      // Find transactions with 'Internal Transfer' category but type != 'transfer'
+      const transactionsToFix = this.transactions.filter(transaction => 
+        transaction.category === 'Internal Transfer' && transaction.type !== 'transfer'
+      );
+      
+      if (transactionsToFix.length === 0) {
+        txLog('[TX] No Internal Transfer type mismatches found');
+        return { fixed: 0, errors: [] };
+      }
+      
+      txLog(`[TX] Found ${transactionsToFix.length} Internal Transfer transactions with incorrect type`);
+      
+      // Fix each transaction
+      for (const transaction of transactionsToFix) {
+        try {
+          const oldType = transaction.type;
+          transaction.type = 'transfer';
+          transaction.lastModifiedDate = new Date();
+          
+          // Add a history entry for this automatic fix
+          await this.addHistorySnapshot(
+            transaction.id, 
+            { ...transaction, type: oldType }, // Record the old state
+            `Automatic fix: Changed type from '${oldType}' to 'transfer' for Internal Transfer category`
+          );
+          
+          fixedCount++;
+          txLog(`[TX] Fixed transaction ${transaction.id}: ${oldType} -> transfer`);
+        } catch (error) {
+          const errorMsg = `Failed to fix transaction ${transaction.id}: ${error}`;
+          errors.push(errorMsg);
+          txLog(`[TX] ${errorMsg}`);
+        }
+      }
+      
+      // Save the fixed transactions
+      if (fixedCount > 0) {
+        await this.saveToDB();
+        txLog(`[TX] Successfully fixed ${fixedCount} Internal Transfer transactions`);
+      }
+      
+    } catch (error) {
+      const errorMsg = `Internal Transfer type migration failed: ${error}`;
+      errors.push(errorMsg);
+      txLog(`[TX] ${errorMsg}`);
+    }
+    
+    return { fixed: fixedCount, errors };
   }
 
   private async saveToDB(): Promise<void> {
