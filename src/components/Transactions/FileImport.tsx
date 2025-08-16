@@ -128,6 +128,10 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const [showAccountSelection, setShowAccountSelection] = useState(false);
   const [currentAccountSelectionItem, setCurrentAccountSelectionItem] = useState<FileImportItem | null>(null);
   
+  // Track active file IDs for cancellation support
+  const [activeFileIds, setActiveFileIds] = useState<Set<string>>(new Set());
+  const [isCancelling, setIsCancelling] = useState(false);
+  
   // Legacy single-file state - keep for backwards compatibility with existing dialogs
   const [progress, setProgress] = useState<FileImportProgress | null>(null);
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
@@ -238,6 +242,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
 
   const startMultiFileProcessing = async (items: FileImportItem[]) => {
     setIsImporting(true);
+    setIsCancelling(false);
     setGlobalImportState(true, `${items.length} files`);
     
     const filesMap = new Map<string, FileImportProgress>();
@@ -266,50 +271,81 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     
     let totalTransactions = 0;
     
-    // Process files in parallel (but limit concurrency to avoid overwhelming)
-    const MAX_CONCURRENT = 3;
-    const results = [];
-    
-    for (let i = 0; i < items.length; i += MAX_CONCURRENT) {
-      const batch = items.slice(i, i + MAX_CONCURRENT);
-      const batchPromises = batch.map(item => processFileItem(item, multiProgress));
-      const batchResults = await Promise.allSettled(batchPromises);
-      results.push(...batchResults);
-    }
-    
-    // Count successful imports
-    let completedFiles = 0;
-    let failedFiles = 0;
-    
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        totalTransactions += result.value;
-        completedFiles++;
-      } else {
-        console.error(`Failed to process file ${items[index].file.name}:`, result.reason);
-        failedFiles++;
+    try {
+      // Process files in parallel (but limit concurrency to avoid overwhelming)
+      const MAX_CONCURRENT = 3;
+      const results = [];
+      
+      for (let i = 0; i < items.length; i += MAX_CONCURRENT) {
+        // Check for cancellation before processing each batch
+        if (isCancelling) {
+          console.log('🛑 Multi-file processing cancelled before batch processing');
+          throw new Error('Import cancelled by user');
+        }
+        
+        const batch = items.slice(i, i + MAX_CONCURRENT);
+        const batchPromises = batch.map(item => processFileItem(item, multiProgress));
+        const batchResults = await Promise.allSettled(batchPromises);
+        results.push(...batchResults);
       }
-    });
-    
-    // Update final status
-    multiProgress.completedFiles = completedFiles;
-    multiProgress.failedFiles = failedFiles;
-    multiProgress.overallStatus = failedFiles > 0 
-      ? (completedFiles > 0 ? 'partial' : 'error')
-      : 'completed';
-    
-    setMultiFileProgress({...multiProgress});
-    
-    console.log(`🎉 Multi-file import completed: ${completedFiles} successful, ${failedFiles} failed, ${totalTransactions} total transactions`);
-    
-    onImportComplete(totalTransactions);
-    
-    setTimeout(() => {
-      setMultiFileProgress(null);
-      setIsImporting(false);
-      setGlobalImportState(false);
-      setFileImportItems([]);
-    }, 3000);
+      
+      // Count successful imports
+      let completedFiles = 0;
+      let failedFiles = 0;
+      
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          totalTransactions += result.value;
+          completedFiles++;
+        } else {
+          console.error(`Failed to process file ${items[index].file.name}:`, result.reason);
+          failedFiles++;
+        }
+      });
+      
+      // Update final status
+      multiProgress.completedFiles = completedFiles;
+      multiProgress.failedFiles = failedFiles;
+      multiProgress.overallStatus = failedFiles > 0 
+        ? (completedFiles > 0 ? 'partial' : 'error')
+        : 'completed';
+      
+      setMultiFileProgress({...multiProgress});
+      
+      console.log(`🎉 Multi-file import completed: ${completedFiles} successful, ${failedFiles} failed, ${totalTransactions} total transactions`);
+      
+      if (!isCancelling) {
+        onImportComplete(totalTransactions);
+      }
+      
+    } catch (error) {
+      console.error('Multi-file processing error:', error);
+      
+      // Update progress to reflect cancellation or error
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('cancelled')) {
+        multiProgress.overallStatus = 'error';
+        // Mark all pending files as cancelled
+        multiProgress.files.forEach((fileProgress, fileId) => {
+          if (fileProgress.status === 'pending' || fileProgress.status === 'processing') {
+            fileProgress.status = 'error';
+            fileProgress.currentStep = 'Import cancelled by user';
+            fileProgress.errors.push('Import cancelled by user');
+          }
+        });
+        setMultiFileProgress({...multiProgress});
+      }
+    } finally {
+      // Clean up state
+      setTimeout(() => {
+        setMultiFileProgress(null);
+        setIsImporting(false);
+        setIsCancelling(false);
+        setGlobalImportState(false);
+        setFileImportItems([]);
+        setActiveFileIds(new Set());
+      }, isCancelling ? 1000 : 3000); // Shorter delay if cancelled
+    }
   };
 
   const processFileItem = async (item: FileImportItem, multiProgress: MultiFileImportProgress): Promise<number> => {
@@ -323,21 +359,40 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     }
 
     try {
+      // Check for cancellation before starting
+      if (isCancelling) {
+        throw new Error('Import cancelled by user');
+      }
+      
       const result = await fileProcessingService.processFile(
         item.file,
         categories,
         subcategories,
         item.accountId,
         (progress) => {
+          // Check for cancellation during progress updates
+          if (isCancelling) {
+            return; // Don't update progress if cancelled
+          }
+          
           // Update individual file progress
           const updatedProgress = { ...progress, fileName: item.file.name };
           multiProgress.files.set(item.fileId, updatedProgress);
           setMultiFileProgress({...multiProgress});
         },
         (fileId) => {
+          // Track the generated file ID for cancellation
+          setActiveFileIds(prev => new Set(prev).add(fileId));
           console.log(`📋 File processing started for ${item.file.name} with ID: ${fileId}`);
         }
       );
+
+      // Remove file ID from active tracking when completed
+      setActiveFileIds(prev => {
+        const updated = new Set(prev);
+        updated.delete(result.fileId);
+        return updated;
+      });
 
       if (result.statementFile.status === 'completed') {
         // File completed successfully
@@ -355,6 +410,14 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         return 0;
       }
     } catch (error) {
+      // Remove file ID from active tracking on error
+      setActiveFileIds(prev => {
+        const updated = new Set(prev);
+        // We might not have the final fileId yet, so remove the item fileId
+        updated.delete(item.fileId);
+        return updated;
+      });
+      
       fileProgress.status = 'error';
       fileProgress.errors.push(error instanceof Error ? error.message : 'Unknown error');
       multiProgress.files.set(item.fileId, fileProgress);
@@ -536,11 +599,36 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   };
 
   const handleStopImport = () => {
+    console.log('🛑 User requested to stop import');
+    setIsCancelling(true);
+    
+    // Handle multi-file import cancellation
+    if (multiFileProgress && activeFileIds.size > 0) {
+      console.log(`🛑 Cancelling multi-file import with ${activeFileIds.size} active files`);
+      
+      // Cancel all active file imports
+      activeFileIds.forEach(fileId => {
+        fileProcessingService.cancelImport(fileId);
+      });
+      
+      // Update multi-file progress to show cancellation
+      if (multiFileProgress) {
+        multiFileProgress.files.forEach((fileProgress, fileId) => {
+          if (fileProgress.status === 'pending' || fileProgress.status === 'processing') {
+            fileProgress.status = 'error';
+            fileProgress.currentStep = 'Import cancelled by user';
+            fileProgress.errors.push('Import cancelled by user');
+          }
+        });
+        multiFileProgress.overallStatus = 'error';
+        setMultiFileProgress({...multiFileProgress});
+      }
+    }
+    
+    // Handle legacy single-file import cancellation
     if (currentFileId && isImporting) {
-      console.log(`🛑 User requested to stop import for file: ${currentFileId}`);
+      console.log(`🛑 Cancelling single-file import for file: ${currentFileId}`);
       fileProcessingService.cancelImport(currentFileId);
-      setIsImporting(false);
-      setGlobalImportState(false);
       setCurrentFileId(null);
       setProgress({
         fileId: currentFileId,
@@ -551,9 +639,17 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         totalRows: progress?.totalRows || 0,
         errors: ['Import cancelled by user'],
       });
-    } else {
+    }
+    
+    // Always clean up UI state
+    setIsImporting(false);
+    setGlobalImportState(false);
+    
+    // If neither multi-file nor single-file import was active, log warning
+    if (!multiFileProgress && !currentFileId) {
       console.log('⚠️ Cannot stop import: no active import found');
     }
+    
     // Clear input to allow re-selecting the same file
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -680,9 +776,10 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         <div style={{ marginTop: '12px' }}>
           <StopButton 
             onClick={handleStopImport}
-            title="Cancel the current import"
+            disabled={isCancelling}
+            title={isCancelling ? "Stopping import..." : "Cancel the current import"}
           >
-            🛑 Stop Import
+            {isCancelling ? '⏳ Stopping...' : '🛑 Stop Import'}
           </StopButton>
         </div>
       )}
