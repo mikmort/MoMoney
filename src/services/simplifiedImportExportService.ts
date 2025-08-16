@@ -67,7 +67,7 @@ class SimplifiedImportExportService {
       categories = defaultCategories;
     }
 
-  // Budgets are already fetched above
+    // Budgets are already fetched above
     // Get balance history for all accounts
     let balanceHistory: any[] = [];
     try {
