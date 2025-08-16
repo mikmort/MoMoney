@@ -67,10 +67,6 @@ class SimplifiedImportExportService {
       categories = defaultCategories;
     }
 
-
-    // Get budgets data
-    const budgets = budgetService.getAllBudgets();
-
     // Get balance history for all accounts
     let balanceHistory: any[] = [];
     try {
