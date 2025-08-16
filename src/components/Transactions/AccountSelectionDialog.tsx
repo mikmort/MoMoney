@@ -17,7 +17,9 @@ const DialogOverlay = styled.div`
   z-index: 1000;
 `;
 
-const DialogContent = styled.div`
+const DialogContent = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['accountCount'].includes(prop)
+})<{ accountCount?: number }>`
   background: white;
   border-radius: 8px;
   padding: 24px;
@@ -61,6 +63,14 @@ const DialogContent = styled.div`
 
   .account-options {
     margin: 20px 0;
+    display: grid;
+    grid-template-columns: ${props => {
+      const count = props.accountCount || 1;
+      if (count > 10) return 'repeat(3, 1fr)';
+      if (count > 5) return 'repeat(2, 1fr)';
+      return '1fr';
+    }};
+    gap: 8px;
   }
 
   .account-option {
@@ -69,7 +79,7 @@ const DialogContent = styled.div`
     padding: 12px;
     border: 1px solid #ddd;
     border-radius: 4px;
-    margin-bottom: 8px;
+    margin-bottom: 0; /* Remove margin since we're using grid gap */
     cursor: pointer;
     transition: background-color 0.2s;
 
@@ -268,7 +278,7 @@ export const AccountSelectionDialog: React.FC<AccountSelectionDialogProps> = ({
 
   return (
     <DialogOverlay onClick={onCancel}>
-      <DialogContent onClick={(e) => e.stopPropagation()}>
+      <DialogContent accountCount={accounts.length + 1} onClick={(e) => e.stopPropagation()}>
         <h2>
           Select Account for Import
           {multiFileContext && (
