@@ -1259,10 +1259,18 @@ class DataService {
     const amountDiff = Math.abs(existing.amount - newTransaction.amount);
     const percentageDiff = Math.abs(amountDiff / Math.abs(existing.amount));
     
+    // Check for opposite amounts (e.g., 242.30 and -242.30)
+    const areOppositeAmounts = Math.abs(existing.amount + newTransaction.amount) < 0.01;
+    
     maxScore += 30;
     if (amountDiff === 0) {
       score += 30; // Exact amount match
       matchFields.push('amount');
+    } else if (areOppositeAmounts) {
+      score += 25; // High score for opposite amounts (likely duplicate with reversed sign)
+      matchFields.push('amount');
+      amountDifference = amountDiff;
+      isExactMatch = false;
     } else if (
       (config.amountTolerance && percentageDiff <= config.amountTolerance) ||
       (config.fixedAmountTolerance && amountDiff <= config.fixedAmountTolerance)
