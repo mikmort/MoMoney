@@ -9,6 +9,7 @@ class DataService {
   private transactions: Transaction[] = [];
   private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
   private isInitialized = false;
+  private migrationsCompleted = false; // Track if data migrations have been completed
   private healthCheckResults: DBHealthCheck | null = null;
   private healthCheckFailures = 0; // Track consecutive health check failures
   private needsAnomalyDetection = false; // Track if anomaly detection needs to be re-run
@@ -38,13 +39,19 @@ class DataService {
       // Load data from IndexedDB
       await this.loadFromDB();
       
-      // Perform data migrations after loading data
-      const migrationResult = await this.migrateInternalTransferTypes();
-      if (migrationResult.fixed > 0 || migrationResult.errors.length > 0) {
-        txLog(`[TX] Internal Transfer migration completed: ${migrationResult.fixed} fixed, ${migrationResult.errors.length} errors`);
-        if (migrationResult.errors.length > 0) {
-          txError('[TX] Migration errors:', migrationResult.errors);
+      // Perform data migrations after loading data (only if not already completed)
+      if (!this.migrationsCompleted) {
+        const migrationResult = await this.migrateInternalTransferTypes();
+        if (migrationResult.fixed > 0 || migrationResult.errors.length > 0) {
+          txLog(`[TX] Internal Transfer migration completed: ${migrationResult.fixed} fixed, ${migrationResult.errors.length} errors`);
+          if (migrationResult.errors.length > 0) {
+            txError('[TX] Migration errors:', migrationResult.errors);
+          }
         }
+        this.migrationsCompleted = true; // Mark migrations as completed
+        txLog('[TX] Data migrations completed - will not run again this session');
+      } else {
+        txLog('[TX] Skipping migrations - already completed this session');
       }
       
       // Perform health check after loading data
@@ -998,6 +1005,7 @@ class DataService {
     this.history = {};
     this.undoStacks = {};
     this.redoStacks = {};
+    this.migrationsCompleted = false; // Reset migrations flag when data is cleared
     if (!db.isOpen()) {
       try { await db.open(); } catch {}
     }
