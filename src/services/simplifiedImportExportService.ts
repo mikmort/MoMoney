@@ -67,6 +67,7 @@ class SimplifiedImportExportService {
       categories = defaultCategories;
     }
 
+    // Budgets are already fetched above
     // Get balance history for all accounts
     let balanceHistory: any[] = [];
     try {
@@ -387,78 +388,7 @@ class SimplifiedImportExportService {
   }
 
   /**
-   * Export all app data to Excel format with multiple sheets
-
-  async exportToExcel(): Promise<void> {
-    try {
-      // Get all data
-      const exportData = await this.exportData();
-      
-      // Create a new workbook
-      const workbook = XLSX.utils.book_new();
-      
-      // Helper function to safely format dates for Excel
-      const formatDateForExcel = (date: any) => {
-        if (!date) return '';
-        try {
-          return date instanceof Date ? date.toISOString().split('T')[0] : new Date(date).toISOString().split('T')[0];
-        } catch {
-          return String(date);
-        }
-      };
-
-      // Helper function to safely format numbers
-      const formatNumber = (num: any) => {
-        if (num === null || num === undefined) return '';
-        return typeof num === 'number' ? num : parseFloat(String(num)) || 0;
-      };
-
-      // 1. Transactions Sheet
-      if (exportData.transactions && exportData.transactions.length > 0) {
-        const transactionsData = exportData.transactions.map(tx => ({
-          ID: tx.id || '',
-          Date: formatDateForExcel(tx.date),
-          Amount: formatNumber(tx.amount),
-          Description: tx.description || '',
-          Category: tx.category || '',
-          Subcategory: tx.subcategory || '',
-          Account: tx.account || '',
-          Type: tx.type || '',
-          Vendor: tx.vendor || '',
-          Location: tx.location || '',
-          Notes: tx.notes || '',
-          'Is Recurring': tx.isRecurring ? 'Yes' : 'No',
-          'Is Verified': tx.isVerified ? 'Yes' : 'No',
-          'AI Confidence': formatNumber(tx.confidence),
-          'AI Reasoning': tx.reasoning || '',
-          Tags: tx.tags ? tx.tags.join(', ') : '',
-          'Original Currency': tx.originalCurrency || '',
-          'Exchange Rate': formatNumber(tx.exchangeRate),
-          'Is Reimbursed': tx.reimbursed ? 'Yes' : 'No',
-          'Reimbursement ID': tx.reimbursementId || '',
-          'Added Date': formatDateForExcel(tx.addedDate),
-          'Last Modified': formatDateForExcel(tx.lastModifiedDate)
-        }));
-        
-        const transactionsSheet = XLSX.utils.json_to_sheet(transactionsData);
-        XLSX.utils.book_append_sheet(workbook, transactionsSheet, 'Transactions');
-      }
-
-      // Generate filename and download
-      const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `momoney-export-${timestamp}.xlsx`;
-      
-      // Write the file
-      XLSX.writeFile(workbook, filename);
-      
-    } catch (error) {
-      console.error('Failed to export to Excel:', error);
-      throw new Error(`Failed to export to Excel: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  /**
-   * Download JSON file
+  * Export all app data to Excel format with multiple sheets
    */
   async exportToExcel(): Promise<void> {
     try {
@@ -674,6 +604,10 @@ class SimplifiedImportExportService {
       throw new Error(`Failed to export to Excel: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
+  
+  /**
+   * Download JSON file
+   */
   downloadFile(data: ExportData, filename: string = 'momoney-backup.json') {
     const jsonString = JSON.stringify(data, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });

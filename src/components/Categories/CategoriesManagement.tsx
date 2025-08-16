@@ -299,9 +299,10 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
     setGridData(flatData);
   }, [filteredCategories]);
 
-  // Actions cell renderer component
   const ActionsCellRenderer = (params: any) => {
     if (params.data.type === 'category') {
+      const isInternalTransfer = params.data.name === 'Internal Transfer';
+      
       return (
         <div className="actions-cell" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button
@@ -319,21 +320,40 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
           >
             Edit
           </button>
-          <button
-            onClick={() => handleDeleteCategory(params.data.id)}
-            style={{ 
-              padding: '4px 8px', 
-              border: '1px solid #f44336', 
-              borderRadius: '4px', 
-              background: '#f44336', 
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '12px'
-            }}
-            title="Delete Category"
-          >
-            Delete
-          </button>
+          {!isInternalTransfer && (
+            <button
+              onClick={() => handleDeleteCategory(params.data.id)}
+              style={{ 
+                padding: '4px 8px', 
+                border: '1px solid #f44336', 
+                borderRadius: '4px', 
+                background: '#f44336', 
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: '12px'
+              }}
+              title="Delete Category"
+            >
+              Delete
+            </button>
+          )}
+          {isInternalTransfer && (
+            <button
+              disabled
+              style={{ 
+                padding: '4px 8px', 
+                border: '1px solid #ccc', 
+                borderRadius: '4px', 
+                background: '#f5f5f5', 
+                color: '#999',
+                cursor: 'not-allowed',
+                fontSize: '12px'
+              }}
+              title="Internal Transfer category cannot be deleted (protected system category)"
+            >
+              Protected
+            </button>
+          )}
         </div>
       );
     }
@@ -698,6 +718,13 @@ export const CategoriesManagement: React.FC<CategoriesManagementProps> = () => {
   };
 
   const handleDeleteCategory = async (categoryId: string) => {
+    // Prevent deletion of Internal Transfer category
+    const category = categories.find(c => c.id === categoryId);
+    if (category?.name === 'Internal Transfer') {
+      showAlert('error', 'The "Internal Transfer" category cannot be deleted as it has special logic for handling transfers between accounts. You can edit its subcategories if needed.', 'Protected Category');
+      return;
+    }
+    
     const shouldDelete = await showConfirmation(
       'Are you sure you want to delete this category? This action cannot be undone.',
       { 
