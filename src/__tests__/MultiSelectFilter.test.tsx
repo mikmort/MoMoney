@@ -174,6 +174,94 @@ describe('MultiSelectFilter Component', () => {
       expect(screen.getByLabelText('Option 4')).not.toBeChecked();
     });
   });
+
+  test('displays and functions Select All option', async () => {
+    render(
+      <TestWrapper>
+        <MultiSelectFilter
+          label="Test Filter"
+          options={testOptions}
+          selectedValues={[]}
+          onChange={mockOnChange}
+        />
+      </TestWrapper>
+    );
+
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      const selectAllCheckbox = screen.getByLabelText('Select All');
+      expect(selectAllCheckbox).toBeInTheDocument();
+      expect(selectAllCheckbox).not.toBeChecked();
+    });
+  });
+
+  test('Select All functionality selects all options', async () => {
+    render(
+      <TestWrapper>
+        <MultiSelectFilter
+          label="Test Filter"
+          options={testOptions}
+          selectedValues={[]}
+          onChange={mockOnChange}
+        />
+      </TestWrapper>
+    );
+
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      const selectAllCheckbox = screen.getByLabelText('Select All');
+      fireEvent.click(selectAllCheckbox);
+      expect(mockOnChange).toHaveBeenCalledWith(testOptions);
+    });
+  });
+
+  test('Select All becomes Unselect All when all options are selected', async () => {
+    render(
+      <TestWrapper>
+        <MultiSelectFilter
+          label="Test Filter"
+          options={testOptions}
+          selectedValues={testOptions}
+          onChange={mockOnChange}
+        />
+      </TestWrapper>
+    );
+
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      const unselectAllCheckbox = screen.getByLabelText('Unselect All');
+      expect(unselectAllCheckbox).toBeInTheDocument();
+      expect(unselectAllCheckbox).toBeChecked();
+    });
+  });
+
+  test('Unselect All functionality unselects all options', async () => {
+    render(
+      <TestWrapper>
+        <MultiSelectFilter
+          label="Test Filter"
+          options={testOptions}
+          selectedValues={testOptions}
+          onChange={mockOnChange}
+        />
+      </TestWrapper>
+    );
+
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      const unselectAllCheckbox = screen.getByLabelText('Unselect All');
+      fireEvent.click(unselectAllCheckbox);
+      expect(mockOnChange).toHaveBeenCalledWith([]);
+    });
+  });
 });
 
 describe('MultiSelectFilter Integration - Transaction Filtering', () => {
