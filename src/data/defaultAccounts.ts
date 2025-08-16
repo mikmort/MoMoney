@@ -56,47 +56,6 @@ export const defaultAccounts: Account[] = [
     institution: 'Danske Bank',
     currency: 'DKK',
     isActive: true
-  },
-  // Additional accounts for testing multi-column layout
-  {
-    id: 'wells-fargo-checking',
-    name: 'Wells Fargo Checking',
-    type: 'checking',
-    institution: 'Wells Fargo Bank',
-    currency: 'USD',
-    isActive: true
-  },
-  {
-    id: 'capital-one-credit',
-    name: 'Capital One Venture',
-    type: 'credit',
-    institution: 'Capital One',
-    currency: 'USD',
-    isActive: true
-  },
-  {
-    id: 'citi-credit',
-    name: 'Citi Double Cash',
-    type: 'credit',
-    institution: 'Citibank',
-    currency: 'USD',
-    isActive: true
-  },
-  {
-    id: 'ally-savings',
-    name: 'Ally High Yield Savings',
-    type: 'savings',
-    institution: 'Ally Bank',
-    currency: 'USD',
-    isActive: true
-  },
-  {
-    id: 'investment-account',
-    name: 'Vanguard Investment',
-    type: 'investment',
-    institution: 'Vanguard Group',
-    currency: 'USD',
-    isActive: true
   }
 ];
 
