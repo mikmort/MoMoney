@@ -287,31 +287,31 @@ export class FileProcessingService {
     this.activeImports.set(fileId, progress);
     
     try {
-      // Step 1: Initialize (10%)
-      this.updateProgress(progress, 10, 'processing', 'Reading file content...', onProgress);
+      // Step 1: Initialize (5%)
+      this.updateProgress(progress, 5, 'processing', 'Reading file content...', onProgress);
       
       if (this.isCancelled(fileId)) {
         throw new Error('Import cancelled by user');
       }
 
-      // Step 2: Read file content (20%)
+      // Step 2: Read file content (10%)
       const fileContent = await this.readFileContent(file);
-      this.updateProgress(progress, 20, 'processing', 'Analyzing file structure...', onProgress);
+      this.updateProgress(progress, 10, 'processing', 'Analyzing file structure...', onProgress);
       
       if (this.isCancelled(fileId)) {
         throw new Error('Import cancelled by user');
       }
 
-      // Step 3: Get AI schema mapping (30%)
-      this.updateProgress(progress, 30, 'processing', 'AI schema detection...', onProgress);
+      // Step 3: Get AI schema mapping (15%)
+      this.updateProgress(progress, 15, 'processing', 'AI schema detection...', onProgress);
       const schemaMapping = await this.getAISchemaMapping(fileContent, statementFile.fileType);
       
       if (this.isCancelled(fileId)) {
         throw new Error('Import cancelled by user');
       }
 
-      // Step 4: Parse file data (40%)
-      this.updateProgress(progress, 40, 'processing', 'Parsing file data...', onProgress);
+      // Step 4: Parse file data (20%)
+      this.updateProgress(progress, 20, 'processing', 'Parsing file data...', onProgress);
       const rawData = await this.parseFileData(fileContent, statementFile.fileType, schemaMapping.mapping);
       progress.totalRows = rawData.length;
       
@@ -319,8 +319,8 @@ export class FileProcessingService {
         throw new Error('Import cancelled by user');
       }
 
-      // Step 5: Process each row with AI categorization (40-90%)
-      this.updateProgress(progress, 50, 'processing', 'Processing transactions with AI...', onProgress);
+      // Step 5: Process each row with AI categorization (20-85%)
+      this.updateProgress(progress, 30, 'processing', 'Processing transactions with AI...', onProgress);
       const transactions = await this.processTransactions(
         fileId, // Pass fileId for cancellation checks
         rawData,
@@ -329,8 +329,8 @@ export class FileProcessingService {
         subcategories,
         accountId,
         (processed: number) => {
-          // Update progress during transaction processing (50-90%)
-          const transactionProgress = 50 + Math.round((processed / rawData.length) * 40);
+          // Update progress during transaction processing (30-85%)
+          const transactionProgress = 30 + Math.round((processed / rawData.length) * 55);
           this.updateProgress(progress, transactionProgress, 'processing', `Processing transaction ${processed}/${rawData.length}...`, onProgress);
           progress.processedRows = processed;
         }
