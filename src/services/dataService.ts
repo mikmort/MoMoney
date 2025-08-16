@@ -583,7 +583,29 @@ class DataService {
     const index = this.transactions.findIndex(t => t.id === id);
     if (index === -1) return false;
 
+    // Remove transaction from in-memory array
     this.transactions.splice(index, 1);
+    
+    // Clean up associated history records from memory
+    if (this.history[id]) {
+      delete this.history[id];
+    }
+    
+    // Clean up undo/redo stacks from memory
+    if (this.undoStacks[id]) {
+      delete this.undoStacks[id];
+    }
+    if (this.redoStacks[id]) {
+      delete this.redoStacks[id];
+    }
+    
+    // Clean up history records from IndexedDB
+    try {
+      await db.transactionHistory.where('transactionId').equals(id).delete();
+    } catch (error) {
+      console.warn(`Failed to delete history records for transaction ${id}:`, error);
+    }
+    
     await this.saveToDB();
     return true;
   }
@@ -595,6 +617,28 @@ class DataService {
     const deletedCount = initialLength - this.transactions.length;
     
     if (deletedCount > 0) {
+      // Clean up associated history records from memory for all deleted transactions
+      for (const id of ids) {
+        if (this.history[id]) {
+          delete this.history[id];
+        }
+        
+        // Clean up undo/redo stacks from memory
+        if (this.undoStacks[id]) {
+          delete this.undoStacks[id];
+        }
+        if (this.redoStacks[id]) {
+          delete this.redoStacks[id];
+        }
+      }
+      
+      // Clean up history records from IndexedDB for all deleted transactions
+      try {
+        await db.transactionHistory.where('transactionId').anyOf(ids).delete();
+      } catch (error) {
+        console.warn(`Failed to delete history records for transactions ${ids.join(', ')}:`, error);
+      }
+      
       await this.saveToDB();
     }
     

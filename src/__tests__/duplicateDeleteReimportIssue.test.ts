@@ -98,16 +98,18 @@ describe('Duplicate Detection After Delete and Re-import Issue', () => {
     // Verify history exists
     let history = await dataService.getTransactionHistory(transaction.id);
     expect(history.length).toBeGreaterThan(0);
-    console.log('History before deletion:', history);
+    console.log('History before deletion:', history.length, 'records');
 
     // Delete the transaction
     const deleteSuccess = await dataService.deleteTransaction(transaction.id);
     expect(deleteSuccess).toBe(true);
 
-    // Check if history still exists after deletion (THIS MIGHT BE THE ISSUE)
+    // Check if history is properly cleaned up after deletion (THIS SHOULD NOW WORK)
     history = await dataService.getTransactionHistory(transaction.id);
-    console.log('History after deletion:', history);
-    // Note: History might still exist - this could be the problem!
+    console.log('History after deletion:', history.length, 'records');
+    
+    // ASSERTION: History should be cleaned up
+    expect(history).toHaveLength(0);
 
     // Try to import the same transaction again (original data)
     const reimportTransactions = [{
@@ -149,18 +151,21 @@ describe('Duplicate Detection After Delete and Re-import Issue', () => {
 
     // Get all transactions to see current state
     let allTransactions = await dataService.getAllTransactions();
-    console.log('All transactions before delete:', allTransactions.map(t => ({ id: t.id, desc: t.description })));
+    console.log('All transactions before delete:', allTransactions.length);
 
     // Delete the transaction
     await dataService.deleteTransaction(transaction.id);
 
     // Check in-memory state
     allTransactions = await dataService.getAllTransactions();
-    console.log('All transactions after delete:', allTransactions.map(t => ({ id: t.id, desc: t.description })));
+    console.log('All transactions after delete:', allTransactions.length);
 
-    // Check if the deleted transaction's data is somehow still accessible through history
+    // Check if the deleted transaction's data is properly cleaned up
     const historyAfterDelete = await dataService.getTransactionHistory(transaction.id);
-    console.log('History of deleted transaction:', historyAfterDelete);
+    console.log('History of deleted transaction:', historyAfterDelete.length, 'records');
+    
+    // ASSERTION: History should be cleaned up
+    expect(historyAfterDelete).toHaveLength(0);
 
     // Try duplicate detection with original transaction data
     const duplicateResult = await dataService.detectDuplicates([{
@@ -172,9 +177,81 @@ describe('Duplicate Detection After Delete and Re-import Issue', () => {
       type: 'expense' as const
     }]);
 
-    console.log('Duplicate detection result with history present:', duplicateResult);
+    console.log('Duplicate detection result:', duplicateResult.duplicates.length, 'duplicates found');
     
     // Should be no duplicates since transaction was deleted
     expect(duplicateResult.duplicates).toHaveLength(0);
+  });
+
+  it('should properly clean up history for bulk transaction deletion', async () => {
+    // Add multiple transactions
+    const transaction1 = await dataService.addTransaction({
+      date: new Date('2025-01-30'),
+      description: 'Bulk Delete Test 1',
+      amount: -10.00,
+      category: 'Testing',
+      account: 'Test Account',
+      type: 'expense'
+    });
+
+    const transaction2 = await dataService.addTransaction({
+      date: new Date('2025-01-31'),
+      description: 'Bulk Delete Test 2',
+      amount: -20.00,
+      category: 'Testing',
+      account: 'Test Account',
+      type: 'expense'
+    });
+
+    // Create history for both transactions
+    await dataService.updateTransaction(transaction1.id, { amount: -15.00 });
+    await dataService.updateTransaction(transaction2.id, { amount: -25.00 });
+
+    // Verify history exists for both
+    let history1 = await dataService.getTransactionHistory(transaction1.id);
+    let history2 = await dataService.getTransactionHistory(transaction2.id);
+    expect(history1.length).toBeGreaterThan(0);
+    expect(history2.length).toBeGreaterThan(0);
+    console.log('History before bulk delete:', { tx1: history1.length, tx2: history2.length });
+
+    // Bulk delete both transactions
+    const deleteCount = await dataService.deleteTransactions([transaction1.id, transaction2.id]);
+    expect(deleteCount).toBe(2);
+
+    // Check that history is cleaned up for both
+    history1 = await dataService.getTransactionHistory(transaction1.id);
+    history2 = await dataService.getTransactionHistory(transaction2.id);
+    console.log('History after bulk delete:', { tx1: history1.length, tx2: history2.length });
+    
+    expect(history1).toHaveLength(0);
+    expect(history2).toHaveLength(0);
+
+    // Verify transactions are no longer in the system
+    const allTransactions = await dataService.getAllTransactions();
+    expect(allTransactions).toHaveLength(0);
+
+    // Test duplicate detection with the original transactions
+    const reimportResult = await dataService.detectDuplicates([
+      {
+        date: new Date('2025-01-30'),
+        description: 'Bulk Delete Test 1',
+        amount: -10.00,
+        category: 'Testing',
+        account: 'Test Account',
+        type: 'expense' as const
+      },
+      {
+        date: new Date('2025-01-31'),
+        description: 'Bulk Delete Test 2',
+        amount: -20.00,
+        category: 'Testing',
+        account: 'Test Account',
+        type: 'expense' as const
+      }
+    ]);
+
+    // Should detect no duplicates
+    expect(reimportResult.duplicates).toHaveLength(0);
+    expect(reimportResult.uniqueTransactions).toHaveLength(2);
   });
 });
