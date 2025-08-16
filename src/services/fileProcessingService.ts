@@ -343,10 +343,45 @@ export class FileProcessingService {
       // Step 6: Check for duplicates (95%)
       this.updateProgress(progress, 95, 'processing', 'Checking for duplicate transactions...', onProgress);
       console.log(`🔍 Checking ${transactions.length} transactions for duplicates`);
+      
+      // DEBUG: Log existing transactions count
+      const existingCount = await dataService.getTransactionCount();
+      console.log(`📊 Existing transactions in database: ${existingCount}`);
+      
+      // DEBUG: Log sample of transactions being checked
+      console.log(`📋 Sample transactions being imported:`, transactions.slice(0, 3).map(t => ({
+        date: t.date.toISOString().split('T')[0],
+        description: t.description.substring(0, 50),
+        amount: t.amount,
+        account: t.account
+      })));
+      
       const duplicateDetection = await dataService.detectDuplicates(transactions);
+      
+      // DEBUG: Log duplicate detection configuration and results  
+      console.log(`⚙️ Duplicate detection config:`, duplicateDetection.config);
+      console.log(`📈 Duplicate detection results: ${duplicateDetection.duplicates.length} duplicates, ${duplicateDetection.uniqueTransactions.length} unique`);
       
       if (duplicateDetection.duplicates.length > 0) {
         console.log(`⚠️ Found ${duplicateDetection.duplicates.length} duplicate transactions`);
+        
+        // DEBUG: Log details of first few duplicates
+        console.log(`🔍 First 5 duplicates:`, duplicateDetection.duplicates.slice(0, 5).map((dup, i) => ({
+          index: i + 1,
+          newTransaction: {
+            date: dup.newTransaction.date.toISOString().split('T')[0],
+            description: dup.newTransaction.description.substring(0, 30),
+            amount: dup.newTransaction.amount
+          },
+          existingTransaction: {
+            date: dup.existingTransaction.date.toISOString().split('T')[0], 
+            description: dup.existingTransaction.description.substring(0, 30),
+            amount: dup.existingTransaction.amount
+          },
+          similarity: Math.round(dup.similarity * 100) + '%',
+          matchFields: dup.matchFields,
+          daysDifference: dup.daysDifference
+        })));
         // Don't save transactions yet - wait for user decision
         statementFile.status = 'awaiting-duplicate-resolution';
         statementFile.transactionCount = transactions.length;

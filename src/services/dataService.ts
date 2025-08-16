@@ -315,6 +315,11 @@ class DataService {
     return [...this.transactions];
   }
 
+  async getTransactionCount(): Promise<number> {
+    await this.ensureInitialized();
+    return this.transactions.length;
+  }
+
   // Check if anomaly detection needs to be re-run
   getNeedsAnomalyDetection(): boolean {
     return this.needsAnomalyDetection;
