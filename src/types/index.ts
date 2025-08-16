@@ -126,7 +126,7 @@ export interface StatementFile {
 
 export interface FileImportProgress {
   fileId: string;
-  status: 'pending' | 'processing' | 'completed' | 'error';
+  status: 'pending' | 'processing' | 'completed' | 'error' | 'needs-attention';
   progress: number; // 0-100 percentage
   currentStep: string;
   processedRows: number;
