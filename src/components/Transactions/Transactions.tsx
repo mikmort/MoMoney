@@ -866,6 +866,8 @@ const Transactions: React.FC = () => {
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
   const [showInvestmentTransactions, setShowInvestmentTransactions] = useState(false); // Hide investments by default
+  const [showMatchedTransactions, setShowMatchedTransactions] = useState(true);
+  const [showUnmatchedTransactions, setShowUnmatchedTransactions] = useState(true);
   
   const [collapsedTransfers, setCollapsedTransfers] = useState<CollapsedTransfer[]>([]);
   
@@ -2066,6 +2068,14 @@ const Transactions: React.FC = () => {
       filtered = filtered.filter((t: Transaction) => t.type !== 'asset-allocation');
     }
 
+    // Filter matched/unmatched transactions based on toggles
+    if (!showMatchedTransactions) {
+      filtered = filtered.filter((t: Transaction) => !t.reimbursementId);
+    }
+    if (!showUnmatchedTransactions) {
+      filtered = filtered.filter((t: Transaction) => t.reimbursementId);
+    }
+
     if (filters.category.length > 0) {
       filtered = filtered.filter((t: Transaction) => filters.category.includes(t.category));
     }
@@ -2090,7 +2100,7 @@ const Transactions: React.FC = () => {
     // Remove transfer filter functionality
     
     setFilteredTransactions(filtered);
-  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, filterNonReimbursed]);
+  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, showMatchedTransactions, showUnmatchedTransactions, filterNonReimbursed]);
 
   useEffect(() => {
     applyFilters();
@@ -2140,6 +2150,14 @@ const Transactions: React.FC = () => {
 
   const countInvestmentTransactions = (transactions: Transaction[]): number => {
     return transactions.filter(tx => tx.type === 'asset-allocation').length;
+  };
+
+  const countMatchedTransactions = (transactions: Transaction[]): number => {
+    return transactions.filter(tx => tx.reimbursementId).length;
+  };
+
+  const countUnmatchedTransactions = (transactions: Transaction[]): number => {
+    return transactions.filter(tx => !tx.reimbursementId).length;
   };
 
   // Calculate stats in default currency using conversion batch
@@ -3049,6 +3067,30 @@ const Transactions: React.FC = () => {
                 title="Toggle showing investment transactions (asset allocation)"
               >
                 📊 Show Investments ({countInvestmentTransactions(transactions)})
+              </QuickFilterButton>
+            )}
+            
+            {countMatchedTransactions(transactions) > 0 && (
+              <QuickFilterButton
+                isActive={showMatchedTransactions}
+                activeColor="#28a745"
+                activeBackground="#d4edda"
+                onClick={() => setShowMatchedTransactions(!showMatchedTransactions)}
+                title="Toggle showing matched transfer transactions"
+              >
+                ✅ Matched ({countMatchedTransactions(transactions)})
+              </QuickFilterButton>
+            )}
+            
+            {countUnmatchedTransactions(transactions) > 0 && (
+              <QuickFilterButton
+                isActive={showUnmatchedTransactions}
+                activeColor="#ffc107"
+                activeBackground="#fff3cd"
+                onClick={() => setShowUnmatchedTransactions(!showUnmatchedTransactions)}
+                title="Toggle showing unmatched transfer transactions"
+              >
+                ⚠️ Unmatched ({countUnmatchedTransactions(transactions)})
               </QuickFilterButton>
             )}
           </div>
