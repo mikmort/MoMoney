@@ -42,6 +42,9 @@ export class AccountManagementService {
   constructor() {
     this.azureOpenAIService = new AzureOpenAIService();
     this.loadFromStorage();
+    
+    // Auto-cleanup duplicates for existing users
+    this.cleanupDuplicateAccounts();
   }
 
   // Get all active accounts
@@ -62,16 +65,29 @@ export class AccountManagementService {
       return digits.length >= 3 ? `Ending in ${digits.slice(-3)}` : undefined;
     };
 
+    // Check if we already have an identical account
+    const existingAccount = this.accounts.find(acc => 
+      acc.name === account.name && 
+      acc.institution === account.institution && 
+      acc.type === account.type &&
+      acc.isActive
+    );
+    
+    if (existingAccount) {
+      console.log(`🔍 Account already exists: ${existingAccount.name} (${existingAccount.id}). Returning existing account.`);
+      return existingAccount;
+    }
+
     const newAccount: Account = {
       ...account,
       maskedAccountNumber: sanitizeMask((account as any).maskedAccountNumber),
-      id: this.generateAccountId(account.name, account.institution)
+      id: this.generateUniqueAccountId(account.name, account.institution, account.type)
     };
     
     this.accounts.push(newAccount);
-
     this.saveToStorage();
 
+    console.log(`✅ Created new account: ${newAccount.name} (${newAccount.id})`);
     return newAccount;
   }
 
@@ -136,13 +152,18 @@ export class AccountManagementService {
         throw new Error(`Cannot delete account "${account.name}". It has ${accountTransactions.length} associated transaction(s).`);
       }
 
-      // If no transactions, proceed with deletion
-      const index = this.accounts.findIndex(account => account.id === id);
-      if (index === -1) return false;
-
-      this.accounts.splice(index, 1);
-      this.saveToStorage();
-      return true;
+      // Remove ALL accounts with this ID (to handle any existing duplicates)
+      const initialLength = this.accounts.length;
+      this.accounts = this.accounts.filter(acc => acc.id !== id);
+      const removedCount = initialLength - this.accounts.length;
+      
+      if (removedCount > 0) {
+        console.log(`🗑️ Removed ${removedCount} account(s) with ID: ${id}`);
+        this.saveToStorage();
+        return true;
+      } else {
+        return false;
+      }
     } catch (error) {
       console.error('Error checking account transactions:', error);
       throw error;
@@ -324,10 +345,38 @@ ${userPrompt}`;
     return cleaned.trim();
   }
 
-  private generateAccountId(name: string, institution: string): string {
+  private generateAccountId(name: string, institution: string, type?: string): string {
     const cleanName = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
     const cleanInstitution = institution.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    return `${cleanInstitution}-${cleanName}`;
+    const cleanType = type ? type.toLowerCase().replace(/[^a-z0-9]/g, '-') : '';
+    
+    let baseId = cleanType ? `${cleanInstitution}-${cleanName}-${cleanType}` : `${cleanInstitution}-${cleanName}`;
+    
+    // Remove any double dashes that might have been created
+    baseId = baseId.replace(/-+/g, '-').replace(/^-|-$/g, '');
+    
+    return baseId;
+  }
+
+  private generateUniqueAccountId(name: string, institution: string, type: string): string {
+    const baseId = this.generateAccountId(name, institution, type);
+    
+    // Check if this ID already exists
+    const existingIds = new Set(this.accounts.map(account => account.id));
+    
+    if (!existingIds.has(baseId)) {
+      return baseId;
+    }
+    
+    // If base ID exists, find a unique variant
+    let counter = 1;
+    let uniqueId: string;
+    do {
+      uniqueId = `${baseId}-${counter}`;
+      counter++;
+    } while (existingIds.has(uniqueId));
+    
+    return uniqueId;
   }
 
   // Persistence helpers
@@ -367,6 +416,43 @@ ${userPrompt}`;
   clearAllAccounts(): void {
     this.accounts = [];
     this.saveToStorage();
+  }
+
+  // Clean up duplicate accounts (for migration/recovery)
+  cleanupDuplicateAccounts(): { duplicatesFound: number; duplicatesRemoved: number } {
+    console.log('🧹 Starting duplicate account cleanup...');
+    
+    const accountMap = new Map<string, Account>();
+    const duplicates: Account[] = [];
+    const initialCount = this.accounts.length;
+    
+    for (const account of this.accounts) {
+      const key = `${account.name}|${account.institution}|${account.type}`;
+      
+      if (accountMap.has(key)) {
+        // This is a duplicate based on name, institution, and type
+        duplicates.push(account);
+        console.log(`🔍 Found duplicate: ${account.name} (ID: ${account.id})`);
+      } else {
+        accountMap.set(key, account);
+      }
+    }
+    
+    // Remove duplicates, keeping only the first occurrence of each unique account
+    if (duplicates.length > 0) {
+      this.accounts = Array.from(accountMap.values());
+      this.saveToStorage();
+      
+      console.log(`✅ Cleanup complete: Removed ${duplicates.length} duplicate accounts`);
+      console.log(`📊 Accounts before cleanup: ${initialCount}, after cleanup: ${this.accounts.length}`);
+    } else {
+      console.log('✅ No duplicate accounts found');
+    }
+    
+    return {
+      duplicatesFound: duplicates.length,
+      duplicatesRemoved: duplicates.length
+    };
   }
 
   /**
