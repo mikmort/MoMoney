@@ -24,7 +24,12 @@ const DialogContent = styled.div.withConfig({
   border-radius: 8px;
   padding: 24px;
   width: 90%;
-  max-width: 500px;
+  max-width: ${props => {
+    const count = props.accountCount || 1;
+    if (count > 10) return '900px'; // 3 columns - widest
+    if (count > 5) return '700px';  // 2 columns - medium width
+    return '500px';                 // 1 column - original width
+  }};
   max-height: 80vh;
   overflow-y: auto;
 
