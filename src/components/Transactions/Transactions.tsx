@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
@@ -2555,9 +2555,16 @@ const Transactions: React.FC = () => {
     }).format(amount);
   };
 
-  const uniqueCategories = Array.from(new Set(transactions.map((t: Transaction) => t.category)))
-    .sort((a, b) => a.localeCompare(b)); // Sort alphabetically
-  const uniqueAccounts = Array.from(new Set(transactions.map((t: Transaction) => t.account)));
+  const uniqueCategories = useMemo(() => 
+    Array.from(new Set(transactions.map((t: Transaction) => t.category)))
+      .sort((a, b) => a.localeCompare(b)), // Sort alphabetically
+    [transactions]
+  );
+  
+  const uniqueAccounts = useMemo(() => 
+    Array.from(new Set(transactions.map((t: Transaction) => t.account))),
+    [transactions]
+  );
 
   const handleFindReimbursements = async () => {
     const result = await findMatches({
