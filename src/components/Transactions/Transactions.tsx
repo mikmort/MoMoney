@@ -1618,6 +1618,20 @@ const Transactions: React.FC = () => {
     }, 0);
   }, []);
 
+  // Auto-sort by absolute amount value when showing unmatched transfers
+  useEffect(() => {
+    if (gridApi && transferFilter === 'unmatched') {
+      // Apply sorting by Amount column (ascending for absolute value)
+      gridApi.applyColumnState({
+        state: [{
+          colId: 'amount',
+          sort: 'asc'
+        }],
+        defaultState: { sort: null }
+      });
+    }
+  }, [gridApi, transferFilter]);
+
 
 
   const handleDeleteTransaction = useCallback(async (id: string) => {
@@ -2576,7 +2590,13 @@ const Transactions: React.FC = () => {
       cellRenderer: AmountCellRenderer,
       type: 'rightAligned',
       editable: true,
-      cellEditor: TextCellEditor
+      cellEditor: TextCellEditor,
+      comparator: (valueA: number, valueB: number) => {
+        // Sort by absolute value for better transfer matching identification
+        const absA = Math.abs(valueA);
+        const absB = Math.abs(valueB);
+        return absA - absB;
+      }
     },
     {
       headerName: 'AI Confidence',

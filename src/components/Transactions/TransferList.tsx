@@ -167,6 +167,7 @@ export const TransferList: React.FC<TransferListProps> = ({
     return <span style={{ fontWeight: 600, color, display: 'inline-block', width: '100%', textAlign: 'right' }}>{display}</span>;
   };
 
+  // Create dynamic column definitions with initial sort for unmatched transfers
   const transferColumnDefs: ColDef<Transaction>[] = [
     {
       headerName: 'Date',
@@ -194,7 +195,19 @@ export const TransferList: React.FC<TransferListProps> = ({
       headerName: 'Amount',
       field: 'amount',
       width: 200,
-      cellRenderer: AmountCell
+      cellRenderer: AmountCell,
+      sortable: true,
+      comparator: (valueA: number, valueB: number) => {
+        // Sort by absolute value for better transfer matching identification
+        const absA = Math.abs(valueA);
+        const absB = Math.abs(valueB);
+        return absA - absB;
+      },
+      // Set initial sort to ascending when showing unmatched transfers
+      ...(displayOptions.collapseMatched && {
+        sort: 'asc' as const,
+        sortIndex: 0
+      })
     },
     {
       headerName: 'Match Status',
@@ -332,6 +345,8 @@ export const TransferList: React.FC<TransferListProps> = ({
                   filter: true,
                   resizable: true
                 }}
+                // When showing unmatched transfers, sort by absolute amount value by default
+                sortingOrder={['asc', 'desc']}
               />
             </div>
           )}
