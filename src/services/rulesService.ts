@@ -1,5 +1,6 @@
 import { CategoryRule, RuleCondition, RuleMatchResult, Transaction } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { containsUniqueIdentifiers } from '../utils/uniqueIdentifierDetection';
 
 class RulesService {
   private rules: CategoryRule[] = [];
@@ -324,6 +325,12 @@ class RulesService {
     subcategoryName?: string,
     confidence: number = 1.0
   ): Promise<CategoryRule> {
+    // First, check if the transaction description contains unique identifiers
+    if (containsUniqueIdentifiers(description)) {
+      console.log(`⚠️  Skipping auto-rule creation for "${description}" - contains unique identifiers that would make the rule ineffective`);
+      throw new Error('Transaction description contains unique identifiers - auto-rule would be ineffective');
+    }
+
     // Check if a rule already exists for this exact account + description combination
     const existingRule = this.rules.find(rule => 
       rule.isActive && 

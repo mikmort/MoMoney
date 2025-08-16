@@ -921,7 +921,24 @@ Return ONLY a clean JSON response:
       return [];
     }
 
-    // Step 0: Initialize transfer detection rules if needed (skip in test environment)
+    // Step 0: Detect if amounts need to be reversed (expenses positive, income negative)
+    const validPrepared = validIndices.map(i => prepared[i]).filter(p => p.date && p.description && p.amount !== null);
+    const shouldReverseAmounts = await this.detectAmountReversal(validPrepared);
+    
+    if (shouldReverseAmounts) {
+      console.log('🔄 Detected reversed amount convention - flipping all amounts');
+      validPrepared.forEach(p => {
+        if (p.amount !== null) {
+          p.amount = -p.amount;
+        }
+      });
+      // Update the prepared array with reversed amounts
+      validPrepared.forEach(p => {
+        prepared[p.idx] = p;
+      });
+    }
+
+    // Step 0.1: Initialize transfer detection rules if needed (skip in test environment)
     if (process.env.NODE_ENV !== 'test') {
       console.log('🔄 Initializing transfer detection rules...');
       await transferDetectionService.initializeTransferRules();
@@ -1281,6 +1298,136 @@ Return ONLY a clean JSON response:
     const lowerDesc = description.toLowerCase();
     return lowerDesc.includes('ach debit') || 
            (lowerDesc.includes('withdrawal') && !lowerDesc.includes('atm withdrawal') && !lowerDesc.includes('cash withdrawal'));
+  }
+
+  /**
+   * Detect if amounts in the transaction data are reversed (expenses positive, income negative)
+   * Returns true if amounts should be flipped to match the expected convention
+   */
+  private async detectAmountReversal(transactions: Array<{
+    date: Date | null;
+    description: string;
+    amount: number | null;
+    notes: string;
+  }>): Promise<boolean> {
+    if (transactions.length === 0) {
+      return false;
+    }
+
+    console.log(`🔍 Analyzing ${transactions.length} transactions for amount reversal detection`);
+
+    // Common expense keywords that should typically be negative
+    const expenseKeywords = [
+      'starbucks', 'coffee', 'cafe', 'restaurant', 'dining', 'food',
+      'gas', 'shell', 'exxon', 'mobil', 'chevron', 'bp', 'fuel',
+      'amazon', 'walmart', 'target', 'store', 'shop', 'purchase',
+      'mcdonalds', 'burger', 'pizza', 'taco',
+      'grocery', 'supermarket', 'market',
+      'uber', 'lyft', 'taxi',
+      'netflix', 'spotify', 'subscription',
+      'rent', 'mortgage', 'insurance', 'utility', 'electric', 'water', 'gas bill',
+      'pharmacy', 'doctor', 'hospital', 'medical',
+      'hotel', 'airline', 'flight', 'travel'
+    ];
+
+    // Common income keywords that should typically be positive
+    const incomeKeywords = [
+      'salary', 'paycheck', 'deposit', 'pay', 'wages', 'income',
+      'refund', 'return', 'credit', 'reimbursement',
+      'dividend', 'interest', 'bonus',
+      'transfer in', 'deposit', 'direct deposit',
+      'freelance', 'consulting', 'payment received'
+    ];
+
+    let expenseCount = 0;
+    let expensePositiveCount = 0;
+    let incomeCount = 0;
+    let incomeNegativeCount = 0;
+
+    // Analyze each transaction
+    for (const tx of transactions) {
+      if (!tx.amount || !tx.description) continue;
+
+      const desc = tx.description.toLowerCase();
+      const isPositive = tx.amount > 0;
+
+      // Check if it matches expense keywords
+      const isLikelyExpense = expenseKeywords.some(keyword => desc.includes(keyword));
+      if (isLikelyExpense) {
+        expenseCount++;
+        if (isPositive) {
+          expensePositiveCount++;
+        }
+      }
+
+      // Check if it matches income keywords
+      const isLikelyIncome = incomeKeywords.some(keyword => desc.includes(keyword));
+      if (isLikelyIncome) {
+        incomeCount++;
+        if (!isPositive) {
+          incomeNegativeCount++;
+        }
+      }
+    }
+
+    console.log(`💰 Amount reversal analysis:`, {
+      expenseCount,
+      expensePositiveCount,
+      incomeCount,
+      incomeNegativeCount,
+      expensePositiveRate: expenseCount > 0 ? (expensePositiveCount / expenseCount) : 0,
+      incomeNegativeRate: incomeCount > 0 ? (incomeNegativeCount / incomeCount) : 0
+    });
+
+    // Decision logic:
+    // If we have enough samples and most expenses are positive OR most income is negative,
+    // then amounts are likely reversed
+    const minSampleSize = 3;
+    const confidenceThreshold = 0.7; // 70% of transactions should match the reversed pattern
+
+    let shouldReverse = false;
+
+    // Check expense pattern: if most expense-like transactions are positive, amounts are reversed
+    if (expenseCount >= minSampleSize) {
+      const expensePositiveRate = expensePositiveCount / expenseCount;
+      if (expensePositiveRate >= confidenceThreshold) {
+        console.log(`🔄 Detected reversed amounts: ${expensePositiveCount}/${expenseCount} (${Math.round(expensePositiveRate * 100)}%) expense-like transactions are positive`);
+        shouldReverse = true;
+      }
+    }
+
+    // Check income pattern: if most income-like transactions are negative, amounts are reversed
+    if (incomeCount >= minSampleSize && !shouldReverse) {
+      const incomeNegativeRate = incomeNegativeCount / incomeCount;
+      if (incomeNegativeRate >= confidenceThreshold) {
+        console.log(`🔄 Detected reversed amounts: ${incomeNegativeCount}/${incomeCount} (${Math.round(incomeNegativeRate * 100)}%) income-like transactions are negative`);
+        shouldReverse = true;
+      }
+    }
+
+    // Fallback: if we don't have enough keyword matches, use a simpler heuristic
+    if (!shouldReverse && expenseCount + incomeCount < minSampleSize) {
+      console.log('📊 Not enough keyword matches for algorithmic detection, using simple heuristic');
+      
+      // Count positive vs negative amounts
+      const positiveCount = transactions.filter(tx => tx.amount && tx.amount > 0).length;
+      const negativeCount = transactions.filter(tx => tx.amount && tx.amount < 0).length;
+      const totalCount = positiveCount + negativeCount;
+      
+      // If most amounts are positive (which is unusual for typical bank statements), consider reversal
+      if (totalCount >= minSampleSize && positiveCount / totalCount >= 0.8) {
+        console.log(`🔄 Simple heuristic: ${positiveCount}/${totalCount} (${Math.round((positiveCount / totalCount) * 100)}%) amounts are positive, likely reversed`);
+        shouldReverse = true;
+      }
+    }
+
+    if (shouldReverse) {
+      console.log('✅ Amount reversal needed - will flip all amounts');
+    } else {
+      console.log('✅ Amounts appear to be in correct format (expenses negative, income positive)');
+    }
+
+    return shouldReverse;
   }
 
   private async processRow(
