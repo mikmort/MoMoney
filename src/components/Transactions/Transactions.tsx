@@ -10,7 +10,6 @@ import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
 import { useNotification } from '../../contexts/NotificationContext';
-import { transferMatchingService } from '../../services/transferMatchingService';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { AccountSelectionDialog, AccountDetectionResult } from './AccountSelectionDialog';
 import { AiConfidencePopup } from './AiConfidencePopup';
@@ -245,88 +244,6 @@ const ReimbursementPanel = styled(Card)`
   }
 `;
 
-const TransferMatchingPanel = styled(Card)`
-  margin-bottom: 20px;
-  
-  .panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    
-    h3 {
-      margin: 0;
-      color: #333;
-    }
-  }
-  
-  .matches-list {
-    .match-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px;
-      border: 1px solid #e0e0e0;
-      border-radius: 6px;
-      margin-bottom: 8px;
-      background: #f9f9f9;
-      
-      .match-info {
-        flex: 1;
-        
-        .source-transfer {
-          font-weight: 600;
-          color: #9C27B0;
-        }
-        
-        .target-transfer {
-          font-weight: 600;
-          color: #673AB7;
-        }
-        
-        .match-details {
-          font-size: 0.9rem;
-          color: #666;
-          margin-top: 4px;
-        }
-      }
-      
-      .match-actions {
-        display: flex;
-        gap: 8px;
-      }
-      
-      .confidence-badge {
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        
-        &.high {
-          background: #e8f5e8;
-          color: #2e7d32;
-        }
-        
-        &.medium {
-          background: #fff3cd;
-          color: #856404;
-        }
-        
-        &.low {
-          background: #f8d7da;
-          color: #721c24;
-        }
-      }
-    }
-    
-    .no-matches {
-      text-align: center;
-      color: #666;
-      padding: 20px;
-      font-style: italic;
-    }
-  }
-`;
 
 const FilterBar = styled(Card)`
   margin-bottom: 16px;
@@ -948,8 +865,6 @@ const Transactions: React.FC = () => {
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
   const [showInvestmentTransactions, setShowInvestmentTransactions] = useState(false); // Hide investments by default
-  const [showTransferMatchingPanel, setShowTransferMatchingPanel] = useState(false);
-  const [transferFilter, setTransferFilter] = useState<'all' | 'matched' | 'unmatched'>('all');
   
   const [collapsedTransfers, setCollapsedTransfers] = useState<CollapsedTransfer[]>([]);
   
@@ -1137,15 +1052,8 @@ const Transactions: React.FC = () => {
     addAccount
   } = useAccountManagement();
 
-  const { 
-    isLoading: isTransferMatchingLoading, 
-    error: transferMatchingError, 
-    matches: transferMatches, 
-    findTransferMatches, 
-    applyTransferMatches,
-    unmatchTransfers,
-    getMatchedTransfers
-  } = useTransferMatching();
+  // Transfer matching functionality (minimal for TransferList component)
+  const { unmatchTransfers } = useTransferMatching();
 
   // Helper function to parse category string (e.g., "Food > Restaurants" or "Food")
   const parseCategoryString = (categoryString: string): { category: string; subcategory?: string } => {
@@ -1618,19 +1526,10 @@ const Transactions: React.FC = () => {
     }, 0);
   }, []);
 
-  // Auto-sort by absolute amount value when showing unmatched transfers
+  // Auto-sort by absolute amount value when needed
   useEffect(() => {
-    if (gridApi && transferFilter === 'unmatched') {
-      // Apply sorting by Amount column (ascending for absolute value)
-      gridApi.applyColumnState({
-        state: [{
-          colId: 'amount',
-          sort: 'asc'
-        }],
-        defaultState: { sort: null }
-      });
-    }
-  }, [gridApi, transferFilter]);
+    // This effect can be removed as it was specific to transfer filtering
+  }, [gridApi]);
 
 
 
@@ -2178,19 +2077,10 @@ const Transactions: React.FC = () => {
       filtered = filtered.filter((t: Transaction) => t.date <= new Date(filters.dateTo));
     }
 
-    // Filter for transfer state (matched, unmatched, or all)
-    if (transferFilter === 'matched') {
-      filtered = filtered.filter((t: Transaction) => 
-        t.type === 'transfer' && t.reimbursementId
-      );
-    } else if (transferFilter === 'unmatched') {
-      filtered = filtered.filter((t: Transaction) => 
-        t.type === 'transfer' && !t.reimbursementId
-      );
-    }
-
+    // Remove transfer filter functionality
+    
     setFilteredTransactions(filtered);
-  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, transferFilter, filterNonReimbursed]);
+  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, filterNonReimbursed]);
 
   useEffect(() => {
     applyFilters();
@@ -2233,12 +2123,6 @@ const Transactions: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [filteredTransactions, undoRedoStatus, handleUndoTransaction, handleRedoTransaction]);
-
-  const countMatchedTransfers = (transactions: Transaction[]): number => {
-    return transactions.filter(tx => 
-      tx.type === 'transfer' && tx.reimbursementId
-    ).length;
-  };
 
   const countReimbursedTransactions = (transactions: Transaction[]): number => {
     return transactions.filter(tx => tx.reimbursed).length;
@@ -2821,29 +2705,6 @@ const Transactions: React.FC = () => {
     const updatedTransactions = await applyMatches(transactions, [match]);
     setTransactions(updatedTransactions);
   };
-  const handleApplyTransferMatch = async (match: any) => {
-    const updatedTransactions = await applyTransferMatches(transactions, [match]);
-    setTransactions(updatedTransactions);
-    // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
-  };
-
-  const handleUnmatchTransfer = async (matchId: string) => {
-    const updatedTransactions = await unmatchTransfers(transactions, matchId);
-    setTransactions(updatedTransactions);
-    // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
-  };
-
-  const handleFindTransfers = async () => {
-    const result = await findTransferMatches({
-      transactions,
-      maxDaysDifference: 7,
-      tolerancePercentage: 0.01
-    });
-    
-    if (result) {
-      setShowTransferMatchingPanel(true);
-    }
-  };
 
   const getConfidenceClass = (confidence: number) => {
     if (confidence > 0.9) return 'high';
@@ -2916,87 +2777,7 @@ const Transactions: React.FC = () => {
     );
   };
 
-  const renderTransferMatchingPanel = () => {
-    if (!showTransferMatchingPanel) return null;
 
-    const existingMatches = getMatchedTransfers(transactions);
-    const allMatches = [...existingMatches, ...transferMatches];
-
-    return (
-      <TransferMatchingPanel>
-        <div className="panel-header">
-          <h3>Transfer Matches ({allMatches.length})</h3>
-          <Button variant="outline" onClick={() => setShowTransferMatchingPanel(false)}>
-            Close
-          </Button>
-        </div>
-        
-        {transferMatchingError && (
-          <div style={{ color: '#f44336', marginBottom: '16px' }}>
-            Error: {transferMatchingError}
-          </div>
-        )}
-        
-        <div className="matches-list">
-          {allMatches.length === 0 ? (
-            <div className="no-matches">
-              No transfer matches found. Try adjusting the date range or tolerance settings.
-            </div>
-          ) : (
-            allMatches.map((match) => {
-              const sourceTx = transactions.find(t => t.id === match.sourceTransactionId);
-              const targetTx = transactions.find(t => t.id === match.targetTransactionId);
-              
-              if (!sourceTx || !targetTx) return null;
-              
-              const isExisting = existingMatches.some(m => m.id === match.id);
-              
-              return (
-                <div key={match.id} className="match-item">
-                  <div className="match-info">
-                    <div className="source-transfer">
-                      Source: {sourceTx.description} ({formatCurrencySync(sourceTx.amount)}) - {sourceTx.account}
-                    </div>
-                    <div className="target-transfer">
-                      Target: {targetTx.description} ({formatCurrencySync(targetTx.amount)}) - {targetTx.account}
-                    </div>
-                    <div className="match-details">
-                      {match.reasoning} • {match.dateDifference} days apart
-                      {match.amountDifference > 0 && ` • $${match.amountDifference.toFixed(2)} difference`}
-                      {isExisting && ' • Currently matched'}
-                    </div>
-                  </div>
-                  <div className="match-actions">
-                    <span className={`confidence-badge ${getConfidenceClass(match.confidence)}`}>
-                      {Math.round(match.confidence * 100)}%
-                    </span>
-                    {isExisting ? (
-                      <Button 
-                        variant="outline"
-                        onClick={() => handleUnmatchTransfer(match.id)}
-                        disabled={isTransferMatchingLoading}
-                        style={{ fontSize: '0.8rem', padding: '4px 8px' }}
-                      >
-                        Unmatch
-                      </Button>
-                    ) : (
-                      <Button 
-                        onClick={() => handleApplyTransferMatch(match)}
-                        disabled={isTransferMatchingLoading}
-                        style={{ fontSize: '0.8rem', padding: '4px 8px' }}
-                      >
-                        Apply
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </TransferMatchingPanel>
-    );
-  };
 
   const renderAnomalyResultsPanel = () => {
     if (!showAnomalyResults) return null;
@@ -3071,8 +2852,8 @@ const Transactions: React.FC = () => {
     },
     {
       icon: '🔄',
-      label: isTransferMatchingLoading ? 'Finding...' : 'Find Transfer Matches',
-      onClick: handleFindTransfers
+      label: 'Find Matched Transfers',
+      onClick: () => navigate('/transfer-matches')
     },
     {
       icon: '🤖',
@@ -3118,8 +2899,6 @@ const Transactions: React.FC = () => {
       </PageHeader>
 
       {renderReimbursementPanel()}
-
-      {renderTransferMatchingPanel()}
 
       {renderAnomalyResultsPanel()}
 
@@ -3234,45 +3013,7 @@ const Transactions: React.FC = () => {
               ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
             </QuickFilterButton>
             
-            {transferMatchingService.countUnmatchedTransfers(transactions) > 0 && (
-              <QuickFilterButton
-                isActive={transferFilter === 'unmatched'}
-                activeColor="#9C27B0"
-                activeBackground="#f3e5f5"
-                onClick={() => {
-                  if (transferFilter === 'unmatched') {
-                    setTransferFilter('all');
-                  } else {
-                    setTransferFilter('unmatched');
-                    // Ensure transfers are shown when filtering for unmatched transfers
-                    setTransferDisplayOptions(prev => ({ ...prev, showTransfers: true }));
-                  }
-                }}
-                title="Show only unmatched transfer transactions"
-              >
-                🔄 Unmatched Transfers ({transferMatchingService.countUnmatchedTransfers(transactions)})
-              </QuickFilterButton>
-            )}
-            
-            {countMatchedTransfers(transactions) > 0 && (
-              <QuickFilterButton
-                isActive={transferFilter === 'matched'}
-                activeColor="#673AB7"
-                activeBackground="#ede7f6"
-                onClick={() => {
-                  if (transferFilter === 'matched') {
-                    setTransferFilter('all');
-                  } else {
-                    setTransferFilter('matched');
-                    // Ensure transfers are shown when filtering for matched transfers
-                    setTransferDisplayOptions(prev => ({ ...prev, showTransfers: true }));
-                  }
-                }}
-                title="Show only matched transfer transactions"
-              >
-                ✅ Matched Transfers ({countMatchedTransfers(transactions)})
-              </QuickFilterButton>
-            )}
+
             
             {countReimbursedTransactions(transactions) > 0 && (
               <QuickFilterButton
