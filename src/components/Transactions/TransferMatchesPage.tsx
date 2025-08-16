@@ -152,8 +152,8 @@ const MatchCard = styled(Card)`
   .match-details {
     font-size: 0.9rem;
     color: #666;
-    margin-bottom: 16px;
-    padding: 12px;
+    margin-bottom: 8px;
+    padding: 8px;
     background: #f0f8ff;
     border-radius: 4px;
     border-left: 4px solid #2196f3;
@@ -273,6 +273,71 @@ const EmptyState = styled.div`
   }
 `;
 
+const UnmatchedGrid = styled.div`
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+`;
+
+const UnmatchedRow = styled(Card)`
+  display: grid;
+  grid-template-columns: 2fr 1fr auto auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  border: 1px solid #e0e0e0;
+  
+  .transaction-info {
+    .description {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    
+    .account {
+      font-size: 0.9rem;
+      color: #666;
+    }
+  }
+  
+  .amount {
+    font-weight: 600;
+    font-size: 1.1rem;
+    
+    &.positive {
+      color: #4caf50;
+    }
+    
+    &.negative {
+      color: #f44336;
+    }
+  }
+  
+  .date {
+    color: #666;
+    font-size: 0.9rem;
+  }
+  
+  .match-button {
+    padding: 6px 12px;
+    background: #2196f3;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    
+    &:hover {
+      background: #1976d2;
+    }
+    
+    &:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+  }
+`;
+
 export const TransferMatchesPage: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [existingMatches, setExistingMatches] = useState<TransferMatch[]>([]);
@@ -280,6 +345,7 @@ export const TransferMatchesPage: React.FC = () => {
   const [showManualMatch, setShowManualMatch] = useState(false);
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [selectedTarget, setSelectedTarget] = useState<string>('');
+  const [showUnmatched, setShowUnmatched] = useState(false);
 
   const {
     isLoading,
@@ -397,6 +463,46 @@ export const TransferMatchesPage: React.FC = () => {
 
   const handleFindNewMatches = async () => {
     await loadData();
+  };
+
+  const handleManualMatchFromGrid = async (transactionId: string) => {
+    // Find an appropriate match from other unmatched transfers
+    const unmatchedList = getUnmatchedTransfers(transactions).filter(t => t.type === 'transfer');
+    const sourceTransaction = unmatchedList.find(t => t.id === transactionId);
+    
+    if (!sourceTransaction) return;
+
+    // Find the best candidate for manual matching (similar amount, different account)
+    const candidates = unmatchedList.filter(t => 
+      t.id !== transactionId && 
+      t.account !== sourceTransaction.account &&
+      Math.abs(Math.abs(t.amount) - Math.abs(sourceTransaction.amount)) <= 0.01
+    );
+    
+    if (candidates.length > 0) {
+      // Use the first candidate for now - in a real implementation, you might show a selection dialog
+      const targetTransaction = candidates[0];
+      
+      try {
+        const updatedTransactions = await manuallyMatchTransfers(
+          transactions,
+          sourceTransaction.id,
+          targetTransaction.id
+        );
+        await dataService.updateTransaction(sourceTransaction.id, {
+          reimbursementId: targetTransaction.id,
+          notes: (sourceTransaction.notes || '') + '\n[Manual Transfer Match from Grid]'
+        });
+        await dataService.updateTransaction(targetTransaction.id, {
+          reimbursementId: sourceTransaction.id,
+          notes: (targetTransaction.notes || '') + '\n[Manual Transfer Match from Grid]'
+        });
+        setTransactions(updatedTransactions);
+        await loadData();
+      } catch (error) {
+        console.error('Error manually matching from grid:', error);
+      }
+    }
   };
 
   const getConfidenceClass = (confidence: number) => {
@@ -552,11 +658,27 @@ export const TransferMatchesPage: React.FC = () => {
           )}
         </ManualMatchSection>
 
-        {/* Existing Matches */}
-        {existingMatches.length > 0 && (
+        {/* Current/Unmatched Toggle Section */}
+        {(existingMatches.length > 0 || unmatchedTransfers.filter(t => t.type === 'transfer').length > 0) && (
           <>
-            <h2>Current Matches ({existingMatches.length})</h2>
-            <MatchesGrid>
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', alignItems: 'center' }}>
+              <Button 
+                variant={!showUnmatched ? 'primary' : 'outline'}
+                onClick={() => setShowUnmatched(false)}
+              >
+                Current Matches ({existingMatches.length})
+              </Button>
+              <Button 
+                variant={showUnmatched ? 'primary' : 'outline'}
+                onClick={() => setShowUnmatched(true)}
+              >
+                Unmatched ({unmatchedTransfers.filter(t => t.type === 'transfer').length})
+              </Button>
+            </div>
+
+            {/* Current Matches View */}
+            {!showUnmatched && existingMatches.length > 0 && (
+              <MatchesGrid>
               {existingMatches.map((match) => {
                 const sourceTx = transactions.find(t => t.id === match.sourceTransactionId);
                 const targetTx = transactions.find(t => t.id === match.targetTransactionId);
@@ -616,6 +738,55 @@ export const TransferMatchesPage: React.FC = () => {
                 );
               })}
             </MatchesGrid>
+            )}
+
+            {/* Unmatched Transfers View */}
+            {showUnmatched && (
+              <UnmatchedGrid>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '2fr 1fr auto auto',
+                  gap: '16px',
+                  padding: '12px 16px',
+                  backgroundColor: '#f5f5f5',
+                  borderRadius: '4px',
+                  fontWeight: '600',
+                  fontSize: '0.9rem',
+                  color: '#333'
+                }}>
+                  <div>Description & Account</div>
+                  <div>Amount</div>
+                  <div>Date</div>
+                  <div>Action</div>
+                </div>
+                {unmatchedTransfers
+                  .filter(t => t.type === 'transfer')
+                  .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)) // Sort by absolute value descending
+                  .map(transaction => (
+                    <UnmatchedRow key={transaction.id}>
+                      <div className="transaction-info">
+                        <div className="description">{transaction.description}</div>
+                        <div className="account">{transaction.account}</div>
+                      </div>
+                      <div className={`amount ${transaction.amount >= 0 ? 'positive' : 'negative'}`}>
+                        <AmountText tx={transaction} />
+                      </div>
+                      <div className="date">{transaction.date.toLocaleDateString()}</div>
+                      <button 
+                        className="match-button"
+                        onClick={() => handleManualMatchFromGrid(transaction.id)}
+                        disabled={
+                          unmatchedTransfers
+                            .filter(t => t.type === 'transfer' && t.id !== transaction.id && t.account !== transaction.account)
+                            .length === 0
+                        }
+                      >
+                        Match
+                      </button>
+                    </UnmatchedRow>
+                  ))}
+              </UnmatchedGrid>
+            )}
           </>
         )}
 
