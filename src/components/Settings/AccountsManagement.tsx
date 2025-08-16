@@ -9,6 +9,7 @@ import { useAccountManagement } from '../../hooks/useAccountManagement';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { accountManagementService } from '../../services/accountManagementService';
 import BalanceHistoryModal from '../Accounts/BalanceHistoryModal';
+import SetBalanceModal from './SetBalanceModal';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
@@ -177,6 +178,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const { accounts, addAccount, updateAccount, deleteAccount, error, refreshAccounts } = useAccountManagement();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showSetBalanceModal, setShowSetBalanceModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -312,6 +314,35 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       ...prev,
       [field]: value
     }));
+  };
+
+  const handleSetBalance = async (balance: number, date: Date) => {
+    if (editingAccount) {
+      // Update the editing account with new historical balance and date
+      const updatedAccount = {
+        ...editingAccount,
+        balance: balance,
+        historicalBalance: balance,
+        historicalBalanceDate: date
+      };
+
+      // Update in the database
+      await updateAccount(editingAccount.id, {
+        balance: balance,
+        historicalBalance: balance,
+        historicalBalanceDate: date
+      });
+
+      // Update the form and editing account state
+      setEditingAccount(updatedAccount);
+      setAccountForm(prev => ({
+        ...prev,
+        balance: balance
+      }));
+
+      // Force refresh the accounts to update the UI
+      refreshAccounts();
+    }
   };
 
   // Handle choice: Create from Statement
@@ -899,13 +930,37 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
 
             <div className="form-group">
               <label>Current Balance</label>
-              <input
-                type="number"
-                step="0.01"
-                value={accountForm.balance}
-                onChange={(e) => handleFormChange('balance', parseFloat(e.target.value) || 0)}
-                placeholder="0.00"
-              />
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={accountForm.balance}
+                  placeholder="0.00"
+                  readOnly
+                  style={{ 
+                    backgroundColor: '#f5f5f5',
+                    cursor: 'not-allowed',
+                    flex: 1
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowSetBalanceModal(true)}
+                  style={{ 
+                    minWidth: 'auto',
+                    padding: '6px 12px',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Set Balance
+                </Button>
+              </div>
+              {editingAccount?.historicalBalanceDate && (
+                <small style={{ color: '#666', marginTop: '4px', display: 'block' }}>
+                  Balance set as of {editingAccount.historicalBalanceDate.toLocaleDateString()}
+                </small>
+              )}
             </div>
 
             <div className="form-group">
@@ -1411,6 +1466,14 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
           </EditModalContent>
         </EditModalOverlay>
       )}
+
+      {/* Set Balance Modal */}
+      <SetBalanceModal
+        account={editingAccount}
+        isOpen={showSetBalanceModal}
+        onClose={() => setShowSetBalanceModal(false)}
+        onSave={handleSetBalance}
+      />
     </div>
   );
 };
