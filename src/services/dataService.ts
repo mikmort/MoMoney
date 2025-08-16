@@ -889,14 +889,21 @@ class DataService {
 
   private async saveToDB(): Promise<void> {
     try {
-      // Use robust bulk operation with fallback
-      const results = await db.robustBulkPut(db.transactions, this.transactions);
+      // Clear and replace all transactions to ensure deleted transactions are removed
+      await db.transactions.clear();
       
-      if (results.failed > 0) {
-        console.warn(`[TX] Save operation had issues: ${results.successful} successful, ${results.failed} failed`);
-        results.errors.forEach(error => console.warn(`[TX] ${error}`));
+      if (this.transactions.length > 0) {
+        // Use robust bulk operation with fallback to add current transactions
+        const results = await db.robustBulkPut(db.transactions, this.transactions);
+        
+        if (results.failed > 0) {
+          console.warn(`[TX] Save operation had issues: ${results.successful} successful, ${results.failed} failed`);
+          results.errors.forEach(error => console.warn(`[TX] ${error}`));
+        } else {
+          console.log(`[TX] Successfully saved ${results.successful} transactions to IndexedDB`);
+        }
       } else {
-        console.log(`[TX] Successfully saved ${results.successful} transactions to IndexedDB`);
+        console.log(`[TX] Successfully cleared all transactions from IndexedDB`);
       }
     } catch (error) {
       console.error('[TX] Failed to save transactions to IndexedDB:', error);
