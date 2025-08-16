@@ -26,6 +26,33 @@ export interface TransferMatchResponse {
   confidence: number;
 }
 
+// Same-account matched transaction interfaces (for cancelled/reversed transactions)
+export interface SameAccountMatch {
+  id: string;
+  sourceTransactionId: string;
+  targetTransactionId: string;
+  confidence: number; // Confidence in the match (0-1)
+  matchType: 'exact' | 'approximate' | 'manual';
+  dateDifference: number; // Days between the opposite transactions
+  amountDifference: number; // Difference in amounts (should be minimal for exact matches)
+  reasoning?: string; // Explanation for the match
+  isVerified: boolean; // User has verified the match
+}
+
+export interface SameAccountMatchRequest {
+  transactions: Transaction[];
+  dateRangeStart?: Date;
+  dateRangeEnd?: Date;
+  maxDaysDifference?: number; // Maximum days between opposite transactions (default: 1)
+  tolerancePercentage?: number; // Tolerance for amount differences (default: 0.01 = 1%)
+}
+
+export interface SameAccountMatchResponse {
+  matches: SameAccountMatch[];
+  unmatched: Transaction[];
+  confidence: number;
+}
+
 class TransferMatchingService {
   /**
    * Find matching transfer transactions
@@ -481,10 +508,196 @@ class TransferMatchingService {
     return null;
   }
 
+  /**
+   * Find matching transactions within the same account (cancelled/reversed transactions)
+   */
+  async findSameAccountMatches(request: SameAccountMatchRequest): Promise<SameAccountMatchResponse> {
+    const {
+      transactions,
+      dateRangeStart,
+      dateRangeEnd,
+      maxDaysDifference = 1, // Default: within 1 day for cancellations/reversals
+      tolerancePercentage = 0.01 // 1% tolerance for amount differences
+    } = request;
+
+    // Filter transactions within date range (excluding transfers as they are handled separately)
+    const candidateTransactions = transactions.filter(tx => 
+      tx.type !== 'transfer' && // Exclude transfers - they are handled by transfer matching
+      (!dateRangeStart || tx.date >= dateRangeStart) &&
+      (!dateRangeEnd || tx.date <= dateRangeEnd) &&
+      !tx.reimbursementId // Not already matched
+    );
+
+    const matches: SameAccountMatch[] = [];
+    const matchedIds = new Set<string>();
+
+    // Find potential same-account matches
+    for (const sourceTx of candidateTransactions) {
+      if (matchedIds.has(sourceTx.id)) continue;
+
+      for (const targetTx of candidateTransactions) {
+        if (matchedIds.has(targetTx.id) || sourceTx.id === targetTx.id) continue;
+
+        // Must be in the same account
+        if (sourceTx.account !== targetTx.account) continue;
+
+        // Must have opposite amounts (one positive, one negative, similar magnitude)
+        if ((sourceTx.amount > 0) === (targetTx.amount > 0)) continue;
+
+        // Check if amounts match within tolerance
+        const amountMatch = this.areAmountsMatching(sourceTx.amount, targetTx.amount, tolerancePercentage);
+        if (!amountMatch) continue;
+
+        // Check date proximity
+        const dateDiff = Math.abs((sourceTx.date.getTime() - targetTx.date.getTime()) / (1000 * 60 * 60 * 24));
+        if (dateDiff > maxDaysDifference) continue;
+
+        const match: SameAccountMatch = {
+          id: `same-account-match-${sourceTx.id}-${targetTx.id}`,
+          sourceTransactionId: sourceTx.id,
+          targetTransactionId: targetTx.id,
+          confidence: this.calculateSameAccountMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount))),
+          matchType: dateDiff === 0 && Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)) < 0.01 ? 'exact' : 'approximate',
+          dateDifference: dateDiff,
+          amountDifference: Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)),
+          reasoning: `Same account matched transaction: ${sourceTx.account}, ${dateDiff} days apart, amounts: ${sourceTx.amount} / ${targetTx.amount}`,
+          isVerified: false
+        };
+
+        matches.push(match);
+        matchedIds.add(sourceTx.id);
+        matchedIds.add(targetTx.id);
+        break; // Found a match for this transaction
+      }
+    }
+
+    // Get unmatched transactions (only those that could potentially be matched)
+    const unmatched = candidateTransactions.filter(tx => !matchedIds.has(tx.id));
+
+    return {
+      matches,
+      unmatched,
+      confidence: matches.length > 0 ? matches.reduce((sum, m) => sum + m.confidence, 0) / matches.length : 0
+    };
+  }
+
+  /**
+   * Apply same-account matches to transactions
+   */
+  async applySameAccountMatches(transactions: Transaction[], matches: SameAccountMatch[]): Promise<Transaction[]> {
+    const updatedTransactions = [...transactions];
+    
+    for (const match of matches) {
+      const sourceIndex = updatedTransactions.findIndex(tx => tx.id === match.sourceTransactionId);
+      const targetIndex = updatedTransactions.findIndex(tx => tx.id === match.targetTransactionId);
+      
+      if (sourceIndex !== -1 && targetIndex !== -1) {
+        // Link the transactions using reimbursementId (reusing existing field)
+        updatedTransactions[sourceIndex] = {
+          ...updatedTransactions[sourceIndex],
+          reimbursementId: match.targetTransactionId,
+          notes: updatedTransactions[sourceIndex].notes 
+            ? `${updatedTransactions[sourceIndex].notes}\n[Matched Transaction: ${match.confidence.toFixed(2)} confidence]`
+            : `[Matched Transaction: ${match.confidence.toFixed(2)} confidence]`
+        };
+        
+        updatedTransactions[targetIndex] = {
+          ...updatedTransactions[targetIndex],
+          reimbursementId: match.sourceTransactionId,
+          notes: updatedTransactions[targetIndex].notes 
+            ? `${updatedTransactions[targetIndex].notes}\n[Matched Transaction: ${match.confidence.toFixed(2)} confidence]`
+            : `[Matched Transaction: ${match.confidence.toFixed(2)} confidence]`
+        };
+      }
+    }
+    
+    return updatedTransactions;
+  }
+
+  /**
+   * Automatically find and apply same-account matches to transactions
+   * Only applies matches with confidence >= 0.7 (70%)
+   */
+  async autoMatchSameAccountTransactions(transactions: Transaction[]): Promise<Transaction[]> {
+    const matchRequest: SameAccountMatchRequest = {
+      transactions,
+      maxDaysDifference: 1, // Within 1 day for cancellations
+      tolerancePercentage: 0.01 // 1% tolerance
+    };
+
+    const matchResult = await this.findSameAccountMatches(matchRequest);
+    if (matchResult.matches.length === 0) {
+      return transactions;
+    }
+
+    // Filter matches to only include high-confidence ones (>= 70%)
+    const highConfidenceMatches = matchResult.matches.filter(match => match.confidence >= 0.7);
+    
+    if (highConfidenceMatches.length === 0) {
+      console.log(`🔄 Found ${matchResult.matches.length} same-account matches, but none meet 70% confidence threshold`);
+      return transactions;
+    }
+
+    console.log(`🔄 Auto-matching ${highConfidenceMatches.length} same-account pairs (${matchResult.matches.length} total found) at ≥70% confidence`);
+    return await this.applySameAccountMatches(transactions, highConfidenceMatches);
+  }
+
+  private calculateSameAccountMatchConfidence(
+    sourceTx: Transaction, 
+    targetTx: Transaction, 
+    dateDiff: number, 
+    amountDiff: number
+  ): number {
+    let confidence = 0.5; // Lower base confidence for same-account opposite amounts
+    
+    // Date proximity bonus (higher for same-account matches since they should be very close)
+    if (dateDiff === 0) confidence += 0.3; // Same day is very likely
+    else if (dateDiff <= 1) confidence += 0.1; // Next day is possible but less confident
+    
+    // Amount precision bonus (should be exact or very close for cancellations)
+    if (amountDiff === 0) confidence += 0.15; // Exact match is very important
+    else if (amountDiff <= 0.01) confidence += 0.1;
+    else confidence -= 0.1; // Penalize amount differences
+    
+    // Description similarity bonus for cancellation patterns
+    if (this.areDescriptionsIndicatingCancellation(sourceTx.description, targetTx.description)) {
+      confidence += 0.2; // Strong indicator
+    } else {
+      confidence -= 0.05; // Penalty for dissimilar descriptions
+    }
+    
+    return Math.min(Math.max(confidence, 0), 0.99); // Clamp between 0 and 99%
+  }
+
+  private areDescriptionsIndicatingCancellation(desc1: string, desc2: string): boolean {
+    const desc1Lower = desc1.toLowerCase();
+    const desc2Lower = desc2.toLowerCase();
+    
+    // Check for cancellation/reversal keywords
+    const cancellationWords = ['cancel', 'reverse', 'reversal', 'refund', 'correction', 'adjustment'];
+    const hasCancellationWords = cancellationWords.some(word => 
+      desc1Lower.includes(word) || desc2Lower.includes(word)
+    );
+    
+    if (hasCancellationWords) return true;
+    
+    // Check if descriptions are very similar (likely same merchant/transaction)
+    const words1 = desc1Lower.split(/\s+/).filter(word => word.length > 2);
+    const words2 = desc2Lower.split(/\s+/).filter(word => word.length > 2);
+    
+    if (words1.length === 0 || words2.length === 0) return false;
+    
+    const commonWords = words1.filter(word => words2.includes(word));
+    const similarity = (commonWords.length * 2) / (words1.length + words2.length);
+    
+    return similarity >= 0.6; // 60% word similarity indicates likely same transaction
+  }
+
   private removeMatchNoteFromTransaction(notes: string): string {
     return notes
       .replace(/\n?\[Matched Transfer: .+?\]/g, '')
       .replace(/\n?\[Manual Transfer Match\]/g, '')
+      .replace(/\n?\[Matched Transaction: .+?\]/g, '') // Add support for same-account matches
       .trim();
   }
 }
