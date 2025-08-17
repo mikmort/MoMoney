@@ -205,6 +205,18 @@ const SpendingReports: React.FC = () => {
       return reportsService.getLastThreeMonthsRange();
     }
     
+    if (dateRange === 'Current Year') {
+      return reportsService.getCurrentYearRange();
+    }
+    
+    if (dateRange === 'Previous Year') {
+      return reportsService.getPreviousYearRange();
+    }
+    
+    if (dateRange === 'Year Before That') {
+      return reportsService.getYearBeforeLastRange();
+    }
+    
     // Default: Last 12 Months
     return reportsService.getDefaultDateRange();
   }, [dateRange, customStartDate, customEndDate]);
@@ -286,6 +298,9 @@ const SpendingReports: React.FC = () => {
             <option>Current Month</option>
             <option>Last 3 Months</option>
             <option>Last 12 Months</option>
+            <option>Current Year</option>
+            <option>Previous Year</option>
+            <option>Year Before That</option>
             <option>Custom Range</option>
           </select>
 

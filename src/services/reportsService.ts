@@ -703,6 +703,35 @@ class ReportsService {
     return { startDate, endDate };
   }
 
+  // Utility function to get current year date range
+  getCurrentYearRange(): DateRange {
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), 0, 1); // January 1st of current year
+    const endDate = new Date(now.getFullYear(), 11, 31); // December 31st of current year
+    
+    return { startDate, endDate };
+  }
+
+  // Utility function to get previous year date range
+  getPreviousYearRange(): DateRange {
+    const now = new Date();
+    const previousYear = now.getFullYear() - 1;
+    const startDate = new Date(previousYear, 0, 1); // January 1st of previous year
+    const endDate = new Date(previousYear, 11, 31); // December 31st of previous year
+    
+    return { startDate, endDate };
+  }
+
+  // Utility function to get year before last date range
+  getYearBeforeLastRange(): DateRange {
+    const now = new Date();
+    const yearBeforeLast = now.getFullYear() - 2;
+    const startDate = new Date(yearBeforeLast, 0, 1); // January 1st of year before last
+    const endDate = new Date(yearBeforeLast, 11, 31); // December 31st of year before last
+    
+    return { startDate, endDate };
+  }
+
   // Get income breakdown by category (similar to spending but for income)
   async getIncomeByCategory(dateRange?: DateRange, includeTransfers: boolean = false): Promise<any[]> {
     try {
