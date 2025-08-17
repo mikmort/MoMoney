@@ -77,6 +77,7 @@ class TransferMatchingService {
 
     const matches: TransferMatch[] = [];
     const matchedIds = new Set<string>();
+    const processedPairs = new Set<string>(); // Track processed transaction pairs to prevent duplicates
 
     // Find potential matches using relaxed heuristics for manual search
     for (const sourceTx of transferTransactions) {
@@ -84,6 +85,10 @@ class TransferMatchingService {
 
       for (const targetTx of transferTransactions) {
         if (matchedIds.has(targetTx.id) || sourceTx.id === targetTx.id) continue;
+
+        // Create a unique pair key to prevent duplicate matches in both directions
+        const pairKey = [sourceTx.id, targetTx.id].sort().join('-');
+        if (processedPairs.has(pairKey)) continue;
 
         // Check if amounts are inverse (one positive, one negative, similar magnitude)
         // Use relaxed tolerance for manual matching, especially for exchange rates
@@ -116,6 +121,7 @@ class TransferMatchingService {
         };
 
         matches.push(match);
+        processedPairs.add(pairKey); // Mark this pair as processed to prevent duplicates
         // Don't add to matchedIds for manual matching to allow multiple possibilities
         // matchedIds.add(sourceTx.id);
         // matchedIds.add(targetTx.id);
