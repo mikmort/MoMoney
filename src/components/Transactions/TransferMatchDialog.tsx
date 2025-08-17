@@ -278,9 +278,27 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     useEffect(() => {
       let mounted = true;
       (async () => {
-        const info = await currencyDisplayService.formatTransactionAmount(tx);
-        const s = info.displayAmount + (info.approxConvertedDisplay ? ` ${info.approxConvertedDisplay}` : '');
-        if (mounted) setText(s);
+        try {
+          const info = await currencyDisplayService.formatTransactionAmount(tx);
+          if (info && info.displayAmount) {
+            const s = info.displayAmount + (info.approxConvertedDisplay ? ` ${info.approxConvertedDisplay}` : '');
+            if (mounted) setText(s);
+          } else {
+            // Fallback formatting
+            const fallback = new Intl.NumberFormat('en-US', {
+              style: 'currency',
+              currency: 'USD'
+            }).format(tx.amount);
+            if (mounted) setText(fallback);
+          }
+        } catch (error) {
+          // Fallback formatting on error
+          const fallback = new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+          }).format(tx.amount);
+          if (mounted) setText(fallback);
+        }
       })();
       return () => { mounted = false; };
     }, [tx]);
@@ -292,13 +310,23 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     useEffect(() => {
       let mounted = true;
       (async () => {
-        const [ac, bc] = await Promise.all([
-          currencyDisplayService.convertTransactionAmount(a),
-          currencyDisplayService.convertTransactionAmount(b)
-        ]);
-        const diff = Math.abs(Math.abs(ac.amount) - Math.abs(bc.amount));
-        const formatted = await currencyDisplayService.formatAmount(diff, defaultCurrency);
-        if (mounted) setText(formatted);
+        try {
+          const [ac, bc] = await Promise.all([
+            currencyDisplayService.convertTransactionAmount(a),
+            currencyDisplayService.convertTransactionAmount(b)
+          ]);
+          const diff = Math.abs(Math.abs(ac.amount) - Math.abs(bc.amount));
+          const formatted = await currencyDisplayService.formatAmount(diff, defaultCurrency);
+          if (mounted) setText(formatted);
+        } catch (error) {
+          // Fallback calculation
+          const diff = Math.abs(Math.abs(a.amount) - Math.abs(b.amount));
+          const fallback = new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: defaultCurrency || 'USD'
+          }).format(diff);
+          if (mounted) setText(fallback);
+        }
       })();
       return () => { mounted = false; };
     }, [a, b, defaultCurrency]);
@@ -394,13 +422,15 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     if (!selectedTx) return null;
 
     const amountDiff = Math.abs(Math.abs(transaction.amount) - Math.abs(selectedTx.amount));
-    const tolerance = 0.01; // 1% tolerance
+    const tolerance = 0.12; // 12% tolerance for manual matching with exchange rates
     const avgAmount = (Math.abs(transaction.amount) + Math.abs(selectedTx.amount)) / 2;
     const isValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
+    const percentageDiff = avgAmount > 0 ? (amountDiff / avgAmount) * 100 : 0;
 
     return {
       isValid,
       amountDiff,
+      percentageDiff,
       selectedTransaction: selectedTx
     };
   };
@@ -567,9 +597,9 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
             {validation && (
               <div className={`amount-validation ${validation.isValid ? 'valid' : 'invalid'}`}>
                 {validation.isValid ? (
-                  <span>✅ Amounts match within tolerance</span>
+                  <span>✅ Amounts match within tolerance (${validation.amountDiff.toFixed(2)} difference, {validation.percentageDiff.toFixed(1)}%)</span>
                 ) : (
-                  <span>⚠️ Amount difference is significant. This may not be a transfer match.</span>
+                  <span>⚠️ Amount difference is significant: ${validation.amountDiff.toFixed(2)} ({validation.percentageDiff.toFixed(1)}%). This may not be a transfer match.</span>
                 )}
               </div>
             )}
