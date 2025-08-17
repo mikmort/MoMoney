@@ -1266,6 +1266,8 @@ Return ONLY a clean JSON response:
         subcategory: finalSubName,
         confidence: finalConfidence,
         reasoning: ai.reasoning,
+        // Fix transaction type for Internal Transfer category
+        type: finalCategoryName === 'Internal Transfer' ? 'transfer' : transaction.type,
         id: uuidv4(),
         addedDate: new Date(),
         lastModifiedDate: new Date(),
