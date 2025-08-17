@@ -140,8 +140,62 @@ class ReportsService {
     return false;
   }
 
-  // Helper method to filter transactions based on user preferences
-  private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense', includeTransfers: boolean = false): Promise<Transaction[]> {
+  // Helper method to filter transactions based on user preferences and selected types
+  private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense', selectedTypes?: string[]): Promise<Transaction[]> {
+    const preferences = await userPreferencesService.getPreferences();
+    
+    return transactions.filter(t => {
+      // If selectedTypes is provided, filter by those types first
+      if (selectedTypes && selectedTypes.length > 0) {
+        // Check if transaction type is in selected types
+        if (!selectedTypes.includes(t.type)) {
+          return false;
+        }
+        
+        // For transfers, still apply income/expense filtering based on amount
+        if (t.type === 'transfer' && this.isInternalTransfer(t)) {
+          if (type === 'expense') {
+            return t.amount < 0;
+          } else if (type === 'income') {
+            return t.amount > 0;
+          }
+          return false;
+        }
+        
+        // For other selected types, apply basic filtering
+        if (type === 'expense') {
+          return t.type === 'expense' || t.amount < 0;
+        } else if (type === 'income') {
+          return t.type === 'income' || t.amount > 0;
+        }
+        
+        return true;
+      }
+      
+      // Legacy behavior: Check if this is an internal transfer using comprehensive detection
+      if (this.isInternalTransfer(t)) {
+        return false; // Exclude transfers by default when no selectedTypes specified
+      }
+      
+      // Check if this is an asset allocation transaction
+      if (t.type === 'asset-allocation') {
+        // Only include asset allocation transactions if user has enabled it
+        return preferences.includeInvestmentsInReports;
+      }
+      
+      // For regular income/expense filtering
+      if (type === 'expense') {
+        return t.type === 'expense' || t.amount < 0;
+      } else if (type === 'income') {
+        return t.type === 'income' || t.amount > 0;
+      }
+      
+      return false;
+    });
+  }
+
+  // Legacy method for backward compatibility
+  private async filterTransactionsForReportsLegacy(transactions: Transaction[], type: 'income' | 'expense', includeTransfers: boolean = false): Promise<Transaction[]> {
     const preferences = await userPreferencesService.getPreferences();
     
     return transactions.filter(t => {
@@ -176,9 +230,23 @@ class ReportsService {
     });
   }
 
-  async getSpendingByCategory(dateRange?: DateRange, includeTransfers: boolean = false): Promise<SpendingByCategory[]> {
-    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
-    const expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense', includeTransfers);
+  // New method signatures that support selectedTypes array
+  async getSpendingByCategory(dateRange?: DateRange, selectedTypes?: string[]): Promise<SpendingByCategory[]>;
+  async getSpendingByCategory(dateRange?: DateRange, includeTransfers?: boolean): Promise<SpendingByCategory[]>;
+  async getSpendingByCategory(dateRange?: DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<SpendingByCategory[]> {
+    let transactions: Transaction[];
+    let expenseTransactions: Transaction[];
+    
+    if (Array.isArray(selectedTypesOrIncludeTransfers)) {
+      // New behavior with selectedTypes array
+      transactions = await this.getTransactionsInRange(dateRange, true); // Get all transactions
+      expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense', selectedTypesOrIncludeTransfers);
+    } else {
+      // Legacy behavior with includeTransfers boolean
+      const includeTransfers = selectedTypesOrIncludeTransfers || false;
+      transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+      expenseTransactions = await this.filterTransactionsForReportsLegacy(transactions, 'expense', includeTransfers);
+    }
     
     if (expenseTransactions.length === 0) {
       return [];
@@ -217,8 +285,20 @@ class ReportsService {
       .sort((a, b) => b.amount - a.amount);
   }
 
-  async getMonthlySpendingTrends(dateRange?: DateRange, includeTransfers: boolean = false): Promise<MonthlySpendingTrend[]> {
-    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+  async getMonthlySpendingTrends(dateRange?: DateRange, selectedTypes?: string[]): Promise<MonthlySpendingTrend[]>;
+  async getMonthlySpendingTrends(dateRange?: DateRange, includeTransfers?: boolean): Promise<MonthlySpendingTrend[]>;
+  async getMonthlySpendingTrends(dateRange?: DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<MonthlySpendingTrend[]> {
+    let transactions: Transaction[];
+    
+    if (Array.isArray(selectedTypesOrIncludeTransfers)) {
+      // New behavior with selectedTypes array
+      transactions = await this.getTransactionsInRange(dateRange, true); // Get all transactions
+    } else {
+      // Legacy behavior with includeTransfers boolean
+      const includeTransfers = selectedTypesOrIncludeTransfers || false;
+      transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+    }
+    
     const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
     const monthlyData: { [monthKey: string]: Transaction[] } = {};
 
@@ -236,21 +316,46 @@ class ReportsService {
     
     return Object.entries(monthlyData)
       .map(([monthKey, monthTransactions]) => {
-        const expenseTransactions = monthTransactions.filter(t => {
-          if (this.isInternalTransfer(t)) {
-            return includeTransfers && t.amount < 0;
-          }
-          if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
-          return t.type === 'expense' || t.amount < 0;
-        });
+        let expenseTransactions: Transaction[];
+        let incomeTransactions: Transaction[];
         
-        const incomeTransactions = monthTransactions.filter(t => {
-          if (this.isInternalTransfer(t)) {
-            return includeTransfers && t.amount > 0;
-          }
-          if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
-          return t.type === 'income' || t.amount > 0;
-        });
+        if (Array.isArray(selectedTypesOrIncludeTransfers)) {
+          // New behavior with selectedTypes array
+          expenseTransactions = monthTransactions.filter(t => {
+            if (!selectedTypesOrIncludeTransfers.includes(t.type)) return false;
+            if (t.type === 'transfer' && this.isInternalTransfer(t)) {
+              return t.amount < 0;
+            }
+            return t.type === 'expense' || t.amount < 0;
+          });
+          
+          incomeTransactions = monthTransactions.filter(t => {
+            if (!selectedTypesOrIncludeTransfers.includes(t.type)) return false;
+            if (t.type === 'transfer' && this.isInternalTransfer(t)) {
+              return t.amount > 0;
+            }
+            return t.type === 'income' || t.amount > 0;
+          });
+        } else {
+          // Legacy behavior with includeTransfers boolean
+          const includeTransfers = selectedTypesOrIncludeTransfers || false;
+          
+          expenseTransactions = monthTransactions.filter(t => {
+            if (this.isInternalTransfer(t)) {
+              return includeTransfers && t.amount < 0;
+            }
+            if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
+            return t.type === 'expense' || t.amount < 0;
+          });
+          
+          incomeTransactions = monthTransactions.filter(t => {
+            if (this.isInternalTransfer(t)) {
+              return includeTransfers && t.amount > 0;
+            }
+            if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
+            return t.type === 'income' || t.amount > 0;
+          });
+        }
         
         const totalSpending = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
         const totalIncome = incomeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
@@ -272,12 +377,27 @@ class ReportsService {
       .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
   }
 
-  async getIncomeExpenseAnalysis(dateRange?: DateRange, includeTransfers: boolean = false): Promise<IncomeExpenseAnalysis> {
-    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
-    const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
+  async getIncomeExpenseAnalysis(dateRange?: DateRange, selectedTypes?: string[]): Promise<IncomeExpenseAnalysis>;
+  async getIncomeExpenseAnalysis(dateRange?: DateRange, includeTransfers?: boolean): Promise<IncomeExpenseAnalysis>;
+  async getIncomeExpenseAnalysis(dateRange?: DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<IncomeExpenseAnalysis> {
+    let transactions: Transaction[];
+    let incomeTransactions: Transaction[];
+    let expenseTransactions: Transaction[];
     
-    const incomeTransactions = await this.filterTransactionsForReports(converted, 'income', includeTransfers);
-    const expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', includeTransfers);
+    if (Array.isArray(selectedTypesOrIncludeTransfers)) {
+      // New behavior with selectedTypes array
+      transactions = await this.getTransactionsInRange(dateRange, true);
+      const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
+      incomeTransactions = await this.filterTransactionsForReports(converted, 'income', selectedTypesOrIncludeTransfers);
+      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypesOrIncludeTransfers);
+    } else {
+      // Legacy behavior with includeTransfers boolean
+      const includeTransfers = selectedTypesOrIncludeTransfers || false;
+      transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+      const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
+      incomeTransactions = await this.filterTransactionsForReportsLegacy(converted, 'income', includeTransfers);
+      expenseTransactions = await this.filterTransactionsForReportsLegacy(converted, 'expense', includeTransfers);
+    }
     
     const totalIncome = incomeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const totalExpenses = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
@@ -430,7 +550,7 @@ class ReportsService {
   async getBurnRateAnalysis(dateRange?: DateRange, includeTransfers: boolean = false): Promise<BurnRateAnalysis> {
     const allTransactions = await this.getTransactionsInRange(dateRange, includeTransfers);
     const convertedAll = await currencyDisplayService.convertTransactionsBatch(allTransactions);
-    const expenseTransactions = await this.filterTransactionsForReports(convertedAll, 'expense', includeTransfers);
+    const expenseTransactions = await this.filterTransactionsForReportsLegacy(convertedAll, 'expense', includeTransfers);
     
     if (expenseTransactions.length === 0) {
       return {
@@ -599,7 +719,7 @@ class ReportsService {
       }
       
       // Filter for income transactions
-      const incomeTransactions = await this.filterTransactionsForReports(filteredTransactions, 'income', includeTransfers);
+      const incomeTransactions = await this.filterTransactionsForReportsLegacy(filteredTransactions, 'income', includeTransfers);
       
       // Convert to common currency
       const convertedIncomeTransactions = await currencyDisplayService.convertTransactionsBatch(incomeTransactions);

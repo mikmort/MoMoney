@@ -9,6 +9,7 @@ import {
   DateRange 
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
+import { MultiSelectFilter } from '../shared/MultiSelectFilter';
 import TransactionDetailsModal, { TransactionFilter } from './TransactionDetailsModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 
@@ -112,7 +113,7 @@ const IncomeReports: React.FC = () => {
   const [dateRange, setDateRange] = useState<string>('Last 12 Months');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
-  const [includeTransfers, setIncludeTransfers] = useState(false);
+  const [selectedIncomeTypes, setSelectedIncomeTypes] = useState<string[]>(['income']);
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
   const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
   const [incomeSources, setIncomeSources] = useState<IncomeSource[]>([]);
@@ -173,9 +174,9 @@ const IncomeReports: React.FC = () => {
       const currentRange = getCurrentDateRange();
       
       const [trendsData, analysisData, incomeSourcesData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(currentRange, includeTransfers),
-        reportsService.getIncomeExpenseAnalysis(currentRange, includeTransfers),
-        reportsService.getIncomeByCategory(currentRange, includeTransfers)
+        reportsService.getMonthlySpendingTrends(currentRange, selectedIncomeTypes),
+        reportsService.getIncomeExpenseAnalysis(currentRange, selectedIncomeTypes),
+        reportsService.getIncomeByCategory(currentRange, selectedIncomeTypes.includes('transfer'))
       ]);
       
       setMonthlyTrends(trendsData);
@@ -186,15 +187,15 @@ const IncomeReports: React.FC = () => {
       // Fallback to basic data if income-specific methods don't exist
       const currentRange = getCurrentDateRange();
       const [trendsData, analysisData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(currentRange, includeTransfers),
-        reportsService.getIncomeExpenseAnalysis(currentRange, includeTransfers)
+        reportsService.getMonthlySpendingTrends(currentRange, selectedIncomeTypes),
+        reportsService.getIncomeExpenseAnalysis(currentRange, selectedIncomeTypes)
       ]);
       
       setMonthlyTrends(trendsData);
       setIncomeExpenseAnalysis(analysisData);
       setIncomeSources([]);
     }
-  }, [getCurrentDateRange, includeTransfers]);
+  }, [getCurrentDateRange, selectedIncomeTypes]);
 
   useEffect(() => {
     loadIncomeData();
@@ -282,14 +283,16 @@ const IncomeReports: React.FC = () => {
             </div>
           )}
           
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              checked={includeTransfers}
-              onChange={(e) => setIncludeTransfers(e.target.checked)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label>Income Types</label>
+            <MultiSelectFilter
+              label="Income Types"
+              options={['income', 'transfer', 'asset-allocation']}
+              selectedValues={selectedIncomeTypes}
+              onChange={setSelectedIncomeTypes}
+              placeholder="Select types..."
             />
-            Include Internal Transfers
-          </label>
+          </div>
         </div>
       </Card>
 
