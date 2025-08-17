@@ -1077,26 +1077,7 @@ const Settings: React.FC = () => {
               {isExportingExcel ? 'Exporting...' : '📊 Export to Excel'}
             </Button>
             
-            <label style={{ position: 'relative', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
-              <Button 
-                as="span"
-                disabled={isImporting}
-                style={{ 
-                  background: '#2196F3', 
-                  borderColor: '#2196F3', 
-                  color: 'white', 
-                  minWidth: '140px',
-                  padding: '10px 20px',
-                  fontWeight: '500',
-                  border: 'none',
-                  borderRadius: '4px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                {isImporting ? 'Importing...' : '📁 Import Data'}
-              </Button>
+            <div style={{ position: 'relative', display: 'inline-block' }}>
               <input
                 type="file"
                 accept=".json"
@@ -1108,11 +1089,28 @@ const Settings: React.FC = () => {
                   width: '100%', 
                   height: '100%', 
                   opacity: 0, 
-                  cursor: 'pointer' 
+                  cursor: 'pointer',
+                  zIndex: 1
                 }}
                 disabled={isImporting}
+                id="import-file-input"
               />
-            </label>
+              <Button 
+                as="label"
+                htmlFor="import-file-input"
+                disabled={isImporting}
+                style={{ 
+                  background: '#2196F3', 
+                  borderColor: '#2196F3', 
+                  color: 'white', 
+                  minWidth: '140px',
+                  cursor: isImporting ? 'not-allowed' : 'pointer',
+                  display: 'inline-block'
+                }}
+              >
+                {isImporting ? 'Importing...' : '📁 Import Data'}
+              </Button>
+            </div>
           </div>
           
           <div style={{ marginTop: '12px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', fontSize: '14px', color: '#1976d2' }}>
