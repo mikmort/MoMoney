@@ -1,5 +1,6 @@
 import Dexie, { Table } from 'dexie';
 import { Transaction, UserPreferences } from '../types';
+import type { BackupMetadata, BackupData } from '../types/backup';
 
 // Internal logger helpers: silence in test to avoid Jest "Cannot log after tests are done" noise
 const __IS_TEST__ = process.env.NODE_ENV === 'test';
@@ -45,6 +46,8 @@ export class MoMoneyDB extends Dexie {
   transactions!: Table<Transaction>;
   transactionHistory!: Table<TransactionHistoryEntry>;
   userPreferences!: Table<StoredUserPreferences>;
+  backupMetadata!: Table<BackupMetadata>;
+  backupData!: Table<BackupData>;
 
   constructor() {
     super('MoMoneyDB');
@@ -60,6 +63,15 @@ export class MoMoneyDB extends Dexie {
       transactions: 'id, date, amount, category, subcategory, account, type, addedDate, lastModifiedDate, isVerified, vendor, isAnomaly',
       transactionHistory: 'id, transactionId, timestamp',
       userPreferences: 'id, lastModified'
+    });
+
+    // Version 3: Add backup tables
+    this.version(3).stores({
+      transactions: 'id, date, amount, category, subcategory, account, type, addedDate, lastModifiedDate, isVerified, vendor, isAnomaly',
+      transactionHistory: 'id, transactionId, timestamp',
+      userPreferences: 'id, lastModified',
+      backupMetadata: 'id, timestamp, createdBy',
+      backupData: 'id'
     });
 
     // Add lifecycle handlers for robustness
