@@ -1880,16 +1880,21 @@ const Transactions: React.FC = () => {
     }
 
     try {
-      let updateCount = 0;
-
-      for (const transaction of unverifiedTransactions) {
-        const updates: Partial<Transaction> = {
+      // Prepare batch updates for verification
+      const batchUpdates = unverifiedTransactions.map(transaction => ({
+        id: transaction.id,
+        updates: {
           isVerified: true,
           lastModifiedDate: new Date()
-        };
+        } as Partial<Transaction>,
+        note: 'Bulk operation: Mark as verified'
+      }));
 
-        await dataService.updateTransaction(transaction.id, updates, 'Bulk operation: Mark as verified');
-        updateCount++;
+      // Perform batch update with a single database save
+      let updateCount = 0;
+      if (batchUpdates.length > 0) {
+        await dataService.batchUpdateTransactions(batchUpdates, { skipHistory: true });
+        updateCount = batchUpdates.length;
       }
 
       // Refresh transactions
@@ -1920,13 +1925,18 @@ const Transactions: React.FC = () => {
     if (selectedTransactions.length === 0) return;
 
     try {
-      let updateCount = 0;
-
       // Check if all selected transactions have the same description for auto-rule creation
       const shouldCreateAutoRule = bulkEditForm.operation === 'set-category' && 
                                    bulkEditForm.category && 
                                    selectedTransactions.length > 1 &&
                                    selectedTransactions.every(t => t.description === selectedTransactions[0].description);
+
+      // Prepare batch updates
+      const batchUpdates: Array<{
+        id: string;
+        updates: Partial<Transaction>;
+        note: string;
+      }> = [];
 
       for (const transaction of selectedTransactions) {
         let updatedTransaction: Partial<Transaction> = {};
@@ -1961,9 +1971,19 @@ const Transactions: React.FC = () => {
 
         if (Object.keys(updatedTransaction).length > 0) {
           updatedTransaction.lastModifiedDate = new Date();
-          await dataService.updateTransaction(transaction.id, updatedTransaction, note);
-          updateCount++;
+          batchUpdates.push({
+            id: transaction.id,
+            updates: updatedTransaction,
+            note: note
+          });
         }
+      }
+
+      // Perform batch update with a single database save
+      let updateCount = 0;
+      if (batchUpdates.length > 0) {
+        await dataService.batchUpdateTransactions(batchUpdates, { skipHistory: true });
+        updateCount = batchUpdates.length;
       }
 
       // Create auto-rule if all transactions have the same description
