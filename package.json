@@ -63,7 +63,10 @@
     "analyze": "npx source-map-explorer 'build/static/js/*.js'",
     "build:analyze": "CI=false npm run build && npm run analyze",
     "perf:check": "node scripts/performance-check.js --analyze-only",
-    "perf:build": "node scripts/performance-check.js --build-and-analyze"
+    "perf:build": "node scripts/performance-check.js --build-and-analyze",
+    "track:regression": "node scripts/track-regression.js",
+    "track:stats": "node scripts/track-regression.js stats",
+    "track:report": "node scripts/track-regression.js report"
   },
   "eslintConfig": {
     "extends": [

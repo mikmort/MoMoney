@@ -1,0 +1,79 @@
+{
+  "version": "1.0.0",
+  "description": "Tracking system for automated test regressions - tracks when tests break and whether the fix was in the test or product code",
+  "stats": {
+    "totalRegressions": 5,
+    "testBugFixes": 2,
+    "productBugFixes": 3,
+    "testBugPercentage": 40,
+    "productBugPercentage": 60
+  },
+  "regressions": [
+    {
+      "testName": "Transaction Categorization AI Test",
+      "testFile": "src/__tests__/aiCategorization.test.ts",
+      "fixType": "product",
+      "severity": "high",
+      "description": "Fixed race condition in AI batch processing that caused incorrect categorization",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1755435765925-jmkmtof5s",
+      "timestamp": "2025-08-17T13:02:45.925Z"
+    },
+    {
+      "testName": "Dashboard Component Test",
+      "testFile": "src/__tests__/Dashboard.test.tsx",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Updated component snapshots after UI library upgrade",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1755435753656-xdnxm1x9r",
+      "timestamp": "2025-08-17T13:02:33.656Z"
+    },
+    {
+      "testName": "File Processing Service Test",
+      "testFile": "src/__tests__/fileProcessing.test.ts",
+      "fixType": "product",
+      "severity": "medium",
+      "description": "Fixed bug where duplicate transactions were not being properly filtered during CSV import",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1755435743012-dwt7v87y6",
+      "timestamp": "2025-08-17T13:02:23.012Z"
+    },
+    {
+      "testName": "CSV Import Format Test",
+      "testFile": "src/__tests__/csvImport.test.ts",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Updated test expectations to match new CSV column format",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1755435609187-ffhlor1sw",
+      "timestamp": "2025-08-17T13:00:09.187Z"
+    },
+    {
+      "testName": "Sample Authentication Test",
+      "testFile": "src/__tests__/auth.test.ts",
+      "fixType": "product",
+      "severity": "high",
+      "description": "Fixed critical login bug that was preventing users from signing in",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1755435598707-w2sb6ics3",
+      "timestamp": "2025-08-17T12:59:58.707Z"
+    }
+  ],
+  "legend": {
+    "fixType": {
+      "test": "Test had a bug/needed updating (false positive)",
+      "product": "Product had a bug that test caught correctly (true positive)"
+    },
+    "severity": {
+      "low": "Minor issue, easily fixed",
+      "medium": "Moderate issue, required some investigation",
+      "high": "Major issue, significant investigation or refactoring required"
+    }
+  }
+}
