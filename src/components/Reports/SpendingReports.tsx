@@ -306,7 +306,7 @@ const SpendingReports: React.FC = () => {
             </div>
           )}
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="filter-group">
             <label>Spending Types</label>
             <MultiSelectFilter
               label="Spending Types"
