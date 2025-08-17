@@ -1084,28 +1084,30 @@ const Settings: React.FC = () => {
                 onChange={handleImportData}
                 style={{ 
                   position: 'absolute', 
-                  left: 0, 
-                  top: 0, 
-                  width: '100%', 
-                  height: '100%', 
-                  opacity: 0, 
-                  cursor: 'pointer',
-                  zIndex: 1
+                  left: -9999, 
+                  top: -9999,
+                  width: 1,
+                  height: 1,
+                  opacity: 0,
+                  visibility: 'hidden',
+                  pointerEvents: 'none'
                 }}
                 disabled={isImporting}
                 id="import-file-input"
               />
               <Button 
-                as="label"
-                htmlFor="import-file-input"
+                onClick={() => {
+                  const input = document.getElementById('import-file-input') as HTMLInputElement;
+                  if (input && !isImporting) {
+                    input.click();
+                  }
+                }}
                 disabled={isImporting}
                 style={{ 
                   background: '#2196F3', 
                   borderColor: '#2196F3', 
                   color: 'white', 
-                  minWidth: '140px',
-                  cursor: isImporting ? 'not-allowed' : 'pointer',
-                  display: 'inline-block'
+                  minWidth: '140px'
                 }}
               >
                 {isImporting ? 'Importing...' : '📁 Import Data'}
