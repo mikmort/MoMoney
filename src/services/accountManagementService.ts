@@ -3,14 +3,14 @@ import * as XLSX from 'xlsx';
 import { defaultAccounts, accountDetectionPatterns } from '../data/defaultAccounts';
 import { AzureOpenAIService } from './azureOpenAIService';
 
-// Import dataService for validation
-let dataService: any = null;
+// Import dataService directly - circular dependency is managed by initialization timing
+let dataServiceCache: any = null;
 const getDataService = async () => {
-  if (!dataService) {
-    const { dataService: ds } = await import('./dataService');
-    dataService = ds;
+  if (!dataServiceCache) {
+    const { dataService } = await import('./dataService');
+    dataServiceCache = dataService;
   }
-  return dataService;
+  return dataServiceCache;
 };
 
 export interface AccountDetectionRequest {

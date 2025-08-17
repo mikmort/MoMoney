@@ -40,6 +40,23 @@ export interface DBHealthCheck {
 const CURRENT_APP_DATA_VERSION = '1.2.0';
 const APP_VERSION_KEY = 'APP_DATA_VERSION';
 
+// Migration tracking - use different key pattern for one-time migrations
+const MIGRATION_PREFIX = 'MIGRATION_COMPLETED_';
+export const INTERNAL_TRANSFER_MIGRATION_KEY = `${MIGRATION_PREFIX}internal_transfer_types_v1`;
+
+// Helper function to check if a migration has been completed
+export const isMigrationCompleted = (migrationKey: string): boolean => {
+  if (__IS_TEST__) return false; // Always run migrations in tests
+  return localStorage.getItem(migrationKey) === 'true';
+};
+
+// Helper function to mark a migration as completed
+export const markMigrationCompleted = (migrationKey: string): void => {
+  if (__IS_TEST__) return; // Don't persist in tests
+  localStorage.setItem(migrationKey, 'true');
+  dbLog(`[DB] Migration marked as completed: ${migrationKey}`);
+};
+
 // Dexie database class
 export class MoMoneyDB extends Dexie {
   // Tables
@@ -546,8 +563,18 @@ export const initializeDB = async (): Promise<void> => {
   }
 };
 
+// Health check caching to avoid repeated expensive operations
+let lastHealthCheck: { timestamp: number; result: { needsReset: boolean; healthCheck: DBHealthCheck } } | null = null;
+const HEALTH_CHECK_CACHE_DURATION = 60000; // 1 minute cache
+
 // Perform post-initialization health check
 export const performPostInitHealthCheck = async (): Promise<{ needsReset: boolean; healthCheck: DBHealthCheck }> => {
+  // Return cached result if it's recent enough
+  if (lastHealthCheck && (Date.now() - lastHealthCheck.timestamp) < HEALTH_CHECK_CACHE_DURATION) {
+    dbLog('[DB] Using cached health check result');
+    return lastHealthCheck.result;
+  }
+  
   dbLog('[DB] Performing post-initialization health check...');
   
   try {
@@ -565,7 +592,15 @@ export const performPostInitHealthCheck = async (): Promise<{ needsReset: boolea
     // Log health statistics
   dbLog(`[DB] Health Stats: ${healthCheck.stats.totalTransactions} transactions, ${healthCheck.issues.length} issues`);
     
-    return { needsReset, healthCheck };
+    const result = { needsReset, healthCheck };
+    
+    // Cache the result
+    lastHealthCheck = {
+      timestamp: Date.now(),
+      result
+    };
+    
+    return result;
   } catch (error) {
     dbError('[DB] Health check failed:', error);
     return {

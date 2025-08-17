@@ -2,6 +2,16 @@ import { CategoryRule, RuleCondition, RuleMatchResult, Transaction } from '../ty
 import { v4 as uuidv4 } from 'uuid';
 import { containsUniqueIdentifiers } from '../utils/uniqueIdentifierDetection';
 
+// Lazy import for dataService to avoid circular dependency during initialization
+let dataServiceCache: any = null;
+const getDataService = async () => {
+  if (!dataServiceCache) {
+    const { dataService } = await import('./dataService');
+    dataServiceCache = dataService;
+  }
+  return dataServiceCache;
+};
+
 class RulesService {
   private rules: CategoryRule[] = [];
   private storageKey = 'mo-money-category-rules';
@@ -456,8 +466,8 @@ class RulesService {
   // Reclassify existing transactions that match a rule
   async reclassifyExistingTransactions(rule: CategoryRule): Promise<number> {
     try {
-      // Import dataService here to avoid circular dependency
-      const { dataService } = await import('./dataService');
+      // Use cached lazy import to avoid circular dependency
+      const dataService = await getDataService();
       
       const allTransactions = await dataService.getAllTransactions();
       const batchUpdates: Array<{
@@ -564,8 +574,8 @@ class RulesService {
   // Initialize rules from existing transactions if no rules exist
   async initializeRulesFromExistingTransactions(): Promise<number> {
     try {
-      // Import dataService here to avoid circular dependency
-      const { dataService } = await import('./dataService');
+      // Use cached lazy import to avoid circular dependency
+      const dataService = await getDataService();
       
       const allTransactions = await dataService.getAllTransactions();
       let rulesCreated = 0;
