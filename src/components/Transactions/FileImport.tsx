@@ -379,28 +379,84 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete, isColl
     let totalTransactions = 0;
     
     try {
-      // Process files in parallel (but limit concurrency to avoid overwhelming)
+      // Process files with concurrent queue (start next file as soon as slot becomes available)
       const MAX_CONCURRENT = 3;
-      const results = [];
+      const results: PromiseSettledResult<number>[] = [];
+      const processedFiles = new Map<string, PromiseSettledResult<number>>();
       
-      console.log(`⚡ Processing files with max concurrency: ${MAX_CONCURRENT}`);
+      console.log(`⚡ Processing files with optimized concurrent queue (max ${MAX_CONCURRENT})`);
       
-      for (let i = 0; i < items.length; i += MAX_CONCURRENT) {
-        // Check for cancellation before processing each batch
+      let activeCount = 0;
+      let nextIndex = 0;
+      let completedCount = 0;
+      
+      // Promise resolver for when all files are complete
+      let resolveAllComplete: () => void;
+      const allCompletePromise = new Promise<void>(resolve => {
+        resolveAllComplete = resolve;
+      });
+      
+      const processNextFile = async (): Promise<void> => {
+        // Check if we can start a new file
+        if (nextIndex >= items.length || activeCount >= MAX_CONCURRENT) {
+          return;
+        }
+        
+        // Check for cancellation
         if (isCancelling) {
-          console.log('🛑 Multi-file processing cancelled before batch processing');
+          console.log('🛑 Multi-file processing cancelled during queue processing');
           throw new Error('Import cancelled by user');
         }
         
-        const batch = items.slice(i, i + MAX_CONCURRENT);
-        console.log(`📦 Processing batch ${Math.floor(i/MAX_CONCURRENT) + 1}: ${batch.map(b => b.file.name).join(', ')}`);
+        const currentIndex = nextIndex++;
+        const item = items[currentIndex];
+        activeCount++;
         
-        const batchPromises = batch.map(item => processFileItem(item, multiProgress));
-        const batchResults = await Promise.allSettled(batchPromises);
-        results.push(...batchResults);
+        console.log(`🚀 Starting file ${currentIndex + 1}/${items.length}: ${item.file.name} (${activeCount} active)`);
         
-        console.log(`✅ Batch ${Math.floor(i/MAX_CONCURRENT) + 1} completed`);
+        try {
+          const result = await processFileItem(item, multiProgress);
+          const settledResult: PromiseSettledResult<number> = { status: 'fulfilled', value: result };
+          processedFiles.set(item.fileId, settledResult);
+          
+          console.log(`✅ Completed file ${currentIndex + 1}: ${item.file.name} -> ${result} transactions`);
+        } catch (error) {
+          const settledResult: PromiseSettledResult<number> = { status: 'rejected', reason: error };
+          processedFiles.set(item.fileId, settledResult);
+          
+          console.error(`❌ Failed file ${currentIndex + 1}: ${item.file.name}:`, error);
+        } finally {
+          activeCount--;
+          completedCount++;
+          
+          // Start next file if available (maintain concurrency)
+          if (nextIndex < items.length) {
+            processNextFile();
+          }
+          
+          // Check if all files are complete
+          if (completedCount === items.length) {
+            // Reconstruct results array in original order for compatibility
+            items.forEach(item => {
+              const result = processedFiles.get(item.fileId);
+              if (result) {
+                results.push(result);
+              }
+            });
+            
+            resolveAllComplete();
+          }
+        }
+      };
+      
+      // Start initial concurrent files (up to MAX_CONCURRENT)
+      const initialPromises: Promise<void>[] = [];
+      for (let i = 0; i < Math.min(MAX_CONCURRENT, items.length); i++) {
+        initialPromises.push(processNextFile());
       }
+      
+      // Wait for all files to complete
+      await allCompletePromise;
       
       // Count files by their final status
       let completedFiles = 0;
