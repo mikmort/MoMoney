@@ -1081,7 +1081,19 @@ const Settings: React.FC = () => {
               <Button 
                 as="span"
                 disabled={isImporting}
-                style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white', minWidth: '140px' }}
+                style={{ 
+                  background: '#2196F3', 
+                  borderColor: '#2196F3', 
+                  color: 'white', 
+                  minWidth: '140px',
+                  padding: '10px 20px',
+                  fontWeight: '500',
+                  border: 'none',
+                  borderRadius: '4px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
               >
                 {isImporting ? 'Importing...' : '📁 Import Data'}
               </Button>
