@@ -3257,6 +3257,7 @@ const Transactions: React.FC = () => {
               animateRows={true}
               suppressScrollOnNewData={true} // Prevent scrolling when data changes
               ensureDomOrder={true} // Ensure DOM order matches data order to prevent unwanted scrolling
+              getRowId={(params) => params.data.id} // Provide unique row ID to help AG Grid track rows consistently
             />
           </div>
         </TransactionsContainer>
