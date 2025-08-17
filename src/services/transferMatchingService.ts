@@ -109,10 +109,10 @@ class TransferMatchingService {
           targetTransactionId: targetTx.id,
           confidence: this.calculateMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(sourceTx.amount - Math.abs(targetTx.amount))),
           matchType: shouldAutoMatch && dateDiff === 0 && amountMatch ? 'exact' : 'approximate',
-          dateDifference: dateDiff,
+          dateDifference: Math.round(dateDiff),
           amountDifference: Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)),
           reasoning: shouldAutoMatch 
-            ? `Transfer match: ${sourceTx.account} ↔ ${targetTx.account}, ${dateDiff} days apart`
+            ? `Transfer match: ${sourceTx.account} ↔ ${targetTx.account}, ${Math.round(dateDiff)} days apart`
             : `Potential match (non-identical amounts, same currency): ${sourceTx.account} ↔ ${targetTx.account}`,
           isVerified: false
         };
@@ -460,7 +460,7 @@ class TransferMatchingService {
           targetTransactionId: matchedTx.id,
           confidence: this.calculateMatchConfidence(tx, matchedTx, dateDiff, amountDiff),
           matchType: 'manual', // Existing matches are considered manual/verified
-          dateDifference: dateDiff,
+          dateDifference: Math.round(dateDiff),
           amountDifference: amountDiff,
           reasoning: `Existing match: ${tx.account} ↔ ${matchedTx.account}`,
           isVerified: true
@@ -580,9 +580,9 @@ class TransferMatchingService {
           targetTransactionId: targetTx.id,
           confidence: this.calculateSameAccountMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount))),
           matchType: dateDiff === 0 && Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)) < 0.01 ? 'exact' : 'approximate',
-          dateDifference: dateDiff,
+          dateDifference: Math.round(dateDiff),
           amountDifference: Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)),
-          reasoning: `Same account matched transaction: ${sourceTx.account}, ${dateDiff} days apart, amounts: ${sourceTx.amount} / ${targetTx.amount}`,
+          reasoning: `Same account matched transaction: ${sourceTx.account}, ${Math.round(dateDiff)} days apart, amounts: ${sourceTx.amount} / ${targetTx.amount}`,
           isVerified: false
         };
 
