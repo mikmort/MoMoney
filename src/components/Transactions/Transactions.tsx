@@ -3122,7 +3122,7 @@ const Transactions: React.FC = () => {
               </QuickFilterButton>
             )}
             
-            {countUnmatchedTransferTransactions(transactions) > 0 && (
+            {(countUnmatchedTransferTransactions(transactions) > 0 || showUnmatchedTransactions) && (
               <QuickFilterButton
                 isActive={showUnmatchedTransactions}
                 activeColor="#ffc107"
