@@ -2978,7 +2978,12 @@ const Transactions: React.FC = () => {
 
       {renderAnomalyResultsPanel()}
 
-      {/* Bulk Operations Bar */}
+      <FileImport 
+        onImportComplete={handleImportComplete} 
+        isCollapsed={selectedTransactions.length > 0}
+      />
+
+      {/* Bulk Operations Bar - moved after FileImport to replace its space when collapsed */}
       {selectedTransactions.length > 0 && (
         <BulkOperationsBar>
           <div className="bulk-header">
@@ -3011,8 +3016,6 @@ const Transactions: React.FC = () => {
           </div>
         </BulkOperationsBar>
       )}
-
-      <FileImport onImportComplete={handleImportComplete} />
 
       <FilterBar>
         <div className="filter-header">
