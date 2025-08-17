@@ -575,10 +575,43 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           uniqueCount: result.duplicateDetection?.uniqueTransactions.length || 0
         });
         
-        // TODO: For multi-file import, we should collect files needing duplicate resolution
-        // and show a combined duplicate resolution dialog after all files are processed
-        // For now, return 0 as no transactions have been saved yet
-        return 0;
+        // For multi-file import, automatically import unique transactions when duplicates are found
+        // This resolves the issue where 0 transactions were imported when duplicates were detected
+        if (result.duplicateDetection && result.duplicateDetection.uniqueTransactions.length > 0) {
+          console.log(`🔄 Auto-importing ${result.duplicateDetection.uniqueTransactions.length} unique transactions for multi-file import`);
+          
+          try {
+            // Get all transactions (duplicates + unique) to pass to resolveDuplicates
+            const allTransactions = result.duplicateDetection.duplicates.map(d => d.newTransaction)
+              .concat(result.duplicateDetection.uniqueTransactions);
+            
+            // Import only unique transactions (importDuplicates = false)
+            await fileProcessingService.resolveDuplicates(
+              result.fileId, 
+              false, // Don't import duplicates, only unique transactions
+              allTransactions, 
+              result.duplicateDetection
+            );
+            
+            // Update progress to show successful import
+            fileProgress.status = 'completed';
+            fileProgress.currentStep = `Imported ${result.duplicateDetection.uniqueTransactions.length} unique transactions (${result.duplicateDetection.duplicates.length} duplicates ignored)`;
+            multiProgress.files.set(item.fileId, fileProgress);
+            
+            console.log(`✅ Successfully imported ${result.duplicateDetection.uniqueTransactions.length} unique transactions for ${item.file.name}`);
+            return result.duplicateDetection.uniqueTransactions.length;
+          } catch (error) {
+            console.error(`❌ Failed to import unique transactions for ${item.file.name}:`, error);
+            fileProgress.status = 'error';
+            fileProgress.errors.push(`Failed to import transactions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            multiProgress.files.set(item.fileId, fileProgress);
+            return 0;
+          }
+        } else {
+          // No unique transactions to import
+          console.log(`⚠️ No unique transactions to import for ${item.file.name}`);
+          return 0;
+        }
       } else {
         // File had actual errors during processing
         const errorMessage = result.statementFile.errorMessage || 'File processing failed';
