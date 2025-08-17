@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import styled from 'styled-components';
 import { Line, Bar } from 'react-chartjs-2';
 import { Card, Grid } from '../../styles/globalStyles';
@@ -11,6 +11,9 @@ import {
 import { StatsCard } from '../shared/StatsCard';
 import TransactionDetailsModal, { TransactionFilter } from './TransactionDetailsModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
+import { MultiSelectFilter } from '../shared/MultiSelectFilter';
+import { dataService } from '../../services/dataService';
+import { Transaction } from '../../types';
 
 const IncomeContainer = styled.div`
   .date-range-selector {
@@ -31,6 +34,19 @@ const IncomeContainer = styled.div`
       display: flex;
       gap: 10px;
       align-items: center;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 140px;
+      
+      label {
+        font-size: 0.85rem;
+        color: #666;
+        font-weight: 500;
+      }
     }
   }
 `;
@@ -113,6 +129,9 @@ const IncomeReports: React.FC = () => {
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [includeTransfers, setIncludeTransfers] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
   const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
   const [incomeSources, setIncomeSources] = useState<IncomeSource[]>([]);
@@ -127,6 +146,31 @@ const IncomeReports: React.FC = () => {
     filter: { type: 'category' },
     title: ''
   });
+
+  // Load transactions and compute unique values
+  useEffect(() => {
+    const loadTransactions = async () => {
+      try {
+        const allTransactions = await dataService.getAllTransactions();
+        setTransactions(allTransactions);
+      } catch (error) {
+        console.error('Error loading transactions:', error);
+      }
+    };
+    loadTransactions();
+  }, []);
+
+  // Compute unique categories and accounts from transactions
+  const uniqueCategories = useMemo(() => 
+    Array.from(new Set(transactions.map((t: Transaction) => t.category)))
+      .sort((a, b) => a.localeCompare(b)), 
+    [transactions]
+  );
+  
+  const uniqueAccounts = useMemo(() => 
+    Array.from(new Set(transactions.map((t: Transaction) => t.account))),
+    [transactions]
+  );
 
   useEffect(() => {
     (async () => {
@@ -172,6 +216,7 @@ const IncomeReports: React.FC = () => {
     try {
       const currentRange = getCurrentDateRange();
       
+      // Get the raw data first
       const [trendsData, analysisData, incomeSourcesData] = await Promise.all([
         reportsService.getMonthlySpendingTrends(currentRange, includeTransfers),
         reportsService.getIncomeExpenseAnalysis(currentRange, includeTransfers),
@@ -195,6 +240,14 @@ const IncomeReports: React.FC = () => {
       setIncomeSources([]);
     }
   }, [getCurrentDateRange, includeTransfers]);
+
+  // Filter income sources based on selected categories
+  const filteredIncomeSources = useMemo(() => {
+    if (selectedCategories.length === 0) {
+      return incomeSources;
+    }
+    return incomeSources.filter(source => selectedCategories.includes(source.categoryName));
+  }, [incomeSources, selectedCategories]);
 
   useEffect(() => {
     loadIncomeData();
@@ -290,6 +343,28 @@ const IncomeReports: React.FC = () => {
             />
             Include Internal Transfers
           </label>
+
+          <div className="filter-group">
+            <label>Categories</label>
+            <MultiSelectFilter
+              label="Categories"
+              options={uniqueCategories}
+              selectedValues={selectedCategories}
+              onChange={setSelectedCategories}
+              placeholder="All Categories"
+            />
+          </div>
+          
+          <div className="filter-group">
+            <label>Accounts</label>
+            <MultiSelectFilter
+              label="Accounts"
+              options={uniqueAccounts}
+              selectedValues={selectedAccounts}
+              onChange={setSelectedAccounts}
+              placeholder="All Accounts"
+            />
+          </div>
         </div>
       </Card>
 
@@ -431,11 +506,11 @@ const IncomeReports: React.FC = () => {
       </Grid>
 
       {/* Income Sources Breakdown */}
-      {incomeSources.length > 0 && (
+      {filteredIncomeSources.length > 0 && (
         <Card>
           <h3>Income Sources</h3>
           <IncomeSourcesTable>
-            {incomeSources.map((source, index) => (
+            {filteredIncomeSources.map((source, index) => (
               <div 
                 key={index} 
                 className="source-row"
