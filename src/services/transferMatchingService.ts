@@ -55,6 +55,84 @@ export interface SameAccountMatchResponse {
 
 class TransferMatchingService {
   /**
+   * Find matching transfer transactions for manual user search with relaxed criteria
+   * Uses expanded date range (+/- 8 days) and exchange rate tolerance (+/- 12%)
+   */
+  async findManualTransferMatches(request: TransferMatchRequest): Promise<TransferMatchResponse> {
+    const {
+      transactions,
+      dateRangeStart,
+      dateRangeEnd,
+      maxDaysDifference = 8, // Expanded for manual search: +/- 8 days
+      tolerancePercentage = 0.12 // Relaxed for exchange rates: +/- 12%
+    } = request;
+
+    // Filter transfer transactions within date range
+    const transferTransactions = transactions.filter(tx => 
+      tx.type === 'transfer' &&
+      (!dateRangeStart || tx.date >= dateRangeStart) &&
+      (!dateRangeEnd || tx.date <= dateRangeEnd) &&
+      !tx.reimbursementId // Not already matched
+    );
+
+    const matches: TransferMatch[] = [];
+    const matchedIds = new Set<string>();
+
+    // Find potential matches using relaxed heuristics for manual search
+    for (const sourceTx of transferTransactions) {
+      if (matchedIds.has(sourceTx.id)) continue;
+
+      for (const targetTx of transferTransactions) {
+        if (matchedIds.has(targetTx.id) || sourceTx.id === targetTx.id) continue;
+
+        // Check if amounts are inverse (one positive, one negative, similar magnitude)
+        // Use relaxed tolerance for manual matching, especially for exchange rates
+        const sameCurrency = this.haveSameCurrency(sourceTx, targetTx);
+        const amountMatch = this.areAmountsMatching(sourceTx.amount, targetTx.amount, tolerancePercentage);
+        
+        if (!amountMatch) continue;
+
+        // Check date proximity - expanded range for manual search
+        const dateDiff = Math.abs((sourceTx.date.getTime() - targetTx.date.getTime()) / (1000 * 60 * 60 * 24));
+        if (dateDiff > maxDaysDifference) continue;
+
+        // Check if accounts are different (transfers should be between different accounts)
+        if (sourceTx.account === targetTx.account) continue;
+
+        // For manual matching, we flag all matches as "Possible Matches"
+        // since we're using relaxed criteria
+        const match: TransferMatch = {
+          id: `manual-transfer-match-${sourceTx.id}-${targetTx.id}`,
+          sourceTransactionId: sourceTx.id,
+          targetTransactionId: targetTx.id,
+          confidence: this.calculateManualMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(sourceTx.amount - Math.abs(targetTx.amount)), sameCurrency),
+          matchType: 'approximate', // Manual matches are always considered approximate due to relaxed criteria
+          dateDifference: Math.round(dateDiff),
+          amountDifference: Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)),
+          reasoning: sameCurrency 
+            ? `Possible manual match: ${sourceTx.account} ↔ ${targetTx.account}, ${Math.round(dateDiff)} days apart`
+            : `Possible match with exchange rate tolerance: ${sourceTx.account} ↔ ${targetTx.account}, ${Math.round(dateDiff)} days apart (≤12% amount difference)`,
+          isVerified: false
+        };
+
+        matches.push(match);
+        // Don't add to matchedIds for manual matching to allow multiple possibilities
+        // matchedIds.add(sourceTx.id);
+        // matchedIds.add(targetTx.id);
+      }
+    }
+
+    // Get unmatched transfers (all since we don't mark as matched in manual search)
+    const unmatched = transferTransactions.filter(tx => !matchedIds.has(tx.id));
+
+    return {
+      matches,
+      unmatched,
+      confidence: matches.length > 0 ? matches.reduce((sum, m) => sum + m.confidence, 0) / matches.length : 0
+    };
+  }
+
+  /**
    * Find matching transfer transactions
    */
   async findTransferMatches(request: TransferMatchRequest): Promise<TransferMatchResponse> {
@@ -243,6 +321,45 @@ class TransferMatchingService {
     }
     
     return Math.min(confidence, 0.99); // Cap at 99%
+  }
+
+  private calculateManualMatchConfidence(
+    sourceTx: Transaction, 
+    targetTx: Transaction, 
+    dateDiff: number, 
+    amountDiff: number,
+    sameCurrency: boolean
+  ): number {
+    let confidence = 0.4; // Lower base confidence for manual matches with relaxed criteria
+    
+    // Date proximity bonus (more forgiving for manual matches)
+    if (dateDiff === 0) confidence += 0.2;
+    else if (dateDiff <= 1) confidence += 0.15;
+    else if (dateDiff <= 3) confidence += 0.1;
+    else if (dateDiff <= 8) confidence += 0.05; // Still some bonus for within 8 days
+    
+    // Amount precision bonus (adjusted for exchange rate tolerance)
+    if (amountDiff === 0) confidence += 0.3;
+    else if (amountDiff <= 0.01) confidence += 0.25;
+    else if (amountDiff <= 1) confidence += 0.15;
+    else if (!sameCurrency && amountDiff <= Math.max(sourceTx.amount, targetTx.amount) * 0.12) {
+      // Exchange rate tolerance - up to 12% difference is acceptable
+      confidence += 0.1;
+    }
+    
+    // Currency matching bonus
+    if (sameCurrency) {
+      confidence += 0.1; // Same currency is more reliable
+    } else {
+      confidence -= 0.05; // Different currency requires more caution
+    }
+    
+    // Description similarity bonus (basic check)
+    if (this.areDescriptionsSimilar(sourceTx.description, targetTx.description)) {
+      confidence += 0.1;
+    }
+    
+    return Math.min(confidence, 0.85); // Cap at 85% for manual matches due to relaxed criteria
   }
 
   private areDescriptionsSimilar(desc1: string, desc2: string): boolean {

@@ -256,7 +256,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
   const {
     isLoading,
     error,
-    findTransferMatches,
+    findManualTransferMatches,
     applyTransferMatches,
     unmatchTransfers,
     getMatchedTransfers,
@@ -309,11 +309,11 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     if (!transaction) return;
 
     try {
-      // Find potential new matches
-      const result = await findTransferMatches({
+      // Find potential new matches using manual (relaxed criteria) matching
+      const result = await findManualTransferMatches({
         transactions: allTransactions,
-        maxDaysDifference: 7,
-        tolerancePercentage: 0.01
+        maxDaysDifference: 8, // Expanded date range
+        tolerancePercentage: 0.12 // 12% tolerance for exchange rates
       });
 
       if (result) {
@@ -334,7 +334,7 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
     } catch (error) {
       console.error('Error loading matches:', error);
     }
-  }, [transaction, allTransactions, findTransferMatches, getMatchedTransfers]);
+  }, [transaction, allTransactions, findManualTransferMatches, getMatchedTransfers]);
 
   useEffect(() => {
     if (isOpen && transaction) {

@@ -36,6 +36,29 @@ export const useTransferMatching = () => {
     }
   }, []);
 
+  const findManualTransferMatches = useCallback(async (request: TransferMatchRequest): Promise<TransferMatchResponse | null> => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log('🔍 Finding manual transfer matches with relaxed criteria...', request);
+      const result = await transferMatchingService.findManualTransferMatches(request);
+      
+      setMatches(result.matches);
+      setLastMatchResult(result);
+      
+      console.log(`✅ Found ${result.matches.length} possible transfer matches (manual search)`, result);
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setError(errorMessage);
+      console.error('❌ Error finding manual transfer matches:', err);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const applyTransferMatches = useCallback(async (transactions: Transaction[], matchesToApply: TransferMatch[]): Promise<Transaction[]> => {
     setIsLoading(true);
     setError(null);
@@ -124,6 +147,7 @@ export const useTransferMatching = () => {
     matches,
     lastMatchResult,
     findTransferMatches,
+    findManualTransferMatches,
     applyTransferMatches,
     getUnmatchedTransfers,
     countUnmatchedTransfers,
