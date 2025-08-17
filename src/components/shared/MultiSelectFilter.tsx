@@ -57,7 +57,7 @@ const MultiSelectDropdown = styled.div`
 const MultiSelectOption = styled.label`
   display: flex;
   align-items: center;
-  padding: 4px 0px 4px 8px;
+  padding: 4px 8px 4px 4px;
   cursor: pointer;
   font-size: 0.9rem;
   color: #333;
@@ -68,8 +68,8 @@ const MultiSelectOption = styled.label`
   }
   
   input[type="checkbox"] {
-    margin-right: 0px;
-    margin-left: -14px;
+    margin-right: 6px;
+    margin-left: 0px;
     padding: 0;
     cursor: pointer;
     flex-shrink: 0;
