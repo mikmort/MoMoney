@@ -9,9 +9,9 @@ import {
   DateRange 
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
+import { MultiSelectFilter } from '../shared/MultiSelectFilter';
 import TransactionDetailsModal, { TransactionFilter } from './TransactionDetailsModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
-import { MultiSelectFilter } from '../shared/MultiSelectFilter';
 import { dataService } from '../../services/dataService';
 import { Transaction } from '../../types';
 
@@ -128,7 +128,7 @@ const IncomeReports: React.FC = () => {
   const [dateRange, setDateRange] = useState<string>('Last 12 Months');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
-  const [includeTransfers, setIncludeTransfers] = useState(false);
+  const [selectedIncomeTypes, setSelectedIncomeTypes] = useState<string[]>(['income']);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -218,9 +218,9 @@ const IncomeReports: React.FC = () => {
       
       // Get the raw data first
       const [trendsData, analysisData, incomeSourcesData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(currentRange, includeTransfers),
-        reportsService.getIncomeExpenseAnalysis(currentRange, includeTransfers),
-        reportsService.getIncomeByCategory(currentRange, includeTransfers)
+        reportsService.getMonthlySpendingTrends(currentRange, selectedIncomeTypes),
+        reportsService.getIncomeExpenseAnalysis(currentRange, selectedIncomeTypes),
+        reportsService.getIncomeByCategory(currentRange, selectedIncomeTypes.includes('transfer'))
       ]);
       
       setMonthlyTrends(trendsData);
@@ -231,15 +231,15 @@ const IncomeReports: React.FC = () => {
       // Fallback to basic data if income-specific methods don't exist
       const currentRange = getCurrentDateRange();
       const [trendsData, analysisData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(currentRange, includeTransfers),
-        reportsService.getIncomeExpenseAnalysis(currentRange, includeTransfers)
+        reportsService.getMonthlySpendingTrends(currentRange, selectedIncomeTypes),
+        reportsService.getIncomeExpenseAnalysis(currentRange, selectedIncomeTypes)
       ]);
       
       setMonthlyTrends(trendsData);
       setIncomeExpenseAnalysis(analysisData);
       setIncomeSources([]);
     }
-  }, [getCurrentDateRange, includeTransfers]);
+  }, [getCurrentDateRange, selectedIncomeTypes]);
 
   // Filter income sources based on selected categories
   const filteredIncomeSources = useMemo(() => {
@@ -335,14 +335,16 @@ const IncomeReports: React.FC = () => {
             </div>
           )}
           
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              checked={includeTransfers}
-              onChange={(e) => setIncludeTransfers(e.target.checked)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label>Income Types</label>
+            <MultiSelectFilter
+              label="Income Types"
+              options={['income', 'transfer', 'asset-allocation']}
+              selectedValues={selectedIncomeTypes}
+              onChange={setSelectedIncomeTypes}
+              placeholder="Select types..."
             />
-            Include Internal Transfers
-          </label>
+          </div>
 
           <div className="filter-group">
             <label>Categories</label>

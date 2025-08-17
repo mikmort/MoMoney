@@ -13,6 +13,7 @@ import {
   DateRange 
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
+import { MultiSelectFilter } from '../shared/MultiSelectFilter';
 import CategoryDrilldownModal from './CategoryDrilldownModal';
 import TransactionDetailsModal, { TransactionFilter } from './TransactionDetailsModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
@@ -210,7 +211,7 @@ const Reports: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dateRangeType, setDateRangeType] = useState<DateRangeType>('last-12-months');
   const [customDateRange, setCustomDateRange] = useState<DateRange | null>(null);
-  const [includeTransfers, setIncludeTransfers] = useState(false); // Off by default
+  const [selectedTransactionTypes, setSelectedTransactionTypes] = useState<string[]>(['income', 'expense']);
   const [spendingByCategory, setSpendingByCategory] = useState<SpendingByCategory[]>([]);
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
   const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
@@ -253,11 +254,11 @@ const Reports: React.FC = () => {
         const dateRange = getCurrentDateRange();
         
         const [categoryData, trendsData, analysisData, insightsData, burnRateData] = await Promise.all([
-          reportsService.getSpendingByCategory(dateRange, includeTransfers),
-          reportsService.getMonthlySpendingTrends(dateRange, includeTransfers),
-          reportsService.getIncomeExpenseAnalysis(dateRange, includeTransfers),
-          reportsService.getSpendingInsights(dateRange, includeTransfers),
-          reportsService.getBurnRateAnalysis(dateRange, includeTransfers)
+          reportsService.getSpendingByCategory(dateRange, selectedTransactionTypes),
+          reportsService.getMonthlySpendingTrends(dateRange, selectedTransactionTypes),
+          reportsService.getIncomeExpenseAnalysis(dateRange, selectedTransactionTypes),
+          reportsService.getSpendingInsights(dateRange, selectedTransactionTypes.includes('transfer')),
+          reportsService.getBurnRateAnalysis(dateRange, selectedTransactionTypes.includes('transfer'))
         ]);
         
         setSpendingByCategory(categoryData);
@@ -273,7 +274,7 @@ const Reports: React.FC = () => {
     };
 
     loadReportsData();
-  }, [dateRangeType, customDateRange, includeTransfers, getCurrentDateRange]);
+  }, [dateRangeType, customDateRange, selectedTransactionTypes, getCurrentDateRange]);
 
   const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
   useEffect(() => {
@@ -516,14 +517,16 @@ const Reports: React.FC = () => {
             </div>
           )}
           
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={includeTransfers}
-              onChange={(e) => setIncludeTransfers(e.target.checked)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label>Transaction Types</label>
+            <MultiSelectFilter
+              label="Transaction Types"
+              options={['income', 'expense', 'transfer', 'asset-allocation']}
+              selectedValues={selectedTransactionTypes}
+              onChange={setSelectedTransactionTypes}
+              placeholder="Select types..."
             />
-            Include Internal Transfers
-          </label>
+          </div>
         </div>
       </Card>
 
@@ -827,7 +830,7 @@ const Reports: React.FC = () => {
         <CategoryDrilldownModal
           categoryName={selectedCategory}
           dateRange={getCurrentDateRange()}
-          includeTransfers={includeTransfers}
+          includeTransfers={selectedTransactionTypes.includes('transfer')}
           onClose={() => setSelectedCategory(null)}
         />
       )}
