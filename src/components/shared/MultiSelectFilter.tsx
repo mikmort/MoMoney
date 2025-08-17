@@ -43,32 +43,50 @@ const MultiSelectDropdown = styled.div`
   position: absolute;
   top: 100%;
   left: 0;
-  right: 0;
   background: white;
   border: 1px solid #ccc;
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  max-height: 200px;
+  max-height: 400px;
   overflow-y: auto;
   z-index: 1000;
   margin-top: 2px;
+  width: max-content;
 `;
 
 const MultiSelectOption = styled.label`
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 4px 0px 4px 8px;
   cursor: pointer;
   font-size: 0.9rem;
   color: #333;
+  white-space: nowrap;
   
   &:hover {
     background: #f5f5f5;
   }
   
   input[type="checkbox"] {
-    margin-right: 8px;
+    margin-right: 0px;
+    margin-left: -14px;
+    padding: 0;
     cursor: pointer;
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    max-width: 14px;
+  }
+`;
+
+const SelectAllOption = styled(MultiSelectOption)`
+  border-bottom: 1px solid #eee;
+  font-weight: 500;
+  background: #f9f9f9;
+  
+  &:hover {
+    background: #f0f0f0;
   }
 `;
 
@@ -119,6 +137,19 @@ export const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({
     }
   };
 
+  const handleSelectAll = () => {
+    if (selectedValues.length === options.length) {
+      // Unselect all
+      onChange([]);
+    } else {
+      // Select all
+      onChange([...options]);
+    }
+  };
+
+  const isAllSelected = selectedValues.length === options.length;
+  const selectAllText = isAllSelected ? 'Unselect All' : 'Select All';
+
   const getDisplayText = () => {
     if (selectedValues.length === 0) {
       return placeholder;
@@ -146,6 +177,14 @@ export const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({
       
       {isOpen && (
         <MultiSelectDropdown>
+          <SelectAllOption>
+            <input
+              type="checkbox"
+              checked={isAllSelected}
+              onChange={handleSelectAll}
+            />
+            {selectAllText}
+          </SelectAllOption>
           {options.map(option => (
             <MultiSelectOption key={option}>
               <input
