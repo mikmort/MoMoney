@@ -33,9 +33,8 @@ export interface ImportOptions {
   balanceHistory: boolean;
   currencyRates: boolean;
   transferMatches: boolean;
-  // These are typically always imported with transactions
-  preferences?: boolean;
-  transactionHistory?: boolean;
+  preferences: boolean;
+  transactionHistory: boolean;
 }
 
 class SimplifiedImportExportService {
