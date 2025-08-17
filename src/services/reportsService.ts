@@ -582,6 +582,82 @@ class ReportsService {
     
     return { startDate, endDate };
   }
+
+  // Get income breakdown by category (similar to spending but for income)
+  async getIncomeByCategory(dateRange?: DateRange, includeTransfers: boolean = false): Promise<any[]> {
+    try {
+      const transactions = await dataService.getAllTransactions();
+      
+      let filteredTransactions = transactions;
+      
+      // Apply date range filter
+      if (dateRange) {
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= dateRange.startDate && transactionDate <= dateRange.endDate;
+        });
+      }
+      
+      // Filter for income transactions
+      const incomeTransactions = await this.filterTransactionsForReports(filteredTransactions, 'income', includeTransfers);
+      
+      // Convert to common currency
+      const convertedIncomeTransactions = await currencyDisplayService.convertTransactionsBatch(incomeTransactions);
+      
+      // Group by category
+      const categoryTotals = convertedIncomeTransactions.reduce((acc, transaction) => {
+        const category = transaction.category;
+        if (!acc[category]) {
+          acc[category] = { 
+            amount: 0, 
+            count: 0, 
+            transactions: [] 
+          };
+        }
+        acc[category].amount += Math.abs(transaction.amount);
+        acc[category].count += 1;
+        acc[category].transactions.push(transaction);
+        return acc;
+      }, {} as { [key: string]: { amount: number; count: number; transactions: any[] } });
+      
+      // Convert to array with additional stats
+      return Object.entries(categoryTotals).map(([categoryName, data]) => {
+        const frequency = this.calculateFrequency(data.transactions, dateRange);
+        return {
+          categoryName,
+          amount: data.amount,
+          transactionCount: data.count,
+          averageAmount: data.amount / data.count,
+          frequency
+        };
+      }).sort((a, b) => b.amount - a.amount);
+      
+    } catch (error) {
+      console.error('Error getting income by category:', error);
+      return [];
+    }
+  }
+
+  // Helper to calculate frequency of transactions
+  private calculateFrequency(transactions: any[], dateRange?: DateRange): string {
+    if (transactions.length <= 1) return 'One-time';
+    
+    const sortedTransactions = transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const firstDate = new Date(sortedTransactions[0].date);
+    const lastDate = new Date(sortedTransactions[sortedTransactions.length - 1].date);
+    const daysDiff = Math.ceil((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (daysDiff === 0) return 'Same day';
+    
+    const avgDaysBetween = daysDiff / (transactions.length - 1);
+    
+    if (avgDaysBetween <= 7) return 'Weekly';
+    if (avgDaysBetween <= 15) return 'Bi-weekly';  
+    if (avgDaysBetween <= 35) return 'Monthly';
+    if (avgDaysBetween <= 95) return 'Quarterly';
+    
+    return 'Irregular';
+  }
 }
 
 export const reportsService = new ReportsService();
