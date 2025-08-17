@@ -1773,16 +1773,16 @@ const Transactions: React.FC = () => {
       setTransactions(refreshedTransactions);
       // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
       
-      // Close dialogs
-      setShowCategoryEditDialog(false);
-      setCategoryEditData(null);
-      setShowEditModal(false);
-      setEditingTransaction(null);
-      
       console.log(`✅ Category edit applied with option: ${option}`);
     } catch (error) {
       console.error('❌ Error applying category edit:', error);
       showAlert('error', 'Failed to apply category change. Please try again.');
+    } finally {
+      // Always close dialogs, even if there was an error
+      setShowCategoryEditDialog(false);
+      setCategoryEditData(null);
+      setShowEditModal(false);
+      setEditingTransaction(null);
     }
   };
 
