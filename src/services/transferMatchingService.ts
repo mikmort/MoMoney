@@ -126,6 +126,10 @@ class TransferMatchingService {
         } else {
           // This will be handled as a potential match
           matches.push(match);
+          // Even for potential matches, prevent duplicate matches by adding to matchedIds
+          matchedIds.add(sourceTx.id);
+          matchedIds.add(targetTx.id);
+          break; // Found a match for this transaction
         }
       }
     }
@@ -177,6 +181,24 @@ class TransferMatchingService {
   }
 
   private areAmountsMatching(amount1: number, amount2: number, tolerance: number): boolean {
+    // For transfer matching, amounts must have opposite signs
+    // One should be positive, the other negative
+    if ((amount1 > 0) === (amount2 > 0)) {
+      return false; // Same sign, cannot be a transfer match
+    }
+    
+    const abs1 = Math.abs(amount1);
+    const abs2 = Math.abs(amount2);
+    const diff = Math.abs(abs1 - abs2);
+    const avgAmount = (abs1 + abs2) / 2;
+    
+    // Check if amounts are similar within tolerance
+    return avgAmount > 0 && (diff / avgAmount) <= tolerance;
+  }
+
+  private areAbsoluteAmountsMatching(amount1: number, amount2: number, tolerance: number): boolean {
+    // For same-account matching, just check absolute value similarity
+    // (opposite sign check is done separately before calling this)
     const abs1 = Math.abs(amount1);
     const abs2 = Math.abs(amount2);
     const diff = Math.abs(abs1 - abs2);
@@ -544,8 +566,8 @@ class TransferMatchingService {
         // Must have opposite amounts (one positive, one negative, similar magnitude)
         if ((sourceTx.amount > 0) === (targetTx.amount > 0)) continue;
 
-        // Check if amounts match within tolerance
-        const amountMatch = this.areAmountsMatching(sourceTx.amount, targetTx.amount, tolerancePercentage);
+        // Check if amounts match within tolerance (for same-account, we already know they have opposite signs from the check above)
+        const amountMatch = this.areAbsoluteAmountsMatching(sourceTx.amount, targetTx.amount, tolerancePercentage);
         if (!amountMatch) continue;
 
         // Check date proximity
