@@ -1,9 +1,12 @@
 import { Transaction, DuplicateDetectionResult, DuplicateTransaction, CategoryRule, DuplicateDetectionConfig } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, DBHealthCheck } from './db';
+import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, DBHealthCheck, INTERNAL_TRANSFER_MIGRATION_KEY, isMigrationCompleted, markMigrationCompleted } from './db';
 import { rulesService } from './rulesService';
 import { transferMatchingService } from './transferMatchingService';
 import { notificationService } from './notificationService';
+
+// Global flag to prevent multiple simultaneous initializations
+let isInitializationInProgress = false;
 
 class DataService {
   private transactions: Transaction[] = [];
@@ -25,6 +28,20 @@ class DataService {
   private async initialize(): Promise<void> {
     if (this.isInitialized) return;
     
+    // Prevent multiple simultaneous initializations
+    if (isInitializationInProgress) {
+      // Wait for the other initialization to complete
+      const maxWait = 10000; // 10 seconds max wait
+      const start = Date.now();
+      while (isInitializationInProgress && (Date.now() - start) < maxWait) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      // If still not initialized after wait, proceed (might be a different instance)
+      if (this.isInitialized) return;
+    }
+    
+    isInitializationInProgress = true;
+    
     try {
       const __IS_TEST__ = process.env.NODE_ENV === 'test';
   const txLog = (...args: any[]) => { if (!__IS_TEST__) console.log(...args); };
@@ -38,13 +55,20 @@ class DataService {
       // Load data from IndexedDB
       await this.loadFromDB();
       
-      // Perform data migrations after loading data
-      const migrationResult = await this.migrateInternalTransferTypes();
-      if (migrationResult.fixed > 0 || migrationResult.errors.length > 0) {
-        txLog(`[TX] Internal Transfer migration completed: ${migrationResult.fixed} fixed, ${migrationResult.errors.length} errors`);
-        if (migrationResult.errors.length > 0) {
-          txError('[TX] Migration errors:', migrationResult.errors);
+      // Perform data migrations after loading data - only if not already completed
+      if (!isMigrationCompleted(INTERNAL_TRANSFER_MIGRATION_KEY)) {
+        txLog('[TX] Running Internal Transfer migration...');
+        const migrationResult = await this.migrateInternalTransferTypes();
+        if (migrationResult.fixed > 0 || migrationResult.errors.length > 0) {
+          txLog(`[TX] Internal Transfer migration completed: ${migrationResult.fixed} fixed, ${migrationResult.errors.length} errors`);
+          if (migrationResult.errors.length > 0) {
+            txError('[TX] Migration errors:', migrationResult.errors);
+          }
         }
+        // Mark migration as completed regardless of outcome to prevent infinite retries
+        markMigrationCompleted(INTERNAL_TRANSFER_MIGRATION_KEY);
+      } else {
+        txLog('[TX] Internal Transfer migration already completed, skipping');
       }
       
       // Perform health check after loading data
@@ -87,6 +111,9 @@ class DataService {
       this.transactions = [];
       this.history = {};
       this.isInitialized = true;
+    } finally {
+      // Always clear the initialization flag
+      isInitializationInProgress = false;
     }
   }
 
@@ -1592,46 +1619,45 @@ class DataService {
   }
   
   private deferTransferAutoMatching(): void {
-    // Run transfer matching after first paint to avoid blocking initialization
-    requestAnimationFrame(() => {
-      setTimeout(async () => {
-        try {
-          console.log('[TX] Starting deferred transfer auto-matching...');
-          const startTime = Date.now();
-          
-          // Set a timeout for the operation
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Transfer matching timeout')), 10000); // 10 second timeout
-          });
-          
-          const matchingPromise = transferMatchingService.autoMatchTransfers(this.transactions);
-          
-          const matchedTransactions = await Promise.race([matchingPromise, timeoutPromise]) as Transaction[];
-          
-          const duration = Date.now() - startTime;
-          console.log(`[TX] Transfer auto-matching completed in ${duration}ms`);
-          
-          if (matchedTransactions !== this.transactions) {
-            this.transactions = matchedTransactions;
-            // Only save if we finished in reasonable time
-            if (duration < 8000) {
-              try {
-                await this.saveToDB();
-                console.log('[TX] ✅ Auto-matched transfers and saved to DB');
-              } catch (error) {
-                console.error('[TX] ❌ Failed to save auto-matched transfers:', error);
-                console.warn('[TX] ⚠️ Transfer matches applied in memory but not persisted to database');
-              }
-            } else {
-              console.warn('[TX] Transfer matching took too long, not saving results');
+    // Run transfer matching much later to avoid blocking initial UI load
+    // Use setTimeout instead of requestAnimationFrame for better control
+    setTimeout(async () => {
+      try {
+        console.log('[TX] Starting deferred transfer auto-matching...');
+        const startTime = Date.now();
+        
+        // Set a timeout for the operation
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Transfer matching timeout')), 15000); // 15 second timeout
+        });
+        
+        const matchingPromise = transferMatchingService.autoMatchTransfers(this.transactions);
+        
+        const matchedTransactions = await Promise.race([matchingPromise, timeoutPromise]) as Transaction[];
+        
+        const duration = Date.now() - startTime;
+        console.log(`[TX] Transfer auto-matching completed in ${duration}ms`);
+        
+        if (matchedTransactions !== this.transactions) {
+          this.transactions = matchedTransactions;
+          // Only save if we finished in reasonable time and found meaningful changes
+          if (duration < 10000) {
+            try {
+              await this.saveToDB();
+              console.log('[TX] ✅ Auto-matched transfers and saved to DB');
+            } catch (error) {
+              console.error('[TX] ❌ Failed to save auto-matched transfers:', error);
+              console.warn('[TX] ⚠️ Transfer matches applied in memory but not persisted to database');
             }
+          } else {
+            console.warn('[TX] Transfer matching took too long, not saving results');
           }
-        } catch (error) {
-          console.error('[TX] Deferred transfer auto-matching failed:', error);
-          // Continue with original transactions if matching fails
         }
-      }, 100); // Small delay to ensure first paint has occurred
-    });
+      } catch (error) {
+        console.error('[TX] Deferred transfer auto-matching failed:', error);
+        // Continue with original transactions if matching fails
+      }
+    }, 2000); // 2 second delay to ensure UI is fully loaded first
   }
 
   // Get current health status
