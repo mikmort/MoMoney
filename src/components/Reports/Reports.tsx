@@ -38,6 +38,19 @@ const ReportsContainer = styled.div`
       gap: 10px;
       align-items: center;
     }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 140px;
+      
+      label {
+        font-size: 0.85rem;
+        color: #666;
+        font-weight: 500;
+      }
+    }
   }
 `;
 
@@ -484,18 +497,20 @@ const Reports: React.FC = () => {
       </PageHeader>
 
       <Card>
-        <h3>Date Range</h3>
         <div className="date-range-selector">
-          <select 
-            value={dateRangeType} 
-            onChange={(e) => setDateRangeType(e.target.value as DateRangeType)}
-          >
-            <option value="all">All Time</option>
-            <option value="current-month">Current Month</option>
-            <option value="last-3-months">Last 3 Months</option>
-            <option value="last-12-months">Last 12 Months</option>
-            <option value="custom">Custom Range</option>
-          </select>
+          <div className="filter-group">
+            <label>Date Range</label>
+            <select 
+              value={dateRangeType} 
+              onChange={(e) => setDateRangeType(e.target.value as DateRangeType)}
+            >
+              <option value="all">All Time</option>
+              <option value="current-month">Current Month</option>
+              <option value="last-3-months">Last 3 Months</option>
+              <option value="last-12-months">Last 12 Months</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </div>
           
           {dateRangeType === 'custom' && (
             <div className="custom-range">
@@ -517,7 +532,7 @@ const Reports: React.FC = () => {
             </div>
           )}
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="filter-group">
             <label>Transaction Types</label>
             <MultiSelectFilter
               label="Transaction Types"
