@@ -2174,7 +2174,10 @@ const Transactions: React.FC = () => {
   };
 
   const countMatchedTransferTransactions = (transactions: Transaction[]): number => {
-    return getMatchedTransfers(transactions).length;
+    const matchedTransferIds = new Set(getMatchedTransfers(transactions).flatMap(match => [match.sourceTransactionId, match.targetTransactionId]));
+    return transactions.filter((t: Transaction) => 
+      t.type === 'transfer' && matchedTransferIds.has(t.id)
+    ).length;
   };
 
   const countUnmatchedTransferTransactions = (transactions: Transaction[]): number => {
@@ -3074,7 +3077,7 @@ const Transactions: React.FC = () => {
             
 
             
-            {countReimbursedTransactions(transactions) > 0 && (
+            {countReimbursedTransactions(filteredTransactions) > 0 && (
               <QuickFilterButton
                 isActive={showReimbursedTransactions}
                 activeColor="#4CAF50"
@@ -3082,11 +3085,11 @@ const Transactions: React.FC = () => {
                 onClick={() => setShowReimbursedTransactions(!showReimbursedTransactions)}
                 title="Toggle showing reimbursed transactions"
               >
-                💰 Show Reimbursed ({countReimbursedTransactions(transactions)})
+                💰 Show Reimbursed ({countReimbursedTransactions(filteredTransactions)})
               </QuickFilterButton>
             )}
             
-            {countInvestmentTransactions(transactions) > 0 && (
+            {countInvestmentTransactions(filteredTransactions) > 0 && (
               <QuickFilterButton
                 isActive={showInvestmentTransactions}
                 activeColor="#FF6B35"
@@ -3094,11 +3097,11 @@ const Transactions: React.FC = () => {
                 onClick={() => setShowInvestmentTransactions(!showInvestmentTransactions)}
                 title="Toggle showing investment transactions (asset allocation)"
               >
-                📊 Show Investments ({countInvestmentTransactions(transactions)})
+                📊 Show Investments ({countInvestmentTransactions(filteredTransactions)})
               </QuickFilterButton>
             )}
             
-            {countMatchedTransferTransactions(transactions) > 0 && (
+            {countMatchedTransferTransactions(filteredTransactions) > 0 && (
               <QuickFilterButton
                 isActive={showMatchedTransactions}
                 activeColor="#28a745"
@@ -3115,11 +3118,11 @@ const Transactions: React.FC = () => {
                 }}
                 title="Show only matched transfer transactions"
               >
-                ✅ Transfer Matched ({countMatchedTransferTransactions(transactions)})
+                ✅ Matched Transfers ({countMatchedTransferTransactions(filteredTransactions)})
               </QuickFilterButton>
             )}
             
-            {countUnmatchedTransferTransactions(transactions) > 0 && (
+            {countUnmatchedTransferTransactions(filteredTransactions) > 0 && (
               <QuickFilterButton
                 isActive={showUnmatchedTransactions}
                 activeColor="#ffc107"
@@ -3136,7 +3139,7 @@ const Transactions: React.FC = () => {
                 }}
                 title="Show only unmatched transfer transactions"
               >
-                ⚠️ Unmatched Transfers ({countUnmatchedTransferTransactions(transactions)})
+                ⚠️ Unmatched Transfers ({countUnmatchedTransferTransactions(filteredTransactions)})
               </QuickFilterButton>
             )}
           </div>
