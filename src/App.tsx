@@ -21,7 +21,9 @@ const Dashboard = lazyWithRetry(() => import('./components/Dashboard/Dashboard')
 const Transactions = lazyWithRetry(() => import('./components/Transactions/Transactions'));
 const Rules = lazyWithRetry(() => import('./components/Rules/Rules'));
 const Budgets = lazyWithRetry(() => import('./components/Budgets/Budgets'));
-const Reports = lazyWithRetry(() => import('./components/Reports/Reports'));
+const ReportsLayout = lazyWithRetry(() => import('./components/Reports/ReportsLayout'));
+const SpendingReports = lazyWithRetry(() => import('./components/Reports/SpendingReports'));
+const IncomeReports = lazyWithRetry(() => import('./components/Reports/IncomeReports'));
 const Settings = lazyWithRetry(() => import('./components/Settings/Settings'));
 const CategoriesManagement = lazyWithRetry(() => import('./components/Categories/CategoriesManagement'));
 const TransferMatchesPage = lazyWithRetry(() => import('./components/Transactions/TransferMatchesPage').then(module => ({ default: module.TransferMatchesPage })));
@@ -70,7 +72,15 @@ const router = createBrowserRouter([
       { path: 'transfer-matches', element: <TransferMatchesPage /> },
       { path: 'categories', element: <CategoriesManagement /> },
       { path: 'budgets', element: <Budgets /> },
-      { path: 'reports', element: <Reports /> },
+      {
+        path: 'reports',
+        element: <ReportsLayout />,
+        children: [
+          { index: true, element: <Navigate to="/reports/spending" replace /> },
+          { path: 'spending', element: <SpendingReports /> },
+          { path: 'income', element: <IncomeReports /> },
+        ]
+      },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
