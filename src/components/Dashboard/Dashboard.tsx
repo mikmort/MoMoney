@@ -149,12 +149,13 @@ const EmptyStateCard = styled(Card)`
   }
 `;
 
-// Component for displaying transaction amounts with currency conversion
+// Reusable component for displaying transaction amounts with currency conversion
 const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
   const [displayData, setDisplayData] = useState<{
     displayAmount: string;
     tooltip?: string;
     isConverted: boolean;
+    approxConvertedDisplay?: string;
   }>({
     displayAmount: '$0.00',
     isConverted: false
@@ -171,9 +172,9 @@ const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction
   return (
     <div className={`amount ${transaction.type}`} title={displayData.tooltip}>
       {displayData.displayAmount}
-      {displayData.isConverted && displayData.tooltip && (
+      {displayData.isConverted && displayData.approxConvertedDisplay && (
         <div className="currency-info">
-          {transaction.originalCurrency}
+          {displayData.approxConvertedDisplay}
         </div>
       )}
     </div>

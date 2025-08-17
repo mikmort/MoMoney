@@ -4,6 +4,7 @@ import { Line } from 'react-chartjs-2';
 import { Card } from '../../styles/globalStyles';
 import { reportsService, CategoryDeepDive, DateRange } from '../../services/reportsService';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
+import { Transaction } from '../../types';
 import { Modal } from '../shared/Modal';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, PointElement, LineElement } from 'chart.js';
 
@@ -86,10 +87,49 @@ const TransactionsList = styled.div`
   }
   
   .transaction-amount {
+    text-align: right;
     font-weight: 600;
     color: #f44336;
+    
+    .currency-info {
+      font-size: 0.75rem;
+      color: #888;
+      margin-top: 2px;
+    }
   }
 `;
+
+// Reusable component for displaying transaction amounts with currency conversion
+const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
+  const [displayData, setDisplayData] = useState<{
+    displayAmount: string;
+    tooltip?: string;
+    isConverted: boolean;
+    approxConvertedDisplay?: string;
+  }>({
+    displayAmount: '$0.00',
+    isConverted: false
+  });
+
+  useEffect(() => {
+    const formatAmount = async () => {
+      const data = await currencyDisplayService.formatTransactionAmount(transaction);
+      setDisplayData(data);
+    };
+    formatAmount();
+  }, [transaction]);
+
+  return (
+    <div className="transaction-amount" title={displayData.tooltip}>
+      {displayData.displayAmount}
+      {displayData.isConverted && displayData.approxConvertedDisplay && (
+        <div className="currency-info">
+          {displayData.approxConvertedDisplay}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface CategoryDrilldownModalProps {
   categoryName: string;
@@ -260,9 +300,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
                       <div className="description">{transaction.description}</div>
                       <div className="date">{formatDate(transaction.date)}</div>
                     </div>
-                    <div className="transaction-amount">
-                      {formatCurrency(Math.abs(transaction.amount))}
-                    </div>
+                    <TransactionAmount transaction={transaction} />
                   </div>
                 ))}
               </TransactionsList>

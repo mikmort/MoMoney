@@ -112,6 +112,12 @@ const TransactionsList = styled.div`
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+    
+    .currency-info {
+      font-size: 0.75rem;
+      color: #888;
+      margin-top: 2px;
+    }
   }
 `;
 
@@ -135,6 +141,49 @@ const EmptyState = styled.div`
     color: #888;
   }
 `;
+
+// Reusable component for displaying transaction amounts with currency conversion
+const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
+  const [displayData, setDisplayData] = useState<{
+    displayAmount: string;
+    tooltip?: string;
+    isConverted: boolean;
+    approxConvertedDisplay?: string;
+  }>({
+    displayAmount: '$0.00',
+    isConverted: false
+  });
+
+  useEffect(() => {
+    const formatAmount = async () => {
+      const data = await currencyDisplayService.formatTransactionAmount(transaction);
+      setDisplayData(data);
+    };
+    formatAmount();
+  }, [transaction]);
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'income': return 'income';
+      case 'expense': return 'expense';
+      default: return '';
+    }
+  };
+
+  return (
+    <div className="transaction-amount">
+      <div className={`amount ${getTypeColor(transaction.type)}`} title={displayData.tooltip}>
+        {displayData.displayAmount}
+      </div>
+      {displayData.isConverted && displayData.approxConvertedDisplay && (
+        <div className="currency-info">
+          {displayData.approxConvertedDisplay}
+        </div>
+      )}
+      <div className="type">{transaction.type}</div>
+    </div>
+  );
+};
 
 export interface TransactionFilter {
   type: 'category' | 'month' | 'month-type';
@@ -160,6 +209,7 @@ const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = ({
 }) => {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [convertedTransactions, setConvertedTransactions] = useState<Transaction[]>([]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -198,7 +248,12 @@ const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = ({
         
         // Sort by date (newest first)
         filteredTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setTransactions(filteredTransactions);
+        
+        // Convert all transactions for proper stat calculations
+        const converted = await currencyDisplayService.convertTransactionsBatch(filteredTransactions);
+        
+        setTransactions(filteredTransactions); // Keep originals for display
+        setConvertedTransactions(converted); // Use converted for calculations
       } catch (error) {
         console.error('Failed to load transactions:', error);
       } finally {
@@ -229,18 +284,10 @@ const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = ({
     }).format(date);
   };
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'income': return 'income';
-      case 'expense': return 'expense';
-      default: return '';
-    }
-  };
-
-  // Calculate stats
-  const totalAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
-  const incomeTotal = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-  const expenseTotal = Math.abs(transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0));
+  // Calculate stats - use converted transactions for accurate aggregation
+  const totalAmount = convertedTransactions.reduce((sum, t) => sum + t.amount, 0);
+  const incomeTotal = convertedTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+  const expenseTotal = Math.abs(convertedTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0));
   const transactionCount = transactions.length;
 
   if (loading) {
@@ -328,12 +375,7 @@ const TransactionDetailsModal: React.FC<TransactionDetailsModalProps> = ({
                   {transaction.account && <span className="account">{transaction.account}</span>}
                 </div>
               </div>
-              <div className="transaction-amount">
-                <div className={`amount ${getTypeColor(transaction.type)}`}>
-                  {formatCurrency(Math.abs(transaction.amount))}
-                </div>
-                <div className="type">{transaction.type}</div>
-              </div>
+              <TransactionAmount transaction={transaction} />
             </div>
           ))}
         </TransactionsList>
