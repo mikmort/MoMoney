@@ -2323,6 +2323,18 @@ const Transactions: React.FC = () => {
           },
         ]);
 
+        // Check if this is a low-confidence fallback result from AI service failure
+        // These occur when the AI service times out or fails, and we shouldn't apply them
+        if (result.confidence <= 0.1 && (
+          result.categoryId === 'uncategorized' || 
+          result.reasoning?.includes('fallback') || 
+          result.reasoning?.includes('failed')
+        )) {
+          console.log('AI service returned low-confidence fallback result, not applying changes');
+          showAlert('warning', 'AI service temporarily unavailable. Please try again later.');
+          return;
+        }
+
         // Map returned ids to display names using categories
         const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
         const subMap = new Map<string, { name: string; parentId: string }>();
