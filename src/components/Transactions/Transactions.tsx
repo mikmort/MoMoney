@@ -965,7 +965,7 @@ const Transactions: React.FC = () => {
   const pageSize = (() => {
     const saved = localStorage.getItem('transactionsPageSize');
     const parsed = saved ? parseInt(saved, 10) : NaN;
-    return allowedPageSizes.includes(parsed) ? parsed : 50;
+    return allowedPageSizes.includes(parsed) ? parsed : 500;
   })();
 
   // Transfer match dialog state
@@ -1354,8 +1354,8 @@ const Transactions: React.FC = () => {
     });
   };
 
-  // Confidence cell renderer component
-  const ConfidenceCell: React.FC<{ transaction: Transaction; confidence: number; onInfoClick: () => void }> = ({
+  // Confidence cell renderer component (memoized to prevent unnecessary re-renders)
+  const ConfidenceCell = React.memo<{ transaction: Transaction; confidence: number; onInfoClick: () => void }>(({
     transaction,
     confidence,
     onInfoClick
@@ -1440,7 +1440,7 @@ const Transactions: React.FC = () => {
         {infoIcon}
       </span>
     );
-  };
+  });
 
   // Confidence cell renderer with info icon
   const ConfidenceCellRenderer = (params: any) => {
@@ -3220,6 +3220,8 @@ const Transactions: React.FC = () => {
               reactiveCustomComponents={true}
               suppressMenuHide={true} // Keep menu open after applying filter
               animateRows={true}
+              suppressScrollOnNewData={true} // Prevent scrolling when data changes
+              ensureDomOrder={true} // Ensure DOM order matches data order to prevent unwanted scrolling
             />
           </div>
         </TransactionsContainer>
