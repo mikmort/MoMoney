@@ -26,6 +26,7 @@ import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { receiptProcessingService } from '../../services/receiptProcessingService';
+import { userPreferencesService } from '../../services/userPreferencesService';
 import { FileViewer } from '../shared/FileViewer';
 import { ReceiptImport } from './ReceiptImport';
 import { MultiSelectFilter } from '../shared/MultiSelectFilter';
@@ -1033,6 +1034,7 @@ const Transactions: React.FC = () => {
     type: '',
     date: '',
     notes: '',
+    originalCurrency: '',
     splits: undefined as TransactionSplit[] | undefined
   });
 
@@ -1601,6 +1603,7 @@ const Transactions: React.FC = () => {
       type: transaction.type || '',
       date: transaction.date ? transaction.date.toISOString().split('T')[0] : '',
       notes: transaction.notes || '',
+      originalCurrency: transaction.originalCurrency || '',
       splits: transaction.splits
     });
     
@@ -1646,6 +1649,7 @@ const Transactions: React.FC = () => {
         type: transactionForm.type as 'income' | 'expense' | 'transfer',
         date: new Date(transactionForm.date),
         notes: transactionForm.notes,
+        originalCurrency: transactionForm.originalCurrency || undefined,
         lastModifiedDate: new Date(),
         splits: transactionForm.splits,
         isSplit: !!(transactionForm.splits && transactionForm.splits.length > 0)
@@ -1711,6 +1715,7 @@ const Transactions: React.FC = () => {
       type: '',
       date: '',
       notes: '',
+      originalCurrency: '',
       splits: undefined
     });
   };
@@ -3454,6 +3459,21 @@ const Transactions: React.FC = () => {
                   onChange={(e) => handleEditFormChange('amount', e.target.value)}
                   placeholder="0.00"
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Currency</label>
+                <select
+                  value={transactionForm.originalCurrency}
+                  onChange={(e) => handleEditFormChange('originalCurrency', e.target.value)}
+                >
+                  <option value="">Default Currency</option>
+                  {userPreferencesService.getCurrencyOptions().map(currency => (
+                    <option key={currency.value} value={currency.value}>
+                      {currency.label} ({currency.symbol})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group">
