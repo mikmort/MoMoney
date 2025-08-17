@@ -490,8 +490,15 @@ class DataService {
     }
     
 
-    await this.saveToDB();
-    console.log('✅ Saved to IndexedDB successfully');
+    try {
+      await this.saveToDB();
+      console.log('✅ Saved to IndexedDB successfully');
+    } catch (error) {
+      console.error('❌ Failed to save transactions to IndexedDB:', error);
+      // Database transaction rolled back, so reload from DB to restore consistent state
+      await this.loadFromDB();
+      throw new Error(`Failed to save transactions to database: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
     
     console.log('🎉 DataService.addTransactions COMPLETE');
     console.log(`📊 Final result: ${newTransactions.length} transactions added`);
@@ -648,7 +655,15 @@ class DataService {
         console.warn(`Failed to delete history records for transactions ${ids.join(', ')}:`, error);
       }
       
-      await this.saveToDB();
+      try {
+        await this.saveToDB();
+      } catch (error) {
+        console.error('❌ Failed to save after deleting transactions:', error);
+        // Transaction deletions are already applied in memory, but we should warn users
+        // about potential inconsistency between in-memory and persistent storage
+        console.warn('⚠️ Transactions deleted from memory but may still exist in database due to save failure');
+        // Don't re-throw here because the delete operation was successful in memory
+      }
     }
     
     return deletedCount;
@@ -889,24 +904,35 @@ class DataService {
 
   private async saveToDB(): Promise<void> {
     try {
-      // Clear and replace all transactions to ensure deleted transactions are removed
-      await db.transactions.clear();
-      
-      if (this.transactions.length > 0) {
-        // Use robust bulk operation with fallback to add current transactions
-        const results = await db.robustBulkPut(db.transactions, this.transactions);
+      // Use atomic database transaction to prevent data loss
+      // This ensures either both clear and repopulate succeed, or neither happens
+      await db.transaction('rw', [db.transactions], async () => {
+        // Clear all existing transactions
+        await db.transactions.clear();
         
-        if (results.failed > 0) {
-          console.warn(`[TX] Save operation had issues: ${results.successful} successful, ${results.failed} failed`);
-          results.errors.forEach(error => console.warn(`[TX] ${error}`));
+        if (this.transactions.length > 0) {
+          // Use robust bulk operation with fallback to add current transactions
+          const results = await db.robustBulkPut(db.transactions, this.transactions);
+          
+          if (results.failed > 0) {
+            console.warn(`[TX] Save operation had issues: ${results.successful} successful, ${results.failed} failed`);
+            results.errors.forEach(error => console.warn(`[TX] ${error}`));
+            
+            // If we have significant failures, throw to rollback the transaction
+            if (results.failed > results.successful) {
+              throw new Error(`Too many save failures: ${results.failed}/${this.transactions.length} failed`);
+            }
+          } else {
+            console.log(`[TX] Successfully saved ${results.successful} transactions to IndexedDB`);
+          }
         } else {
-          console.log(`[TX] Successfully saved ${results.successful} transactions to IndexedDB`);
+          console.log(`[TX] Successfully cleared all transactions from IndexedDB`);
         }
-      } else {
-        console.log(`[TX] Successfully cleared all transactions from IndexedDB`);
-      }
+      });
     } catch (error) {
       console.error('[TX] Failed to save transactions to IndexedDB:', error);
+      // The transaction will automatically rollback, preserving existing data
+      throw error; // Re-throw to let callers know save failed
     }
   }
 
@@ -1475,8 +1501,13 @@ class DataService {
             this.transactions = matchedTransactions;
             // Only save if we finished in reasonable time
             if (duration < 8000) {
-              await this.saveToDB();
-              console.log('[TX] ✅ Auto-matched transfers and saved to DB');
+              try {
+                await this.saveToDB();
+                console.log('[TX] ✅ Auto-matched transfers and saved to DB');
+              } catch (error) {
+                console.error('[TX] ❌ Failed to save auto-matched transfers:', error);
+                console.warn('[TX] ⚠️ Transfer matches applied in memory but not persisted to database');
+              }
             } else {
               console.warn('[TX] Transfer matching took too long, not saving results');
             }
