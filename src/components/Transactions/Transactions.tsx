@@ -2620,7 +2620,7 @@ const Transactions: React.FC = () => {
       tolerancePercentage: 0.05
     });
     
-    if (result) {
+    if (result && result.matches.length > 0) {
       setShowReimbursementPanel(true);
     }
   };
