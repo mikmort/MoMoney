@@ -314,18 +314,20 @@ const SpendingReports: React.FC = () => {
     <SpendingContainer>
       {/* Date Range Controls */}
       <Card>
-        <h3>Date Range</h3>
         <div className="date-range-selector">
-          <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}>
-            <option>All Time</option>
-            <option>Current Month</option>
-            <option>Last 3 Months</option>
-            <option>Last 12 Months</option>
-            <option>Current Year</option>
-            <option>Previous Year</option>
-            <option>Year Before That</option>
-            <option>Custom Range</option>
-          </select>
+          <div className="filter-group">
+            <label>Date Range</label>
+            <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}>
+              <option>All Time</option>
+              <option>Current Month</option>
+              <option>Last 3 Months</option>
+              <option>Last 12 Months</option>
+              <option>Current Year</option>
+              <option>Previous Year</option>
+              <option>Year Before That</option>
+              <option>Custom Range</option>
+            </select>
+          </div>
 
           {dateRange === 'Custom Range' && (
             <div className="custom-range">
