@@ -1607,6 +1607,27 @@ Return ONLY a clean JSON response:
       return null;
     }
     
+    // Handle combined debit/credit column mapping
+    if (column.toLowerCase().includes('debit') && column.toLowerCase().includes('credit')) {
+      // Try to find separate Debit and Credit columns
+      const debitAmount = this.extractAmountFromColumn(row, 'Debit') || 
+                          this.extractAmountFromColumn(row, 'debit');
+      const creditAmount = this.extractAmountFromColumn(row, 'Credit') || 
+                           this.extractAmountFromColumn(row, 'credit');
+      
+      // If both have values, prioritize credit (income)
+      if (creditAmount !== null && creditAmount !== 0) {
+        return creditAmount;
+      }
+      
+      // Otherwise use debit (make it negative for expense)
+      if (debitAmount !== null && debitAmount !== 0) {
+        return debitAmount > 0 ? -debitAmount : debitAmount;
+      }
+      
+      return null;
+    }
+    
     return this.extractAmountFromColumn(row, column);
   }
 
