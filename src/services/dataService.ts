@@ -905,9 +905,26 @@ class DataService {
       } else {
         console.log(`[TX] Successfully cleared all transactions from IndexedDB`);
       }
+
+      // Notify backup service about data changes (but don't await to avoid blocking saves)
+      this.notifyBackupService();
     } catch (error) {
       console.error('[TX] Failed to save transactions to IndexedDB:', error);
     }
+  }
+
+  private notifyBackupService(): void {
+    // Use dynamic import and handle potential errors gracefully
+    import('./backupService')
+      .then(({ backupService }) => {
+        backupService.notifyDataChange();
+      })
+      .catch(error => {
+        // Don't log in tests to avoid noise
+        if (process.env.NODE_ENV !== 'test') {
+          console.warn('[TX] Failed to notify backup service:', error);
+        }
+      });
   }
 
   private async addHistorySnapshot(transactionId: string, snapshot: Transaction, note?: string): Promise<void> {

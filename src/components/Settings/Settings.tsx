@@ -6,8 +6,10 @@ import { userPreferencesService } from '../../services/userPreferencesService';
 import { simplifiedImportExportService, ExportData, ImportOptions } from '../../services/simplifiedImportExportService';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { currencyExchangeService } from '../../services/currencyExchangeService';
+import { backupService } from '../../services/backupService';
 import { useNotification } from '../../contexts/NotificationContext';
 import { UserPreferences, CurrencyExchangeRate } from '../../types';
+import { BackupMetadata } from '../../types/backup';
 import ImportSelectionDialog from './ImportSelectionDialog';
 
 const DangerZone = styled.div`
@@ -201,6 +203,144 @@ const SyncButton = styled(Button)`
   }
 `;
 
+const BackupModal = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`;
+
+const BackupModalContent = styled.div`
+  background: white;
+  padding: 24px;
+  border-radius: 12px;
+  max-width: 800px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  
+  h3 {
+    margin-bottom: 16px;
+    color: #333;
+  }
+  
+  .backup-item {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    background: #f9f9f9;
+    
+    .backup-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    
+    .backup-info {
+      flex: 1;
+      
+      .backup-timestamp {
+        font-weight: 500;
+        color: #333;
+        margin-bottom: 4px;
+      }
+      
+      .backup-stats {
+        font-size: 14px;
+        color: #666;
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      
+      .backup-type {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        margin-top: 4px;
+        
+        &.auto {
+          background: #e3f2fd;
+          color: #1976d2;
+        }
+        
+        &.manual {
+          background: #e8f5e8;
+          color: #2e7d32;
+        }
+      }
+    }
+    
+    .backup-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+  }
+  
+  .no-backups {
+    text-align: center;
+    padding: 40px 20px;
+    color: #666;
+    
+    .no-backups-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+  }
+  
+  .backup-summary {
+    padding: 16px;
+    background: #f5f5f5;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    
+    .summary-stats {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      
+      .stat {
+        text-align: center;
+        
+        .stat-value {
+          font-size: 18px;
+          font-weight: 600;
+          color: #333;
+        }
+        
+        .stat-label {
+          font-size: 12px;
+          color: #666;
+          text-transform: uppercase;
+        }
+      }
+    }
+  }
+  
+  .buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+`;
+
 const ConfirmContent = styled.div`
   background: white;
   padding: 24px;
@@ -293,6 +433,14 @@ const Settings: React.FC = () => {
   const [exchangeRates, setExchangeRates] = useState<CurrencyExchangeRate[]>([]);
   const [isLoadingRates, setIsLoadingRates] = useState(false);
   const [isSyncingRates, setIsSyncingRates] = useState(false);
+  
+  // Backup management state
+  const [backupList, setBackupList] = useState<BackupMetadata[]>([]);
+  const [isLoadingBackups, setIsLoadingBackups] = useState(false);
+  const [showBackupList, setShowBackupList] = useState(false);
+  const [isCreatingBackup, setIsCreatingBackup] = useState(false);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [isDeletingBackup, setIsDeletingBackup] = useState(false);
   
   // Import selection dialog state
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -628,6 +776,98 @@ const Settings: React.FC = () => {
     }
   };
 
+  // Backup management functions
+  const loadBackupList = async () => {
+    setIsLoadingBackups(true);
+    try {
+      const backups = await backupService.getBackupList();
+      setBackupList(backups);
+    } catch (error) {
+      console.error('Failed to load backup list:', error);
+      showAlert('error', 'Failed to load backup list.');
+    } finally {
+      setIsLoadingBackups(false);
+    }
+  };
+
+  const handleViewBackups = async () => {
+    setShowBackupList(true);
+    await loadBackupList();
+  };
+
+  const handleCreateManualBackup = async () => {
+    setIsCreatingBackup(true);
+    try {
+      await backupService.createBackup('manual');
+      await loadBackupList(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to create backup:', error);
+    } finally {
+      setIsCreatingBackup(false);
+    }
+  };
+
+  const handleRestoreBackup = async (backupId: string, timestamp: string) => {
+    const shouldRestore = await showConfirmation(
+      `Restore Backup?\n\n` +
+      `This will restore your data to the state from ${new Date(timestamp).toLocaleString()}.\n` +
+      `All current data will be replaced with the backup data.\n\n` +
+      `This action cannot be undone. Continue?`,
+      { 
+        title: 'Restore Backup',
+        confirmText: 'Restore',
+        cancelText: 'Cancel',
+        danger: true
+      }
+    );
+    
+    if (!shouldRestore) return;
+
+    setIsRestoringBackup(true);
+    try {
+      await backupService.restoreFromBackup(backupId);
+    } catch (error) {
+      console.error('Failed to restore backup:', error);
+    } finally {
+      setIsRestoringBackup(false);
+      setShowBackupList(false);
+    }
+  };
+
+  const handleDeleteBackup = async (backupId: string, timestamp: string) => {
+    const shouldDelete = await showConfirmation(
+      `Delete Backup?\n\n` +
+      `This will permanently delete the backup from ${new Date(timestamp).toLocaleString()}.\n\n` +
+      `This action cannot be undone. Continue?`,
+      { 
+        title: 'Delete Backup',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        danger: true
+      }
+    );
+    
+    if (!shouldDelete) return;
+
+    setIsDeletingBackup(true);
+    try {
+      await backupService.deleteBackup(backupId);
+      showAlert('success', 'Backup deleted successfully.');
+      await loadBackupList(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to delete backup:', error);
+      showAlert('error', 'Failed to delete backup.');
+    } finally {
+      setIsDeletingBackup(false);
+    }
+  };
+
+  const formatBackupSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const handleViewExchangeRates = async () => {
     setShowExchangeRates(true);
     await loadExchangeRates();
@@ -868,6 +1108,32 @@ const Settings: React.FC = () => {
           </div>
           
           <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
+            <h4>🕐 Automatic Backups</h4>
+            <p>Manage automatic version snapshots that are created when you make changes (max 3 backups, 30-minute intervals).</p>
+            
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
+              <Button 
+                onClick={handleViewBackups}
+                style={{ background: '#FF9800', borderColor: '#FF9800', color: 'white', minWidth: '140px' }}
+              >
+                📋 View Backups
+              </Button>
+              
+              <Button 
+                onClick={handleCreateManualBackup}
+                disabled={isCreatingBackup}
+                style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white', minWidth: '140px' }}
+              >
+                {isCreatingBackup ? 'Creating...' : '💾 Create Backup Now'}
+              </Button>
+            </div>
+            
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+              Automatic backups are created when you make changes and it's been 30+ minutes since the last backup. You can also create manual backups anytime.
+            </div>
+          </div>
+          
+          <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
             <h4>🔧 Support & Diagnostics</h4>
             <p>Export diagnostic information for troubleshooting (contains no sensitive financial data).</p>
             
@@ -1067,6 +1333,115 @@ const Settings: React.FC = () => {
             </div>
           </ConfirmContent>
         </ConfirmDialog>
+      )}
+
+      {/* Backup Management Modal */}
+      {showBackupList && (
+        <BackupModal onClick={() => setShowBackupList(false)}>
+          <BackupModalContent onClick={(e) => e.stopPropagation()}>
+            <h3>📋 Backup Management</h3>
+            
+            {isLoadingBackups ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                Loading backups...
+              </div>
+            ) : backupList.length === 0 ? (
+              <div className="no-backups">
+                <div className="no-backups-icon">💾</div>
+                <h4>No Backups Found</h4>
+                <p>No automatic backups have been created yet. Create your first backup below.</p>
+                <Button 
+                  onClick={handleCreateManualBackup}
+                  disabled={isCreatingBackup}
+                  style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white', marginTop: '16px' }}
+                >
+                  {isCreatingBackup ? 'Creating...' : '💾 Create First Backup'}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="backup-summary">
+                  <div className="summary-stats">
+                    <div className="stat">
+                      <div className="stat-value">{backupList.length}</div>
+                      <div className="stat-label">Total Backups</div>
+                    </div>
+                    <div className="stat">
+                      <div className="stat-value">
+                        {formatBackupSize(backupList.reduce((sum, b) => sum + b.size, 0))}
+                      </div>
+                      <div className="stat-label">Total Size</div>
+                    </div>
+                    <div className="stat">
+                      <div className="stat-value">
+                        {backupList.length > 0 ? new Date(backupList[0].timestamp).toLocaleDateString() : 'N/A'}
+                      </div>
+                      <div className="stat-label">Latest Backup</div>
+                    </div>
+                  </div>
+                </div>
+                
+                {backupList.map((backup) => (
+                  <div key={backup.id} className="backup-item">
+                    <div className="backup-header">
+                      <div className="backup-info">
+                        <div className="backup-timestamp">
+                          {new Date(backup.timestamp).toLocaleString()}
+                        </div>
+                        <div className="backup-stats">
+                          <span>{backup.transactionCount} transactions</span>
+                          <span>{backup.accountCount} accounts</span>
+                          <span>{formatBackupSize(backup.size)}</span>
+                        </div>
+                        <div className={`backup-type ${backup.createdBy}`}>
+                          {backup.createdBy === 'auto' ? '🤖 Automatic' : '👤 Manual'}
+                        </div>
+                      </div>
+                      <div className="backup-actions">
+                        <Button
+                          onClick={() => handleRestoreBackup(backup.id, backup.timestamp)}
+                          disabled={isRestoringBackup}
+                          style={{ 
+                            background: '#2196F3', 
+                            borderColor: '#2196F3', 
+                            color: 'white',
+                            fontSize: '12px',
+                            padding: '6px 12px'
+                          }}
+                        >
+                          🔄 Restore
+                        </Button>
+                        <Button
+                          onClick={() => handleDeleteBackup(backup.id, backup.timestamp)}
+                          disabled={isDeletingBackup}
+                          style={{ 
+                            background: '#f44336', 
+                            borderColor: '#f44336', 
+                            color: 'white',
+                            fontSize: '12px',
+                            padding: '6px 12px'
+                          }}
+                        >
+                          🗑️ Delete
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                <div style={{ marginTop: '16px', padding: '12px', background: '#fff3cd', borderRadius: '6px', fontSize: '14px', color: '#856404' }}>
+                  <strong>⚠️ Important:</strong> Restoring a backup will replace all your current data with the backup data. This cannot be undone.
+                </div>
+              </>
+            )}
+            
+            <div className="buttons">
+              <Button onClick={() => setShowBackupList(false)}>
+                Close
+              </Button>
+            </div>
+          </BackupModalContent>
+        </BackupModal>
       )}
 
       <ImportSelectionDialog
