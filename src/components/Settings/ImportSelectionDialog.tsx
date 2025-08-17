@@ -337,6 +337,40 @@ export const ImportSelectionDialog: React.FC<ImportSelectionDialogProps> = ({
               )}
             </div>
           </div>
+
+          <div className={`option-item ${options.preferences ? 'selected' : ''}`}>
+            <input
+              type="checkbox"
+              checked={options.preferences}
+              onChange={(e) => handleOptionChange('preferences', e.target.checked)}
+            />
+            <div className="option-content">
+              <div className="option-title">⚙️ Preferences</div>
+              <div className="option-description">
+                Import user preferences including currency, date format, and theme settings
+              </div>
+              {dataCounts && dataCounts.preferences > 0 && (
+                <div className="option-count">Preferences available</div>
+              )}
+            </div>
+          </div>
+
+          <div className={`option-item ${options.transactionHistory ? 'selected' : ''}`}>
+            <input
+              type="checkbox"
+              checked={options.transactionHistory}
+              onChange={(e) => handleOptionChange('transactionHistory', e.target.checked)}
+            />
+            <div className="option-content">
+              <div className="option-title">📜 Transaction History</div>
+              <div className="option-description">
+                Import transaction edit history and audit trail data
+              </div>
+              {dataCounts && dataCounts.transactionHistory > 0 && (
+                <div className="option-count">{dataCounts.transactionHistory} history entr(y/ies) available</div>
+              )}
+            </div>
+          </div>
         </OptionsGrid>
 
         <ButtonRow>

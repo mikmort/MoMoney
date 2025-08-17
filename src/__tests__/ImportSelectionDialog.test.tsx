@@ -128,7 +128,7 @@ describe('ImportSelectionDialog', () => {
     );
 
     const checkboxes = screen.getAllByRole('checkbox');
-    expect(checkboxes).toHaveLength(8); // accounts, transactions, categories, budgets, rules, balanceHistory, currencyRates, transferMatches
+    expect(checkboxes).toHaveLength(10); // accounts, transactions, categories, budgets, rules, balanceHistory, currencyRates, transferMatches, preferences, transactionHistory
     
     checkboxes.forEach(checkbox => {
       expect(checkbox).toBeChecked();
