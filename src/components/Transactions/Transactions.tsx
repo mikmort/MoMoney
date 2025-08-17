@@ -1526,14 +1526,25 @@ const Transactions: React.FC = () => {
           ? transactions 
           : await dataService.getTransactionsWithoutTransfers();
         
-        setFilteredTransactions(displayTransactions);
+        // Check if any filters are active that would require special filtering
+        const hasActiveFilters = showMatchedTransactions || showUnmatchedTransactions || 
+                               !showReimbursedTransactions || showInvestmentTransactions ||
+                               filters.category.length > 0 || filters.type.length > 0 || 
+                               filters.account.length > 0 || filters.search.length > 0 ||
+                               filters.dateFrom || filters.dateTo;
+        
+        // If no special filters are active, update filtered transactions directly
+        // If filters are active, let the applyFilters useEffect handle filtering
+        if (!hasActiveFilters) {
+          setFilteredTransactions(displayTransactions);
+        }
       } catch (error) {
         console.error('❌ Error updating transaction display:', error);
       }
     };
 
     updateTransactionDisplay();
-  }, [transactions, transferDisplayOptions.showTransfers]);
+  }, [transactions, transferDisplayOptions.showTransfers, showMatchedTransactions, showUnmatchedTransactions, showReimbursedTransactions, showInvestmentTransactions, filters]);
 
   const onGridReady = useCallback((params: GridReadyEvent) => {
     // Store grid API reference
