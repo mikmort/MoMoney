@@ -337,6 +337,33 @@ class DataService {
         reasoning: 'Coffee purchase in British Pounds',
         isVerified: false,
         vendor: 'Pret A Manger'
+      },
+      // Asset allocation sample transactions for testing the filter
+      {
+        date: new Date('2025-07-20'),
+        description: 'Stock Purchase - AAPL',
+        category: 'Asset Allocation',
+        subcategory: 'Stocks',
+        amount: -1500.00, // Investment purchase (negative)
+        account: 'Investment Account',
+        type: 'asset-allocation',
+        confidence: 0.95,
+        reasoning: 'Investment transaction identified',
+        isVerified: false,
+        vendor: 'Brokerage Firm'
+      },
+      {
+        date: new Date('2025-07-19'),
+        description: 'Dividend Payment - VOO',
+        category: 'Asset Allocation',
+        subcategory: 'Dividends',
+        amount: 75.00, // Investment income (positive)
+        account: 'Investment Account', 
+        type: 'asset-allocation',
+        confidence: 0.98,
+        reasoning: 'Dividend payment identified',
+        isVerified: true,
+        vendor: 'Vanguard'
       }
     ];
 

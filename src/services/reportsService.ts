@@ -162,7 +162,12 @@ class ReportsService {
           return false;
         }
         
-        // For other selected types, apply basic filtering
+        // For asset-allocation transactions, include them if selected regardless of amount
+        if (t.type === 'asset-allocation') {
+          return true; // Already passed selectedTypes check, so include it
+        }
+        
+        // For other selected types, apply income/expense filtering
         if (type === 'expense') {
           return t.type === 'expense' || t.amount < 0;
         } else if (type === 'income') {
