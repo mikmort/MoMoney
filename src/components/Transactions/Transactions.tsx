@@ -1725,6 +1725,10 @@ const Transactions: React.FC = () => {
     
     const { transaction, updatedTransaction, newCategory, newSubcategory } = categoryEditData;
     
+    // Preserve current filter states before transaction update
+    const currentShowUnmatched = showUnmatchedTransactions;
+    const currentShowMatched = showMatchedTransactions;
+    
     try {
       if (option === 'current') {
         // Just update this transaction
@@ -1777,6 +1781,14 @@ const Transactions: React.FC = () => {
       const refreshedTransactions = await dataService.getAllTransactions();
       setTransactions(refreshedTransactions);
       // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
+      
+      // Ensure filter states are preserved after transaction update
+      if (currentShowUnmatched && !showUnmatchedTransactions) {
+        setShowUnmatchedTransactions(true);
+      }
+      if (currentShowMatched && !showMatchedTransactions) {
+        setShowMatchedTransactions(true);
+      }
       
       console.log(`✅ Category edit applied with option: ${option}`);
     } catch (error) {
