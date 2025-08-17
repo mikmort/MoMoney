@@ -3101,7 +3101,7 @@ const Transactions: React.FC = () => {
               </QuickFilterButton>
             )}
             
-            {countMatchedTransferTransactions(filteredTransactions) > 0 && (
+            {countMatchedTransferTransactions(transactions) > 0 && (
               <QuickFilterButton
                 isActive={showMatchedTransactions}
                 activeColor="#28a745"
@@ -3118,11 +3118,11 @@ const Transactions: React.FC = () => {
                 }}
                 title="Show only matched transfer transactions"
               >
-                ✅ Matched Transfers ({countMatchedTransferTransactions(filteredTransactions)})
+                ✅ Matched Transfers ({countMatchedTransferTransactions(transactions)})
               </QuickFilterButton>
             )}
             
-            {countUnmatchedTransferTransactions(filteredTransactions) > 0 && (
+            {countUnmatchedTransferTransactions(transactions) > 0 && (
               <QuickFilterButton
                 isActive={showUnmatchedTransactions}
                 activeColor="#ffc107"
@@ -3139,7 +3139,7 @@ const Transactions: React.FC = () => {
                 }}
                 title="Show only unmatched transfer transactions"
               >
-                ⚠️ Unmatched Transfers ({countUnmatchedTransferTransactions(filteredTransactions)})
+                ⚠️ Unmatched Transfers ({countUnmatchedTransferTransactions(transactions)})
               </QuickFilterButton>
             )}
           </div>
