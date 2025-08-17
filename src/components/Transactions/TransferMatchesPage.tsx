@@ -576,6 +576,12 @@ export const TransferMatchesPage: React.FC = () => {
     }
 
     // Different accounts - regular transfer validation
+    // For transfers between different accounts, amounts must have opposite signs
+    const hasOppositeAmounts = (sourceTx.amount > 0) !== (targetTx.amount > 0);
+    if (!hasOppositeAmounts) {
+      return { isValid: false, reason: 'Transfer amounts must have opposite signs (one positive, one negative)' };
+    }
+    
     const amountDiff = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount));
     const tolerance = 0.01; // 1% tolerance
     const avgAmount = (Math.abs(sourceTx.amount) + Math.abs(targetTx.amount)) / 2;
@@ -751,7 +757,7 @@ export const TransferMatchesPage: React.FC = () => {
                           <div className="description">{sourceTx.description}</div>
                           <div className="meta">
                             <div><strong>Account:</strong> {sourceTx.account}</div>
-                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={sourceTx} /></span></div>
+                            <div><strong>Amount:</strong> <span className={`amount ${sourceTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={sourceTx} /></span></div>
                             <div><strong>Date:</strong> {sourceTx.date.toLocaleDateString()}</div>
                           </div>
                         </div>
@@ -867,7 +873,7 @@ export const TransferMatchesPage: React.FC = () => {
                           <div className="description">{sourceTx.description}</div>
                           <div className="meta">
                             <div><strong>Account:</strong> {sourceTx.account}</div>
-                            <div><strong>Amount:</strong> <span className={`amount ${targetTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={sourceTx} /></span></div>
+                            <div><strong>Amount:</strong> <span className={`amount ${sourceTx.amount > 0 ? 'positive' : 'negative'}`}><AmountText tx={sourceTx} /></span></div>
                             <div><strong>Date:</strong> {sourceTx.date.toLocaleDateString()}</div>
                           </div>
                         </div>
