@@ -863,7 +863,6 @@ const Transactions: React.FC = () => {
   const { showAlert, showConfirmation } = useNotification();
   const [searchParams] = useSearchParams();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
   const [showInvestmentTransactions, setShowInvestmentTransactions] = useState(false); // Hide investments by default
@@ -1064,6 +1063,72 @@ const Transactions: React.FC = () => {
     countUnmatchedTransfers,
     getMatchedTransfers 
   } = useTransferMatching();
+
+  // Use useMemo to prevent unnecessary AgGrid re-renders that reset sort state
+  const filteredTransactions = useMemo(() => {
+    let baseTransactions = transactions;
+    
+    // Handle transfer display options - filter out transfers if needed
+    if (!transferDisplayOptions.showTransfers) {
+      baseTransactions = transactions.filter(t => t.type !== 'transfer');
+    }
+    
+    let filtered = baseTransactions.slice();
+
+    // Filter out reimbursed transactions if the toggle is off
+    if (!showReimbursedTransactions) {
+      filtered = filterNonReimbursed(filtered);
+    }
+
+    // Filter out investment transactions if the toggle is off (default behavior)
+    if (!showInvestmentTransactions) {
+      filtered = filtered.filter((t: Transaction) => t.type !== 'asset-allocation');
+    }
+
+    // Quick filter for matched/unmatched transfer transactions
+    if (showMatchedTransactions || showUnmatchedTransactions) {
+      if (showMatchedTransactions && showUnmatchedTransactions) {
+        // Both selected - empty set (no transaction can be both matched and unmatched)
+        filtered = [];
+      } else if (showMatchedTransactions) {
+        // Show only matched transfer transactions
+        const matchedTransferIds = new Set(getMatchedTransfers(transactions).flatMap(match => [match.sourceTransactionId, match.targetTransactionId]));
+        filtered = filtered.filter((t: Transaction) => 
+          t.type === 'transfer' && matchedTransferIds.has(t.id)
+        );
+      } else if (showUnmatchedTransactions) {
+        // Show only unmatched transfer transactions
+        const unmatchedTransfers = getUnmatchedTransfers(transactions);
+        const unmatchedTransferIds = new Set(unmatchedTransfers.map(t => t.id));
+        filtered = filtered.filter((t: Transaction) => 
+          t.type === 'transfer' && unmatchedTransferIds.has(t.id)
+        );
+      }
+    }
+
+    if (filters.category.length > 0) {
+      filtered = filtered.filter((t: Transaction) => filters.category.includes(t.category));
+    }
+    if (filters.type.length > 0) {
+      filtered = filtered.filter((t: Transaction) => filters.type.includes(t.type));
+    }
+    if (filters.account.length > 0) {
+      filtered = filtered.filter((t: Transaction) => filters.account.includes(t.account));
+    }
+    if (filters.search) {
+      filtered = filtered.filter((t: Transaction) => 
+        t.description.toLowerCase().includes(filters.search.toLowerCase())
+      );
+    }
+    if (filters.dateFrom) {
+      filtered = filtered.filter((t: Transaction) => t.date >= new Date(filters.dateFrom));
+    }
+    if (filters.dateTo) {
+      filtered = filtered.filter((t: Transaction) => t.date <= new Date(filters.dateTo));
+    }
+
+    return filtered;
+  }, [transactions, transferDisplayOptions.showTransfers, filters, showReimbursedTransactions, showInvestmentTransactions, showMatchedTransactions, showUnmatchedTransactions, filterNonReimbursed, getMatchedTransfers, getUnmatchedTransfers]);
 
   // Helper function to parse category string (e.g., "Food > Restaurants" or "Food")
   const parseCategoryString = (categoryString: string): { category: string; subcategory?: string } => {
@@ -1480,29 +1545,20 @@ const Transactions: React.FC = () => {
           // Load collapsed transfers
           const collapsed = await dataService.getCollapsedTransfers();
           setCollapsedTransfers(collapsed);
-          
-          // Filter transactions based on transfer display options
-          const displayTransactions = transferDisplayOptions.showTransfers 
-            ? allTransactions 
-            : await dataService.getTransactionsWithoutTransfers();
-          
-          setFilteredTransactions(displayTransactions);
         } else {
           setTransactions(allTransactions);
-          setFilteredTransactions(allTransactions);
           setCollapsedTransfers([]);
         }
       } catch (error) {
         console.error('❌ Error loading transactions:', error);
         // Fall back to empty array if loading fails
         setTransactions([]);
-        setFilteredTransactions([]);
         setCollapsedTransfers([]);
       }
     };
 
     loadTransactions();
-  }, [transferDisplayOptions.showTransfers]);
+  }, []);
 
   // Handle URL parameters for filtering
   useEffect(() => {
@@ -1514,26 +1570,6 @@ const Transactions: React.FC = () => {
       }));
     }
   }, [searchParams]);
-
-  // Handle transfer display options changes
-  useEffect(() => {
-    const updateTransactionDisplay = async () => {
-      if (transactions.length === 0) return;
-      
-      try {
-        const showTransfers = transferDisplayOptions.showTransfers;
-        const displayTransactions = showTransfers 
-          ? transactions 
-          : await dataService.getTransactionsWithoutTransfers();
-        
-        setFilteredTransactions(displayTransactions);
-      } catch (error) {
-        console.error('❌ Error updating transaction display:', error);
-      }
-    };
-
-    updateTransactionDisplay();
-  }, [transactions, transferDisplayOptions.showTransfers]);
 
   const onGridReady = useCallback((params: GridReadyEvent) => {
     // Store grid API reference
@@ -2097,72 +2133,7 @@ const Transactions: React.FC = () => {
     setAccountDetectionResult(undefined);
   };
 
-  const applyFilters = useCallback(() => {
-    let filtered = transactions.slice(); // Use slice() instead of spread
 
-    // Filter out reimbursed transactions if the toggle is off
-    if (!showReimbursedTransactions) {
-      filtered = filterNonReimbursed(filtered);
-    }
-
-    // Filter out investment transactions if the toggle is off (default behavior)
-    if (!showInvestmentTransactions) {
-      filtered = filtered.filter((t: Transaction) => t.type !== 'asset-allocation');
-    }
-
-    // Quick filter for matched/unmatched transfer transactions
-    // When both are false (default), show all transactions
-    // When one is true, show only those matching that filter  
-    // When both are true, show nothing (no transaction can be both matched and unmatched)
-    if (showMatchedTransactions || showUnmatchedTransactions) {
-      if (showMatchedTransactions && showUnmatchedTransactions) {
-        // Both selected - empty set (no transaction can be both matched and unmatched)
-        filtered = [];
-      } else if (showMatchedTransactions) {
-        // Show only matched transfer transactions
-        const matchedTransferIds = new Set(getMatchedTransfers(transactions).flatMap(match => [match.sourceTransactionId, match.targetTransactionId]));
-        filtered = filtered.filter((t: Transaction) => 
-          t.type === 'transfer' && matchedTransferIds.has(t.id)
-        );
-      } else if (showUnmatchedTransactions) {
-        // Show only unmatched transfer transactions
-        const unmatchedTransfers = getUnmatchedTransfers(transactions);
-        const unmatchedTransferIds = new Set(unmatchedTransfers.map(t => t.id));
-        filtered = filtered.filter((t: Transaction) => 
-          t.type === 'transfer' && unmatchedTransferIds.has(t.id)
-        );
-      }
-    }
-
-    if (filters.category.length > 0) {
-      filtered = filtered.filter((t: Transaction) => filters.category.includes(t.category));
-    }
-    if (filters.type.length > 0) {
-      filtered = filtered.filter((t: Transaction) => filters.type.includes(t.type));
-    }
-    if (filters.account.length > 0) {
-      filtered = filtered.filter((t: Transaction) => filters.account.includes(t.account));
-    }
-    if (filters.search) {
-      filtered = filtered.filter((t: Transaction) => 
-        t.description.toLowerCase().includes(filters.search.toLowerCase())
-      );
-    }
-    if (filters.dateFrom) {
-      filtered = filtered.filter((t: Transaction) => t.date >= new Date(filters.dateFrom));
-    }
-    if (filters.dateTo) {
-      filtered = filtered.filter((t: Transaction) => t.date <= new Date(filters.dateTo));
-    }
-
-    // Remove transfer filter functionality
-    
-    setFilteredTransactions(filtered);
-  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, showMatchedTransactions, showUnmatchedTransactions, filterNonReimbursed, getMatchedTransfers, getUnmatchedTransfers]);
-
-  useEffect(() => {
-    applyFilters();
-  }, [applyFilters]);
 
   // Refresh undo/redo status when filtered transactions change
   useEffect(() => {
