@@ -234,10 +234,13 @@ export const CategoryRulesManager: React.FC<CategoryRulesManagerProps> = ({
     });
   };
 
-  const loadRules = async () => {
+  const loadRules = async (shouldAutoInitialize: boolean = true) => {
     try {
       // Initialize rules from existing transactions if no rules exist
-      await rulesService.initializeRulesFromExistingTransactions();
+      // Skip auto-initialization when explicitly requested (e.g., after deletion)
+      if (shouldAutoInitialize) {
+        await rulesService.initializeRulesFromExistingTransactions();
+      }
       
       const allRules = await dataService.getAllCategoryRules();
       setRules(allRules);
@@ -307,7 +310,7 @@ export const CategoryRulesManager: React.FC<CategoryRulesManagerProps> = ({
     if (window.confirm('Are you sure you want to delete this rule?')) {
       try {
         await dataService.deleteCategoryRule(ruleId);
-        await loadRules();
+        await loadRules(false); // Skip auto-initialization after deletion
       } catch (error) {
         console.error('Failed to delete rule:', error);
       }
