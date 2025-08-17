@@ -2326,7 +2326,7 @@ const Transactions: React.FC = () => {
 
         const all = await dataService.getAllTransactions();
         setTransactions(all);
-        setFilteredTransactions(all);
+        // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
       } catch (e) {
         console.error('Suggest Category failed:', e);
         showAlert('error', 'Failed to suggest category');
