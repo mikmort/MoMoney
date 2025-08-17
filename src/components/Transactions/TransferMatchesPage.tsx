@@ -346,6 +346,7 @@ export const TransferMatchesPage: React.FC = () => {
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [showUnmatched, setShowUnmatched] = useState(false);
+  const [manualMatchValidation, setManualMatchValidation] = useState<any>(null);
 
   const {
     isLoading,
@@ -372,6 +373,97 @@ export const TransferMatchesPage: React.FC = () => {
     }, [tx]);
     return <>{text}</>;
   };
+
+  const validateManualMatch = useCallback(async () => {
+    if (!selectedSource || !selectedTarget) return null;
+
+    const sourceTx = transactions.find(t => t.id === selectedSource);
+    const targetTx = transactions.find(t => t.id === selectedTarget);
+
+    if (!sourceTx || !targetTx) return null;
+
+    // Convert both transactions to default currency for proper comparison
+    let sourceAmount = sourceTx.amount;
+    let targetAmount = targetTx.amount;
+    let conversionFailed = false;
+
+    try {
+      const sourceConverted = await currencyDisplayService.convertTransactionAmount(sourceTx);
+      const targetConverted = await currencyDisplayService.convertTransactionAmount(targetTx);
+      sourceAmount = sourceConverted.amount;
+      targetAmount = targetConverted.amount;
+    } catch (error) {
+      console.warn('Currency conversion failed for manual match validation:', error);
+      conversionFailed = true;
+      // Fall back to original amounts if conversion fails
+    }
+
+    // Check if same account - allow if opposite amounts (matched transactions)
+    if (sourceTx.account === targetTx.account) {
+      // Allow same-account matching if they have opposite amounts (matched transactions)
+      const hasOppositeAmounts = (sourceAmount > 0) !== (targetAmount > 0);
+      if (!hasOppositeAmounts) {
+        return { isValid: false, reason: 'Same account transactions must have opposite amounts to be matched' };
+      }
+      // For same-account matches, we're more lenient since they're typically cancellations
+      const amountDiff = Math.abs(Math.abs(sourceAmount) - Math.abs(targetAmount));
+      const tolerance = conversionFailed ? 0.12 : 0.01; // Use higher tolerance if conversion failed (for different currencies)
+      const avgAmount = (Math.abs(sourceAmount) + Math.abs(targetAmount)) / 2;
+      const isAmountValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
+      
+      const formattedDiff = await currencyDisplayService.formatAmount(amountDiff);
+      return {
+        isValid: isAmountValid,
+        reason: isAmountValid 
+          ? `Same-account matched transaction: ${formattedDiff} difference${conversionFailed ? ' (estimated - currency conversion unavailable)' : ''}`
+          : `Large amount difference (${formattedDiff}). This may not be a valid cancellation/reversal.${conversionFailed ? ' Currency conversion failed.' : ''}`,
+        sourceTx,
+        targetTx,
+        amountDiff,
+        matchType: 'same-account' as const
+      };
+    }
+
+    // Different accounts - regular transfer validation
+    // For transfers between different accounts, amounts must have opposite signs
+    const hasOppositeAmounts = (sourceAmount > 0) !== (targetAmount > 0);
+    if (!hasOppositeAmounts) {
+      return { isValid: false, reason: 'Transfer amounts must have opposite signs (one positive, one negative)' };
+    }
+    
+    const amountDiff = Math.abs(Math.abs(sourceAmount) - Math.abs(targetAmount));
+    const tolerance = conversionFailed ? 0.12 : 0.01; // Use higher tolerance if conversion failed (for different currencies)
+    const avgAmount = (Math.abs(sourceAmount) + Math.abs(targetAmount)) / 2;
+    const isAmountValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
+    const percentageDiff = avgAmount > 0 ? ((amountDiff / avgAmount) * 100) : 0;
+
+    const formattedDiff = await currencyDisplayService.formatAmount(amountDiff);
+    return {
+      isValid: isAmountValid,
+      reason: isAmountValid 
+        ? `Transfer match: ${formattedDiff} difference${conversionFailed ? ' (estimated - currency conversion unavailable)' : ''}`
+        : `Amount difference is significant: ${formattedDiff} (${percentageDiff.toFixed(1)}%). This may not be a valid transfer match.${conversionFailed ? ' Currency conversion failed.' : ''}`,
+      sourceTx,
+      targetTx,
+      amountDiff
+    };
+  }, [selectedSource, selectedTarget, transactions]);
+
+  // Update manual match validation when selection changes
+  useEffect(() => {
+    if (selectedSource && selectedTarget) {
+      let mounted = true;
+      (async () => {
+        const validation = await validateManualMatch();
+        if (mounted) {
+          setManualMatchValidation(validation);
+        }
+      })();
+      return () => { mounted = false; };
+    } else {
+      setManualMatchValidation(null);
+    }
+  }, [selectedSource, selectedTarget, validateManualMatch]);
 
   const loadData = useCallback(async () => {
     try {
@@ -438,7 +530,7 @@ export const TransferMatchesPage: React.FC = () => {
   const handleManualMatch = async () => {
     if (!selectedSource || !selectedTarget) return;
 
-    const validation = validateManualMatch();
+    const validation = manualMatchValidation;
     if (!validation?.isValid) return;
 
     try {
@@ -542,62 +634,6 @@ export const TransferMatchesPage: React.FC = () => {
 
   // Deprecated local formatter removed in favor of currencyDisplayService
 
-  const validateManualMatch = () => {
-    if (!selectedSource || !selectedTarget) return null;
-
-    const sourceTx = transactions.find(t => t.id === selectedSource);
-    const targetTx = transactions.find(t => t.id === selectedTarget);
-
-    if (!sourceTx || !targetTx) return null;
-
-    // Check if same account - allow if opposite amounts (matched transactions)
-    if (sourceTx.account === targetTx.account) {
-      // Allow same-account matching if they have opposite amounts (matched transactions)
-      const hasOppositeAmounts = (sourceTx.amount > 0) !== (targetTx.amount > 0);
-      if (!hasOppositeAmounts) {
-        return { isValid: false, reason: 'Same account transactions must have opposite amounts to be matched' };
-      }
-      // For same-account matches, we're more lenient since they're typically cancellations
-      const amountDiff = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount));
-      const tolerance = 0.01; // 1% tolerance
-      const avgAmount = (Math.abs(sourceTx.amount) + Math.abs(targetTx.amount)) / 2;
-      const isAmountValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
-      
-      return {
-        isValid: isAmountValid,
-        reason: isAmountValid 
-          ? `Same-account matched transaction: $${amountDiff.toFixed(2)} difference`
-          : `Large amount difference ($${amountDiff.toFixed(2)}). This may not be a valid cancellation/reversal.`,
-        sourceTx,
-        targetTx,
-        amountDiff,
-        matchType: 'same-account' as const
-      };
-    }
-
-    // Different accounts - regular transfer validation
-    // For transfers between different accounts, amounts must have opposite signs
-    const hasOppositeAmounts = (sourceTx.amount > 0) !== (targetTx.amount > 0);
-    if (!hasOppositeAmounts) {
-      return { isValid: false, reason: 'Transfer amounts must have opposite signs (one positive, one negative)' };
-    }
-    
-    const amountDiff = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount));
-    const tolerance = 0.01; // 1% tolerance
-    const avgAmount = (Math.abs(sourceTx.amount) + Math.abs(targetTx.amount)) / 2;
-    const isAmountValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
-
-    return {
-      isValid: isAmountValid,
-      reason: isAmountValid 
-        ? `Transfer match: $${amountDiff.toFixed(2)} difference`
-        : `Large amount difference ($${amountDiff.toFixed(2)}). This may not be a valid transfer match.`,
-      sourceTx,
-      targetTx,
-      amountDiff
-    };
-  };
-
   const unmatchedTransfers = getUnmatchedTransfers(transactions);
   const availableForManualMatch = unmatchedTransfers.filter(t => t.type === 'transfer');
 
@@ -605,7 +641,7 @@ export const TransferMatchesPage: React.FC = () => {
   const totalUnmatched = unmatchedTransfers.length;
   const totalTransfers = transactions.filter(t => t.type === 'transfer').length;
 
-  const validation = validateManualMatch();
+  const validation = manualMatchValidation;
 
   return (
     <div>
