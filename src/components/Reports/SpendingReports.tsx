@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import styled from 'styled-components';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import { Card, Grid } from '../../styles/globalStyles';
@@ -15,6 +15,8 @@ import { MultiSelectFilter } from '../shared/MultiSelectFilter';
 import CategoryDrilldownModal from './CategoryDrilldownModal';
 import TransactionDetailsModal, { TransactionFilter } from './TransactionDetailsModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
+import { dataService } from '../../services/dataService';
+import { Transaction } from '../../types';
 
 const SpendingContainer = styled.div`
   .date-range-selector {
@@ -35,6 +37,19 @@ const SpendingContainer = styled.div`
       display: flex;
       gap: 10px;
       align-items: center;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 140px;
+      
+      label {
+        font-size: 0.85rem;
+        color: #666;
+        font-weight: 500;
+      }
     }
   }
 `;
@@ -109,6 +124,9 @@ const SpendingReports: React.FC = () => {
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [selectedSpendingTypes, setSelectedSpendingTypes] = useState<string[]>(['expense']);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [spendingByCategory, setSpendingByCategory] = useState<SpendingByCategory[]>([]);
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
   const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
@@ -125,6 +143,31 @@ const SpendingReports: React.FC = () => {
     filter: { type: 'category' },
     title: ''
   });
+
+  // Load transactions and compute unique values
+  useEffect(() => {
+    const loadTransactions = async () => {
+      try {
+        const allTransactions = await dataService.getAllTransactions();
+        setTransactions(allTransactions);
+      } catch (error) {
+        console.error('Error loading transactions:', error);
+      }
+    };
+    loadTransactions();
+  }, []);
+
+  // Compute unique categories and accounts from transactions
+  const uniqueCategories = useMemo(() => 
+    Array.from(new Set(transactions.map((t: Transaction) => t.category)))
+      .sort((a, b) => a.localeCompare(b)), 
+    [transactions]
+  );
+  
+  const uniqueAccounts = useMemo(() => 
+    Array.from(new Set(transactions.map((t: Transaction) => t.account))),
+    [transactions]
+  );
 
   useEffect(() => {
     (async () => {
@@ -187,15 +230,23 @@ const SpendingReports: React.FC = () => {
     }
   }, [getCurrentDateRange, selectedSpendingTypes]);
 
+  // Filter spending categories based on selected categories
+  const filteredSpendingByCategory = useMemo(() => {
+    if (selectedCategories.length === 0) {
+      return spendingByCategory;
+    }
+    return spendingByCategory.filter(category => selectedCategories.includes(category.categoryName));
+  }, [spendingByCategory, selectedCategories]);
+
   useEffect(() => {
     loadSpendingData();
   }, [loadSpendingData]);
 
   // Chart data preparation
   const categoryChartData = {
-    labels: spendingByCategory.map(cat => cat.categoryName),
+    labels: filteredSpendingByCategory.map(cat => cat.categoryName),
     datasets: [{
-      data: spendingByCategory.map(cat => cat.amount),
+      data: filteredSpendingByCategory.map(cat => cat.amount),
       backgroundColor: [
         '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
         '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384'
@@ -219,7 +270,7 @@ const SpendingReports: React.FC = () => {
   const handleCategoryChartClick = (event: any, elements: any) => {
     if (elements.length > 0) {
       const index = elements[0].index;
-      const categoryName = spendingByCategory[index].categoryName;
+      const categoryName = filteredSpendingByCategory[index].categoryName;
       setSelectedCategory(categoryName);
     }
   };
@@ -263,6 +314,28 @@ const SpendingReports: React.FC = () => {
               selectedValues={selectedSpendingTypes}
               onChange={setSelectedSpendingTypes}
               placeholder="Select types..."
+            />
+          </div>
+
+          <div className="filter-group">
+            <label>Categories</label>
+            <MultiSelectFilter
+              label="Categories"
+              options={uniqueCategories}
+              selectedValues={selectedCategories}
+              onChange={setSelectedCategories}
+              placeholder="All Categories"
+            />
+          </div>
+          
+          <div className="filter-group">
+            <label>Accounts</label>
+            <MultiSelectFilter
+              label="Accounts"
+              options={uniqueAccounts}
+              selectedValues={selectedAccounts}
+              onChange={setSelectedAccounts}
+              placeholder="All Accounts"
             />
           </div>
         </div>
@@ -311,9 +384,9 @@ const SpendingReports: React.FC = () => {
         <ChartCard>
           <h3>Spending by Category</h3>
           <div className="chart-container">
-            {spendingByCategory.length > 0 ? (
+            {filteredSpendingByCategory.length > 0 ? (
               <Doughnut 
-                key={`category-chart-${spendingByCategory.length}`}
+                key={`category-chart-${filteredSpendingByCategory.length}`}
                 data={categoryChartData}
                 options={{
                   responsive: true,
@@ -331,7 +404,7 @@ const SpendingReports: React.FC = () => {
                       callbacks: {
                         label: function(context) {
                           const value = context.parsed;
-                          const total = spendingByCategory.reduce((sum, cat) => sum + cat.amount, 0);
+                          const total = filteredSpendingByCategory.reduce((sum, cat) => sum + cat.amount, 0);
                           const percentage = ((value / total) * 100).toFixed(1);
                           return `${context.label}: ${formatCurrency(value)} (${percentage}%)`;
                         },
@@ -410,11 +483,11 @@ const SpendingReports: React.FC = () => {
       </Grid>
 
       {/* Category Breakdown */}
-      {spendingByCategory.length > 0 && (
+      {filteredSpendingByCategory.length > 0 && (
         <Card>
           <h3>Category Breakdown (Click for Details)</h3>
           <CategoryTable>
-            {spendingByCategory.map((category, index) => (
+            {filteredSpendingByCategory.map((category, index) => (
               <div 
                 key={index} 
                 className="category-row"

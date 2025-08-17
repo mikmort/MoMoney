@@ -28,6 +28,11 @@ yarn-error.log*
 # Runtime data
 pids
 *.pid
+
+# Screenshots and demo files  
+*.png
+*.jpg
+*.jpeg
 *.seed
 *.pid.lock
 

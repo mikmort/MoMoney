@@ -17,6 +17,20 @@ const ImportContainer = styled.div`
   margin-bottom: 16px;
 `;
 
+const CollapsedImportContainer = styled.div`
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 16px;
+  min-height: 120px; /* Match the height that will be taken by BulkOperationsBar */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  cursor: default;
+`;
+
 const ImportButton = styled.button`
   background: #0066cc;
   color: white;
@@ -137,9 +151,10 @@ const CloseErrorButton = styled.button`
 
 interface FileImportProps {
   onImportComplete: (transactions: number) => void;
+  isCollapsed?: boolean; // New prop to control collapsed state
 }
 
-export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
+export const FileImport: React.FC<FileImportProps> = ({ onImportComplete, isCollapsed = false }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false); // New state for account detection phase
   const [multiFileProgress, setMultiFileProgress] = useState<MultiFileImportProgress | null>(null);
@@ -993,6 +1008,20 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const getSupportedFormats = () => {
     return '.csv,.xlsx,.xls,.ofx,.pdf';
   };
+
+  // If collapsed, show minimal view
+  if (isCollapsed) {
+    return (
+      <CollapsedImportContainer>
+        <div style={{ textAlign: 'center' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: '#999' }}>📁 Import Transactions</h3>
+          <p style={{ margin: '0', fontSize: '0.9rem', color: '#999' }}>
+            File import is temporarily collapsed while transactions are selected
+          </p>
+        </div>
+      </CollapsedImportContainer>
+    );
+  }
 
   return (
     <ImportContainer>
