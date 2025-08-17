@@ -163,16 +163,29 @@ class TransferMatchingService {
         if (matchedIds.has(targetTx.id) || sourceTx.id === targetTx.id) continue;
 
         // Check if amounts are inverse (one positive, one negative, similar magnitude)
-        // New requirement: If amounts aren't identical AND both have same currency (no conversion), don't auto-match
+        // New requirement: If amounts aren't identical AND both have same currency (no conversion), 
+        // only allow auto-matching for very small differences that could be fees (< $5 or < 0.5%)
         const sameCurrency = this.haveSameCurrency(sourceTx, targetTx);
         const amountsIdentical = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)) < 0.01;
+        const amountDiff = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount));
+        const avgAmount = (Math.abs(sourceTx.amount) + Math.abs(targetTx.amount)) / 2;
+        const percentDiff = avgAmount > 0 ? amountDiff / avgAmount : 0;
+        
+        // For same currency transactions, only allow small differences that could be fees
+        if (sameCurrency && !amountsIdentical) {
+          // Allow small differences (< $5 AND < 0.3%) that could be due to fees
+          const allowSmallFees = amountDiff < 5.0 && percentDiff < 0.003; // 0.3%
+          if (!allowSmallFees) {
+            continue; // Skip auto-matching for same-currency transactions with larger differences
+          }
+        }
         
         const amountMatch = this.areAmountsMatching(sourceTx.amount, targetTx.amount, tolerancePercentage);
         
         if (!amountMatch) continue;
         
-        // If same currency and amounts not identical, only create potential matches
-        const shouldAutoMatch = !sameCurrency || amountsIdentical;
+        // If we reach here, it's either different currencies or acceptable same-currency amounts
+        const shouldAutoMatch = true;
 
         // Check date proximity
         const dateDiff = Math.abs((sourceTx.date.getTime() - targetTx.date.getTime()) / (1000 * 60 * 60 * 24));
@@ -189,26 +202,15 @@ class TransferMatchingService {
           matchType: shouldAutoMatch && dateDiff === 0 && amountMatch ? 'exact' : 'approximate',
           dateDifference: Math.round(dateDiff),
           amountDifference: Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)),
-          reasoning: shouldAutoMatch 
-            ? `Transfer match: ${sourceTx.account} ↔ ${targetTx.account}, ${Math.round(dateDiff)} days apart`
-            : `Potential match (non-identical amounts, same currency): ${sourceTx.account} ↔ ${targetTx.account}`,
+          reasoning: `Transfer match: ${sourceTx.account} ↔ ${targetTx.account}, ${Math.round(dateDiff)} days apart`,
           isVerified: false
         };
 
-        // Only add to auto-matches if it should auto-match, otherwise it will be a potential match
-        if (shouldAutoMatch) {
-          matches.push(match);
-          matchedIds.add(sourceTx.id);
-          matchedIds.add(targetTx.id);
-          break; // Found a match for this transaction
-        } else {
-          // This will be handled as a potential match
-          matches.push(match);
-          // Even for potential matches, prevent duplicate matches by adding to matchedIds
-          matchedIds.add(sourceTx.id);
-          matchedIds.add(targetTx.id);
-          break; // Found a match for this transaction
-        }
+        // Add to auto-matches since we've already filtered out same-currency non-identical amounts
+        matches.push(match);
+        matchedIds.add(sourceTx.id);
+        matchedIds.add(targetTx.id);
+        break; // Found a match for this transaction
       }
     }
 
