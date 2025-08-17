@@ -50,7 +50,7 @@ describe('Automatic Transfer Matching', () => {
     });
 
   it('should automatically apply matches with at least 40% confidence', async () => {
-      // Create a lower-confidence transfer pair (different days, slightly different amounts)
+      // Create a lower-confidence transfer pair (different days, small fee difference)
       const transactions: Transaction[] = [
         {
           id: 'source-tx-2',
@@ -69,7 +69,7 @@ describe('Automatic Transfer Matching', () => {
           id: 'target-tx-2',
           date: new Date('2024-01-18'), // 3 days later
           description: 'Cash Deposit',
-          amount: 102.50, // Slightly different amount (fees)
+          amount: 100.25, // Small ATM fee (0.25% difference)
           category: 'Internal Transfer',
           account: 'Savings Account', // Different account
           type: 'transfer',
@@ -82,14 +82,14 @@ describe('Automatic Transfer Matching', () => {
 
       const result = await transferMatchingService.autoMatchTransfers(transactions);
 
-  // With 40% threshold, this pair should be automatically matched
+      // With small fee difference (< 0.3%), this pair should be automatically matched
       const sourceTx = result.find(tx => tx.id === 'source-tx-2');
       const targetTx = result.find(tx => tx.id === 'target-tx-2');
 
       expect(sourceTx).toBeDefined();
       expect(targetTx).toBeDefined();
-  expect(sourceTx!.reimbursementId).toBe('target-tx-2');
-  expect(targetTx!.reimbursementId).toBe('source-tx-2');
+      expect(sourceTx!.reimbursementId).toBe('target-tx-2');
+      expect(targetTx!.reimbursementId).toBe('source-tx-2');
     });
 
     it('should handle mixed confidence scenarios correctly', async () => {
@@ -238,6 +238,49 @@ describe('Automatic Transfer Matching', () => {
 
       // Should return original transactions unchanged since none are transfers
       expect(result).toEqual(transactions);
+    });
+
+    it('should NOT auto-match same currency transfers with large fee differences', async () => {
+      // Create a transfer pair with large fee difference that should NOT auto-match
+      const transactions: Transaction[] = [
+        {
+          id: 'source-tx-large-fee',
+          date: new Date('2024-01-15'),
+          description: 'ATM Withdrawal',
+          amount: -100.00,
+          category: 'Internal Transfer',
+          account: 'Checking Account',
+          type: 'transfer',
+          addedDate: new Date(),
+          lastModifiedDate: new Date(),
+          isVerified: false,
+          originalText: 'ATM Withdrawal'
+        },
+        {
+          id: 'target-tx-large-fee',
+          date: new Date('2024-01-15'),
+          description: 'Cash Deposit',
+          amount: 102.50, // Large fee difference (2.5% > 0.3% threshold)
+          category: 'Internal Transfer',
+          account: 'Savings Account',
+          type: 'transfer',
+          addedDate: new Date(),
+          lastModifiedDate: new Date(),
+          isVerified: false,
+          originalText: 'Cash Deposit'
+        }
+      ];
+
+      const result = await transferMatchingService.autoMatchTransfers(transactions);
+
+      // Should NOT auto-match due to large fee difference in same currency
+      const sourceTx = result.find(tx => tx.id === 'source-tx-large-fee');
+      const targetTx = result.find(tx => tx.id === 'target-tx-large-fee');
+
+      expect(sourceTx).toBeDefined();
+      expect(targetTx).toBeDefined();
+      expect(sourceTx!.reimbursementId).toBeUndefined();
+      expect(targetTx!.reimbursementId).toBeUndefined();
     });
   });
 });
