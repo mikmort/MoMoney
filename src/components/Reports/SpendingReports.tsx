@@ -124,6 +124,29 @@ const SpendingReports: React.FC = () => {
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [selectedSpendingTypes, setSelectedSpendingTypes] = useState<string[]>(['expense']);
+  
+  // Transaction type mappings for display names
+  const spendingTypeOptions = [
+    { value: 'expense', label: 'Expense' },
+    { value: 'transfer', label: 'Transfer' },
+    { value: 'asset-allocation', label: 'Asset Allocation' }
+  ];
+  
+  // Map display names back to internal values for API calls
+  const getInternalSpendingTypes = (displayNames: string[]): string[] => {
+    return displayNames.map(displayName => {
+      const option = spendingTypeOptions.find(opt => opt.label === displayName);
+      return option ? option.value : displayName;
+    });
+  };
+  
+  // Map internal values to display names for UI
+  const getDisplaySpendingTypes = (internalValues: string[]): string[] => {
+    return internalValues.map(internalValue => {
+      const option = spendingTypeOptions.find(opt => opt.value === internalValue);
+      return option ? option.label : internalValue;
+    });
+  };
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -325,9 +348,9 @@ const SpendingReports: React.FC = () => {
             <label>Spending Types</label>
             <MultiSelectFilter
               label="Spending Types"
-              options={['expense', 'transfer', 'asset-allocation']}
-              selectedValues={selectedSpendingTypes}
-              onChange={setSelectedSpendingTypes}
+              options={spendingTypeOptions.map(opt => opt.label)}
+              selectedValues={getDisplaySpendingTypes(selectedSpendingTypes)}
+              onChange={(displayNames) => setSelectedSpendingTypes(getInternalSpendingTypes(displayNames))}
               placeholder="Select types..."
             />
           </div>
