@@ -44,6 +44,43 @@ Low Priority         |  ❌   |  ❌  |  ❌   |   ❌   |     ❌
   - **CORRECTED**: Unit tests DO exist in the project (5 test suites, 35+ tests)  
   - **NOTE**: Some tests may show console warnings but will pass
 
+#### Test Regression Tracking (When Tests Break)
+**Track test failures to evaluate test suite effectiveness:**
+
+When automated tests break, use the regression tracking system to classify the failure:
+- **Product Bug** (✅ good): Test failure led to fixing actual product code bug
+- **Test Bug** (⚠️ needs improvement): Test failure was due to incorrect test expectations or test code issues
+
+```bash
+# Track a product bug (test caught real issue) 
+npm run track:regression add \
+  --test "Authentication Test" \
+  --file "src/__tests__/auth.test.ts" \
+  --type "product" \
+  --severity "high" \
+  --description "Fixed login redirect bug"
+
+# Track a test bug (false positive)
+npm run track:regression add \
+  --test "CSV Import Test" \
+  --file "src/__tests__/csvImport.test.ts" \
+  --type "test" \
+  --severity "low" \
+  --description "Updated test expectations for new CSV format"
+
+# View effectiveness statistics
+npm run track:stats
+# Output: Total: 6, Test Bugs: 3 (50%), Product Bugs: 3 (50%) - ✅ GOOD
+
+# Generate comprehensive report
+npm run track:report
+```
+
+**When to Track Regressions:**
+- After fixing any test that was failing
+- Both during development and CI/CD pipeline failures
+- Helps quantify test suite value and identify improvement opportunities
+
 #### Run for Performance-Related Changes Only
 - **Performance analysis**: `npm run perf:check` -- analyze bundle size, runs in under 1 second
 
@@ -267,6 +304,11 @@ npm run build                                 # 22-23 sec - NEVER CANCEL
 npm start                                     # 35 sec - NEVER CANCEL  
 npm test -- --watchAll=false --passWithNoTests # 4 sec - for functional changes
 
+# Test regression tracking (When tests break)
+npm run track:regression add --test "TestName" --file "test/file.test.ts" --type "product|test" --severity "low|medium|high" --description "Description"
+npm run track:stats                           # Show test effectiveness statistics
+npm run track:report                          # Generate comprehensive report
+
 # Code quality & analysis (Medium Priority Changes)
 npx eslint src --ext .ts,.tsx                # 4 sec - may show warnings
 npm run perf:check                           # <1 sec - for performance changes
@@ -290,5 +332,6 @@ npm run build:analyze                        # 23 sec - detailed analysis (has s
 - **Bundle Size**: 133.4 KB main gzipped + optimized chunks (466 KB main ungzipped)
 - **Code Splitting**: ✅ Implemented for all routes
 - **Test Coverage**: 35+ tests across 5 test suites (all passing)
+- **Test Regression Tracking**: ✅ Comprehensive system to track test effectiveness
 - **Dependencies**: 27 production, 8 development packages
 - **Sample Data**: 11 transactions (manually loaded via Settings)
