@@ -932,6 +932,7 @@ class DataService {
 
       // Notify backup service about data changes (but don't await to avoid blocking saves)
       this.notifyBackupService();
+
     } catch (error) {
       console.error('[TX] Failed to save transactions to IndexedDB:', error);
       // The transaction will automatically rollback, preserving existing data
