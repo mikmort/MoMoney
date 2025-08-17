@@ -73,9 +73,9 @@ const MultiSelectOption = styled.label`
     padding: 0;
     cursor: pointer;
     flex-shrink: 0;
-    width: 14px;
+    width: 14px !important;
     height: 14px;
-    min-width: 14px;
+    min-width: 14px !important;
     max-width: 14px;
   }
 `;
