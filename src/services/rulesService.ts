@@ -460,7 +460,11 @@ class RulesService {
       const { dataService } = await import('./dataService');
       
       const allTransactions = await dataService.getAllTransactions();
-      let reclassifiedCount = 0;
+      const batchUpdates: Array<{
+        id: string;
+        updates: Partial<Transaction>;
+        note?: string;
+      }> = [];
 
       for (const transaction of allTransactions) {
         // Create a transaction-like object for rule evaluation
@@ -480,21 +484,28 @@ class RulesService {
                             transaction.subcategory !== rule.action.subcategoryName;
 
           if (wouldChange) {
-            await dataService.updateTransaction(transaction.id, {
-              category: rule.action.categoryName,
-              subcategory: rule.action.subcategoryName,
-              confidence: 1.0,
-              reasoning: `Reclassified by rule: ${rule.name}`,
-              isVerified: false, // Mark as unverified since it was auto-changed
-            }, `Reclassified by rule: ${rule.name}`);
-            
-            reclassifiedCount++;
+            batchUpdates.push({
+              id: transaction.id,
+              updates: {
+                category: rule.action.categoryName,
+                subcategory: rule.action.subcategoryName,
+                confidence: 1.0,
+                reasoning: `Reclassified by rule: ${rule.name}`,
+                isVerified: false, // Mark as unverified since it was auto-changed
+              },
+              note: `Reclassified by rule: ${rule.name}`
+            });
           }
         }
       }
 
-      console.log(`Reclassified ${reclassifiedCount} existing transactions using rule: ${rule.name}`);
-      return reclassifiedCount;
+      // Perform all updates in a single batch operation
+      if (batchUpdates.length > 0) {
+        await dataService.batchUpdateTransactions(batchUpdates, { skipHistory: true });
+      }
+
+      console.log(`Reclassified ${batchUpdates.length} existing transactions using rule: ${rule.name}`);
+      return batchUpdates.length;
     } catch (error) {
       console.error('Failed to reclassify existing transactions:', error);
       return 0;

@@ -594,6 +594,102 @@ class DataService {
     return this.transactions[index];
   }
 
+  /**
+   * Batch update multiple transactions efficiently with a single database save
+   * @param updates Array of {id, updates, note} objects
+   * @param options Optional configuration for batch operation
+   * @returns Array of updated transactions
+   */
+  async batchUpdateTransactions(updates: Array<{
+    id: string;
+    updates: Partial<Transaction>;
+    note?: string;
+  }>, options?: {
+    skipHistory?: boolean; // Skip individual history snapshots for performance
+  }): Promise<Transaction[]> {
+    await this.ensureInitialized();
+    
+    const updatedTransactions: Transaction[] = [];
+    const skipHistory = options?.skipHistory || false;
+    
+    // Process all updates in memory first
+    for (const update of updates) {
+      const index = this.transactions.findIndex(t => t.id === update.id);
+      if (index === -1) continue;
+      
+      const current = this.transactions[index];
+      
+      // Add current state to undo stack before making changes
+      this.addToUndoStack(update.id, { ...current });
+      
+      // Clear redo stack when making a new change
+      this.clearRedoStack(update.id);
+      
+      // Record a snapshot of the current transaction before updating (persistent history)
+      // Skip for batch operations to improve performance
+      if (!skipHistory) {
+        await this.addHistorySnapshot(current.id, current, update.note);
+      }
+
+      // Check if category or subcategory is being changed - if so, remove AI confidence
+      const isCategoryChange = ('category' in update.updates && update.updates.category !== current.category) ||
+                              ('subcategory' in update.updates && update.updates.subcategory !== current.subcategory);
+      
+      let finalUpdates = { ...update.updates };
+      if (isCategoryChange) {
+        // Remove AI confidence fields when user manually changes category
+        finalUpdates = {
+          ...finalUpdates,
+          confidence: undefined,
+          reasoning: undefined,
+          aiProxyMetadata: undefined
+        };
+      }
+
+      // Handle transaction type changes when category changes to/from "Internal Transfer"
+      if ('category' in update.updates && update.updates.category !== current.category) {
+        const oldCategory = current.category;
+        const newCategory = update.updates.category;
+        
+        // Case 1: Changing TO "Internal Transfer" - should become type "transfer"
+        if (newCategory === 'Internal Transfer' && oldCategory !== 'Internal Transfer') {
+          finalUpdates.type = 'transfer';
+        }
+        // Case 2: Changing FROM "Internal Transfer" to something else - determine appropriate type
+        else if (oldCategory === 'Internal Transfer' && newCategory !== 'Internal Transfer') {
+          // Determine the appropriate type based on the transaction amount
+          // Negative amounts are typically expenses, positive amounts are typically income
+          finalUpdates.type = current.amount < 0 ? 'expense' : 'income';
+        }
+      }
+
+      this.transactions[index] = {
+        ...current,
+        ...finalUpdates,
+        lastModifiedDate: new Date(),
+      };
+      
+      updatedTransactions.push(this.transactions[index]);
+    }
+    
+    // Save to database only once after all updates
+    if (updatedTransactions.length > 0) {
+      await this.saveToDB();
+      
+      // Add a single batch history entry if we skipped individual histories
+      if (skipHistory && updates.length > 0) {
+        const batchNote = `Batch update: ${updates.length} transactions - ${updates[0]?.note || 'Category rule applied'}`;
+        // Create a batch history entry - just use the first transaction as reference
+        const firstUpdate = updates[0];
+        if (firstUpdate) {
+          await this.addHistorySnapshot(firstUpdate.id, updatedTransactions[0], batchNote);
+        }
+      }
+    }
+    
+    return updatedTransactions;
+  }
+
   async deleteTransaction(id: string): Promise<boolean> {
     await this.ensureInitialized();
     const index = this.transactions.findIndex(t => t.id === id);
