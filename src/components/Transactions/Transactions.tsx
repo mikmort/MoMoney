@@ -523,14 +523,18 @@ const AmountCellRenderer = (params: any) => {
   
   const amount = params.value;
   const transaction = params.data as Transaction;
-  const isReimbursed = transaction.reimbursed;
-  const isAnomaly = transaction.isAnomaly;
-  const anomalyType = transaction.anomalyType;
-  const anomalyScore = transaction.anomalyScore;
+  const isReimbursed = transaction?.reimbursed;
+  const isAnomaly = transaction?.isAnomaly;
+  const anomalyType = transaction?.anomalyType;
+  const anomalyScore = transaction?.anomalyScore;
   
   // Initialize currency display service and format amount
   React.useEffect(() => {
     const formatAmount = async () => {
+      if (!transaction) {
+        return; // Skip if transaction is undefined
+      }
+      
       try {
         await currencyDisplayService.initialize();
         const result = await currencyDisplayService.formatTransactionAmount(transaction);
@@ -568,13 +572,13 @@ const AmountCellRenderer = (params: any) => {
   return (
     <span 
       className={className + reimbursedClass}
-      title={displayInfo.tooltip}
+      title={displayInfo?.tooltip || undefined}
       style={{ 
-        cursor: displayInfo.tooltip ? 'help' : 'default'
+        cursor: displayInfo?.tooltip ? 'help' : 'default'
       }}
     >
-      {displayInfo.displayAmount}
-      {displayInfo.isConverted && displayInfo.approxConvertedDisplay && (
+      {displayInfo?.displayAmount || '$0.00'}
+      {displayInfo?.isConverted && displayInfo?.approxConvertedDisplay && (
         <span 
           style={{ 
             marginLeft: '6px', 
@@ -582,9 +586,9 @@ const AmountCellRenderer = (params: any) => {
             color: '#666',
             fontWeight: 500
           }}
-          title={displayInfo.tooltip}
+          title={displayInfo?.tooltip || undefined}
         >
-          ({displayInfo.approxConvertedDisplay})
+          ({displayInfo?.approxConvertedDisplay})
         </span>
       )}
       {isAnomaly && (
