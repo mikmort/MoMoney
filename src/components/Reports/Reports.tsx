@@ -10,13 +10,15 @@ import {
   IncomeExpenseAnalysis,
   SpendingInsights,
   BurnRateAnalysis,
-  DateRange 
+  DateRange,
+  ReportsFilters 
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
 import { MultiSelectFilter } from '../shared/MultiSelectFilter';
 import CategoryDrilldownModal from './CategoryDrilldownModal';
 import TransactionDetailsModal, { TransactionFilter } from './TransactionDetailsModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
+import { dataService } from '../../services/dataService';
 
 const ReportsContainer = styled.div`
   .date-range-selector {
@@ -218,13 +220,17 @@ const BurnRateCard = styled(Card)`
   }
 `;
 
-type DateRangeType = 'all' | 'current-month' | 'last-3-months' | 'last-12-months' | 'custom';
+type DateRangeType = 'all' | 'current-month' | 'last-3-months' | 'last-12-months' | 'current-year' | 'previous-year' | 'year-before-that' | 'custom';
 
 const Reports: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dateRangeType, setDateRangeType] = useState<DateRangeType>('last-12-months');
   const [customDateRange, setCustomDateRange] = useState<DateRange | null>(null);
   const [selectedTransactionTypes, setSelectedTransactionTypes] = useState<string[]>(['income', 'expense']);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
   
   // Transaction type mappings for display names
   const transactionTypeOptions = [
@@ -278,6 +284,12 @@ const Reports: React.FC = () => {
         return reportsService.getLastThreeMonthsRange();
       case 'last-12-months':
         return reportsService.getDefaultDateRange();
+      case 'current-year':
+        return reportsService.getCurrentYearRange();
+      case 'previous-year':
+        return reportsService.getPreviousYearRange();
+      case 'year-before-that':
+        return reportsService.getYearBeforeLastRange();
       case 'custom':
         return customDateRange || undefined;
       default:
@@ -285,18 +297,41 @@ const Reports: React.FC = () => {
     }
   }, [dateRangeType, customDateRange]);
 
+  // Load available categories and accounts
+  useEffect(() => {
+    const loadFiltersData = async () => {
+      try {
+        const [categories, accounts] = await Promise.all([
+          dataService.getUniqueCategories(),
+          dataService.getUniqueAccounts()
+        ]);
+        setAvailableCategories(categories);
+        setAvailableAccounts(accounts);
+      } catch (error) {
+        console.error('Failed to load filter options:', error);
+      }
+    };
+
+    loadFiltersData();
+  }, []);
+
   useEffect(() => {
     const loadReportsData = async () => {
       setLoading(true);
       try {
-        const dateRange = getCurrentDateRange();
+        const filters: ReportsFilters = {
+          dateRange: getCurrentDateRange(),
+          selectedTypes: selectedTransactionTypes,
+          selectedCategories: selectedCategories.length > 0 ? selectedCategories : undefined,
+          selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
+        };
         
         const [categoryData, trendsData, analysisData, insightsData, burnRateData] = await Promise.all([
-          reportsService.getSpendingByCategory(dateRange, selectedTransactionTypes),
-          reportsService.getMonthlySpendingTrends(dateRange, selectedTransactionTypes),
-          reportsService.getIncomeExpenseAnalysis(dateRange, selectedTransactionTypes),
-          reportsService.getSpendingInsights(dateRange, selectedTransactionTypes.includes('transfer')),
-          reportsService.getBurnRateAnalysis(dateRange, selectedTransactionTypes.includes('transfer'))
+          reportsService.getSpendingByCategory(filters),
+          reportsService.getMonthlySpendingTrends(filters),
+          reportsService.getIncomeExpenseAnalysis(filters),
+          reportsService.getSpendingInsights(getCurrentDateRange(), selectedTransactionTypes.includes('transfer')),
+          reportsService.getBurnRateAnalysis(getCurrentDateRange(), selectedTransactionTypes.includes('transfer'))
         ]);
         
         setSpendingByCategory(categoryData);
@@ -312,7 +347,7 @@ const Reports: React.FC = () => {
     };
 
     loadReportsData();
-  }, [dateRangeType, customDateRange, selectedTransactionTypes, getCurrentDateRange]);
+  }, [dateRangeType, customDateRange, selectedTransactionTypes, selectedCategories, selectedAccounts, getCurrentDateRange]);
 
   const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
   useEffect(() => {
@@ -533,6 +568,9 @@ const Reports: React.FC = () => {
               <option value="current-month">Current Month</option>
               <option value="last-3-months">Last 3 Months</option>
               <option value="last-12-months">Last 12 Months</option>
+              <option value="current-year">Current Year</option>
+              <option value="previous-year">Previous Year</option>
+              <option value="year-before-that">Year Before That</option>
               <option value="custom">Custom Range</option>
             </select>
           </div>
@@ -565,6 +603,28 @@ const Reports: React.FC = () => {
               selectedValues={getDisplayTransactionTypes(selectedTransactionTypes)}
               onChange={(displayNames) => setSelectedTransactionTypes(getInternalTransactionTypes(displayNames))}
               placeholder="Select types..."
+            />
+          </div>
+
+          <div className="filter-group">
+            <label>Categories</label>
+            <MultiSelectFilter
+              label="Categories"
+              options={availableCategories}
+              selectedValues={selectedCategories}
+              onChange={setSelectedCategories}
+              placeholder="All categories..."
+            />
+          </div>
+
+          <div className="filter-group">
+            <label>Accounts</label>
+            <MultiSelectFilter
+              label="Accounts"
+              options={availableAccounts}
+              selectedValues={selectedAccounts}
+              onChange={setSelectedAccounts}
+              placeholder="All accounts..."
             />
           </div>
         </div>
