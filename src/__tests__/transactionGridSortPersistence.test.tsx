@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { NotificationProvider } from '../contexts/NotificationContext';
+import { ImportStateProvider } from '../contexts/ImportStateContext';
 import Transactions from '../components/Transactions/Transactions';
 import { dataService } from '../services/dataService';
 import { Transaction } from '../types';
@@ -75,7 +76,9 @@ const mockTransactions: Transaction[] = [
 const TestWrapper = ({ children }: { children: React.ReactNode }) => (
   <BrowserRouter>
     <NotificationProvider>
-      {children}
+      <ImportStateProvider>
+        {children}
+      </ImportStateProvider>
     </NotificationProvider>
   </BrowserRouter>
 );
@@ -89,6 +92,7 @@ describe('Transaction Grid Sort Persistence', () => {
     mockDataService.getAllTransactions.mockResolvedValue(mockTransactions);
     mockDataService.getTransactionsWithoutTransfers.mockResolvedValue(mockTransactions);
     mockDataService.getCollapsedTransfers.mockResolvedValue([]);
+    mockDataService.getUndoRedoStatus.mockResolvedValue({ canUndo: false, canRedo: false });
     
     // Mock hooks
     mockUseCategoriesManager.mockReturnValue({

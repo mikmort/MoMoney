@@ -116,23 +116,22 @@ describe('TransferMatchesPage Currency Validation', () => {
       expect(screen.getByText('Transfer Matches')).toBeInTheDocument();
     });
 
-    // Open manual match section
-    const manualMatchButton = screen.getByText('Manual Match');
-    fireEvent.click(manualMatchButton);
-
+    // Click to show manual match section
+    fireEvent.click(screen.getByText('Show Manual Match'));
+    
     await waitFor(() => {
-      expect(screen.getByText('Select Source Transaction')).toBeInTheDocument();
+      expect(screen.getByText('Source Transaction')).toBeInTheDocument();
     });
 
     // Find and select the dropdowns
-    const sourceDropdowns = screen.getAllByDisplayValue('');
-    expect(sourceDropdowns.length).toBeGreaterThanOrEqual(2);
+    const selects = screen.getAllByRole('combobox');
+    expect(selects.length).toBeGreaterThanOrEqual(2);
 
-    // Select DKK transaction as source (first dropdown)
-    fireEvent.change(sourceDropdowns[0], { target: { value: 'dkk-tx-1' } });
+    // Select DKK transaction as source
+    fireEvent.change(selects[0], { target: { value: 'dkk-tx-1' } });
 
-    // Select USD transaction as target (second dropdown)  
-    fireEvent.change(sourceDropdowns[1], { target: { value: 'usd-tx-1' } });
+    // Select USD transaction as target
+    fireEvent.change(selects[1], { target: { value: 'usd-tx-1' } });
 
     // Wait for validation to complete
     await waitFor(() => {
@@ -158,16 +157,16 @@ describe('TransferMatchesPage Currency Validation', () => {
       expect(screen.getByText('Transfer Matches')).toBeInTheDocument();
     });
 
-    // Open manual match
-    fireEvent.click(screen.getByText('Manual Match'));
+    // Click to show manual match section  
+    fireEvent.click(screen.getByText('Show Manual Match'));
     
     await waitFor(() => {
-      expect(screen.getByText('Select Source Transaction')).toBeInTheDocument();
+      expect(screen.getByText('Source Transaction')).toBeInTheDocument();
     });
 
-    const sourceDropdowns = screen.getAllByDisplayValue('');
-    fireEvent.change(sourceDropdowns[0], { target: { value: 'dkk-tx-1' } });
-    fireEvent.change(sourceDropdowns[1], { target: { value: 'usd-tx-1' } });
+    const selects = screen.getAllByRole('combobox');
+    fireEvent.change(selects[0], { target: { value: 'dkk-tx-1' } });
+    fireEvent.change(selects[1], { target: { value: 'usd-tx-1' } });
 
     // Should show fallback message indicating currency conversion failed
     await waitFor(() => {
