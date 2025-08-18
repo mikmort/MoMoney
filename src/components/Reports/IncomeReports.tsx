@@ -356,7 +356,7 @@ const IncomeReports: React.FC = () => {
             <label>Income Types</label>
             <MultiSelectFilter
               label="Income Types"
-              options={['income', 'transfer', 'asset-allocation']}
+              options={['income', 'transfer', 'Asset Allocation']}
               selectedValues={selectedIncomeTypes}
               onChange={setSelectedIncomeTypes}
               placeholder="Select types..."

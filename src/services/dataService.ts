@@ -1,6 +1,6 @@
 import { Transaction, DuplicateDetectionResult, DuplicateTransaction, CategoryRule, DuplicateDetectionConfig } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, DBHealthCheck, INTERNAL_TRANSFER_MIGRATION_KEY, isMigrationCompleted, markMigrationCompleted } from './db';
+import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, DBHealthCheck, INTERNAL_TRANSFER_MIGRATION_KEY, ASSET_ALLOCATION_MIGRATION_KEY, isMigrationCompleted, markMigrationCompleted } from './db';
 import { rulesService } from './rulesService';
 import { transferMatchingService } from './transferMatchingService';
 import { notificationService } from './notificationService';
@@ -69,6 +69,21 @@ class DataService {
         markMigrationCompleted(INTERNAL_TRANSFER_MIGRATION_KEY);
       } else {
         txLog('[TX] Internal Transfer migration already completed, skipping');
+      }
+
+      if (!isMigrationCompleted(ASSET_ALLOCATION_MIGRATION_KEY)) {
+        txLog('[TX] Running Asset Allocation migration...');
+        const migrationResult = await this.migrateAssetAllocationTypes();
+        if (migrationResult.fixed > 0 || migrationResult.errors.length > 0) {
+          txLog(`[TX] Asset Allocation migration completed: ${migrationResult.fixed} fixed, ${migrationResult.errors.length} errors`);
+          if (migrationResult.errors.length > 0) {
+            txError('[TX] Migration errors:', migrationResult.errors);
+          }
+        }
+        // Mark migration as completed regardless of outcome to prevent infinite retries
+        markMigrationCompleted(ASSET_ALLOCATION_MIGRATION_KEY);
+      } else {
+        txLog('[TX] Asset Allocation migration already completed, skipping');
       }
       
       // Perform health check after loading data
@@ -621,7 +636,7 @@ class DataService {
       };
     }
 
-    // Handle transaction type changes when category changes to/from "Internal Transfer"
+    // Handle transaction type changes when category changes to/from special categories
     if ('category' in updates && updates.category !== current.category) {
       const oldCategory = current.category;
       const newCategory = updates.category;
@@ -632,6 +647,16 @@ class DataService {
       }
       // Case 2: Changing FROM "Internal Transfer" to something else - determine appropriate type
       else if (oldCategory === 'Internal Transfer' && newCategory !== 'Internal Transfer') {
+        // Determine the appropriate type based on the transaction amount
+        // Negative amounts are typically expenses, positive amounts are typically income
+        finalUpdates.type = current.amount < 0 ? 'expense' : 'income';
+      }
+      // Case 3: Changing TO "Asset Allocation" - should become type "asset-allocation"
+      else if (newCategory === 'Asset Allocation' && oldCategory !== 'Asset Allocation') {
+        finalUpdates.type = 'asset-allocation';
+      }
+      // Case 4: Changing FROM "Asset Allocation" to something else - determine appropriate type
+      else if (oldCategory === 'Asset Allocation' && newCategory !== 'Asset Allocation') {
         // Determine the appropriate type based on the transaction amount
         // Negative amounts are typically expenses, positive amounts are typically income
         finalUpdates.type = current.amount < 0 ? 'expense' : 'income';
@@ -700,7 +725,7 @@ class DataService {
         };
       }
 
-      // Handle transaction type changes when category changes to/from "Internal Transfer"
+      // Handle transaction type changes when category changes to/from special categories
       if ('category' in update.updates && update.updates.category !== current.category) {
         const oldCategory = current.category;
         const newCategory = update.updates.category;
@@ -711,6 +736,16 @@ class DataService {
         }
         // Case 2: Changing FROM "Internal Transfer" to something else - determine appropriate type
         else if (oldCategory === 'Internal Transfer' && newCategory !== 'Internal Transfer') {
+          // Determine the appropriate type based on the transaction amount
+          // Negative amounts are typically expenses, positive amounts are typically income
+          finalUpdates.type = current.amount < 0 ? 'expense' : 'income';
+        }
+        // Case 3: Changing TO "Asset Allocation" - should become type "asset-allocation"
+        else if (newCategory === 'Asset Allocation' && oldCategory !== 'Asset Allocation') {
+          finalUpdates.type = 'asset-allocation';
+        }
+        // Case 4: Changing FROM "Asset Allocation" to something else - determine appropriate type
+        else if (oldCategory === 'Asset Allocation' && newCategory !== 'Asset Allocation') {
           // Determine the appropriate type based on the transaction amount
           // Negative amounts are typically expenses, positive amounts are typically income
           finalUpdates.type = current.amount < 0 ? 'expense' : 'income';
@@ -1061,6 +1096,70 @@ class DataService {
       
     } catch (error) {
       const errorMsg = `Internal Transfer type migration failed: ${error}`;
+      errors.push(errorMsg);
+      txLog(`[TX] ${errorMsg}`);
+    }
+    
+    return { fixed: fixedCount, errors };
+  }
+
+  /**
+   * Data migration to fix transactions with 'Asset Allocation' category but incorrect type
+   * This ensures all Asset Allocation transactions have type='asset-allocation'
+   */
+  private async migrateAssetAllocationTypes(): Promise<{ fixed: number; errors: string[] }> {
+    const __IS_TEST__ = process.env.NODE_ENV === 'test';
+    const txLog = (...args: any[]) => { if (!__IS_TEST__) console.log(...args); };
+    
+    let fixedCount = 0;
+    const errors: string[] = [];
+    
+    try {
+      txLog('[TX] Checking for Asset Allocation transactions with incorrect type...');
+      
+      // Find transactions with 'Asset Allocation' category but type != 'asset-allocation'
+      const transactionsToFix = this.transactions.filter(transaction => 
+        transaction.category === 'Asset Allocation' && transaction.type !== 'asset-allocation'
+      );
+      
+      if (transactionsToFix.length === 0) {
+        txLog('[TX] No Asset Allocation type mismatches found');
+        return { fixed: 0, errors: [] };
+      }
+      
+      txLog(`[TX] Found ${transactionsToFix.length} Asset Allocation transactions with incorrect type`);
+      
+      // Fix each transaction
+      for (const transaction of transactionsToFix) {
+        try {
+          const oldType = transaction.type;
+          transaction.type = 'asset-allocation';
+          transaction.lastModifiedDate = new Date();
+          
+          // Add a history entry for this automatic fix
+          await this.addHistorySnapshot(
+            transaction.id, 
+            { ...transaction, type: oldType }, // Record the old state
+            `Automatic fix: Changed type from '${oldType}' to 'asset-allocation' for Asset Allocation category`
+          );
+          
+          fixedCount++;
+          txLog(`[TX] Fixed transaction ${transaction.id}: ${oldType} -> asset-allocation`);
+        } catch (error) {
+          const errorMsg = `Failed to fix transaction ${transaction.id}: ${error}`;
+          errors.push(errorMsg);
+          txLog(`[TX] ${errorMsg}`);
+        }
+      }
+      
+      // Save the fixed transactions
+      if (fixedCount > 0) {
+        await this.saveToDB();
+        txLog(`[TX] Successfully fixed ${fixedCount} Asset Allocation transactions`);
+      }
+      
+    } catch (error) {
+      const errorMsg = `Asset Allocation type migration failed: ${error}`;
       errors.push(errorMsg);
       txLog(`[TX] ${errorMsg}`);
     }
