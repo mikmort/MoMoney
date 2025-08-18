@@ -70,6 +70,13 @@ export interface DateRange {
   endDate: Date;
 }
 
+export interface ReportsFilters {
+  dateRange?: DateRange;
+  selectedTypes?: string[];
+  selectedCategories?: string[];
+  selectedAccounts?: string[];
+}
+
 class ReportsService {
   // Helper method to comprehensively identify internal transfers
   private isInternalTransfer(transaction: Transaction): boolean {
@@ -240,22 +247,37 @@ class ReportsService {
     });
   }
 
-  // New method signatures that support selectedTypes array
+  // New method signatures that support comprehensive filtering
+  async getSpendingByCategory(filters?: ReportsFilters): Promise<SpendingByCategory[]>;
   async getSpendingByCategory(dateRange?: DateRange, selectedTypes?: string[]): Promise<SpendingByCategory[]>;
   async getSpendingByCategory(dateRange?: DateRange, includeTransfers?: boolean): Promise<SpendingByCategory[]>;
-  async getSpendingByCategory(dateRange?: DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<SpendingByCategory[]> {
+  async getSpendingByCategory(filtersOrDateRange?: ReportsFilters | DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<SpendingByCategory[]> {
     let transactions: Transaction[];
     let expenseTransactions: Transaction[];
     
-    if (Array.isArray(selectedTypesOrIncludeTransfers)) {
-      // New behavior with selectedTypes array
-      transactions = await this.getTransactionsInRange(dateRange, true); // Get all transactions
-      expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense', selectedTypesOrIncludeTransfers);
+    // Handle the new ReportsFilters interface
+    if (filtersOrDateRange && (
+      'selectedCategories' in filtersOrDateRange || 
+      'selectedAccounts' in filtersOrDateRange || 
+      'selectedTypes' in filtersOrDateRange
+    )) {
+      const filters = filtersOrDateRange as ReportsFilters;
+      transactions = await this.getFilteredTransactions(filters);
+      const selectedTypes = filters.selectedTypes || ['expense'];
+      expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense', selectedTypes);
     } else {
-      // Legacy behavior with includeTransfers boolean
-      const includeTransfers = selectedTypesOrIncludeTransfers || false;
-      transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
-      expenseTransactions = await this.filterTransactionsForReportsLegacy(transactions, 'expense', includeTransfers);
+      // Handle legacy calls
+      const dateRange = filtersOrDateRange as DateRange | undefined;
+      if (Array.isArray(selectedTypesOrIncludeTransfers)) {
+        // New behavior with selectedTypes array
+        transactions = await this.getTransactionsInRange(dateRange, true); // Get all transactions
+        expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense', selectedTypesOrIncludeTransfers);
+      } else {
+        // Legacy behavior with includeTransfers boolean
+        const includeTransfers = selectedTypesOrIncludeTransfers || false;
+        transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+        expenseTransactions = await this.filterTransactionsForReportsLegacy(transactions, 'expense', includeTransfers);
+      }
     }
     
     if (expenseTransactions.length === 0) {
@@ -295,18 +317,31 @@ class ReportsService {
       .sort((a, b) => b.amount - a.amount);
   }
 
+  async getMonthlySpendingTrends(filters?: ReportsFilters): Promise<MonthlySpendingTrend[]>;
   async getMonthlySpendingTrends(dateRange?: DateRange, selectedTypes?: string[]): Promise<MonthlySpendingTrend[]>;
   async getMonthlySpendingTrends(dateRange?: DateRange, includeTransfers?: boolean): Promise<MonthlySpendingTrend[]>;
-  async getMonthlySpendingTrends(dateRange?: DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<MonthlySpendingTrend[]> {
+  async getMonthlySpendingTrends(filtersOrDateRange?: ReportsFilters | DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<MonthlySpendingTrend[]> {
     let transactions: Transaction[];
     
-    if (Array.isArray(selectedTypesOrIncludeTransfers)) {
-      // New behavior with selectedTypes array
-      transactions = await this.getTransactionsInRange(dateRange, true); // Get all transactions
+    // Handle the new ReportsFilters interface
+    if (filtersOrDateRange && (
+      'selectedCategories' in filtersOrDateRange || 
+      'selectedAccounts' in filtersOrDateRange || 
+      'selectedTypes' in filtersOrDateRange
+    )) {
+      const filters = filtersOrDateRange as ReportsFilters;
+      transactions = await this.getFilteredTransactions(filters);
     } else {
-      // Legacy behavior with includeTransfers boolean
-      const includeTransfers = selectedTypesOrIncludeTransfers || false;
-      transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+      // Handle legacy calls
+      const dateRange = filtersOrDateRange as DateRange | undefined;
+      if (Array.isArray(selectedTypesOrIncludeTransfers)) {
+        // New behavior with selectedTypes array
+        transactions = await this.getTransactionsInRange(dateRange, true); // Get all transactions
+      } else {
+        // Legacy behavior with includeTransfers boolean
+        const includeTransfers = selectedTypesOrIncludeTransfers || false;
+        transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+      }
     }
     
     const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
@@ -329,7 +364,31 @@ class ReportsService {
         let expenseTransactions: Transaction[];
         let incomeTransactions: Transaction[];
         
-        if (Array.isArray(selectedTypesOrIncludeTransfers)) {
+        // Handle the new ReportsFilters interface
+        if (filtersOrDateRange && (
+          'selectedCategories' in filtersOrDateRange || 
+          'selectedAccounts' in filtersOrDateRange || 
+          'selectedTypes' in filtersOrDateRange
+        )) {
+          const filters = filtersOrDateRange as ReportsFilters;
+          const selectedTypes = filters.selectedTypes || ['income', 'expense'];
+          
+          expenseTransactions = monthTransactions.filter(t => {
+            if (!selectedTypes.includes(t.type)) return false;
+            if (t.type === 'transfer' && this.isInternalTransfer(t)) {
+              return t.amount < 0;
+            }
+            return t.type === 'expense' || t.amount < 0;
+          });
+          
+          incomeTransactions = monthTransactions.filter(t => {
+            if (!selectedTypes.includes(t.type)) return false;
+            if (t.type === 'transfer' && this.isInternalTransfer(t)) {
+              return t.amount > 0;
+            }
+            return t.type === 'income' || t.amount > 0;
+          });
+        } else if (Array.isArray(selectedTypesOrIncludeTransfers)) {
           // New behavior with selectedTypes array
           expenseTransactions = monthTransactions.filter(t => {
             if (!selectedTypesOrIncludeTransfers.includes(t.type)) return false;
@@ -387,21 +446,36 @@ class ReportsService {
       .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
   }
 
+  async getIncomeExpenseAnalysis(filters?: ReportsFilters): Promise<IncomeExpenseAnalysis>;
   async getIncomeExpenseAnalysis(dateRange?: DateRange, selectedTypes?: string[]): Promise<IncomeExpenseAnalysis>;
   async getIncomeExpenseAnalysis(dateRange?: DateRange, includeTransfers?: boolean): Promise<IncomeExpenseAnalysis>;
-  async getIncomeExpenseAnalysis(dateRange?: DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<IncomeExpenseAnalysis> {
+  async getIncomeExpenseAnalysis(filtersOrDateRange?: ReportsFilters | DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<IncomeExpenseAnalysis> {
     let transactions: Transaction[];
     let incomeTransactions: Transaction[];
     let expenseTransactions: Transaction[];
     
-    if (Array.isArray(selectedTypesOrIncludeTransfers)) {
+    // Handle the new ReportsFilters interface
+    if (filtersOrDateRange && (
+      'selectedCategories' in filtersOrDateRange || 
+      'selectedAccounts' in filtersOrDateRange || 
+      'selectedTypes' in filtersOrDateRange
+    )) {
+      const filters = filtersOrDateRange as ReportsFilters;
+      transactions = await this.getFilteredTransactions(filters);
+      const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
+      const selectedTypes = filters.selectedTypes || ['income', 'expense'];
+      incomeTransactions = await this.filterTransactionsForReports(converted, 'income', selectedTypes);
+      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypes);
+    } else if (Array.isArray(selectedTypesOrIncludeTransfers)) {
       // New behavior with selectedTypes array
+      const dateRange = filtersOrDateRange as DateRange | undefined;
       transactions = await this.getTransactionsInRange(dateRange, true);
       const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
       incomeTransactions = await this.filterTransactionsForReports(converted, 'income', selectedTypesOrIncludeTransfers);
       expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypesOrIncludeTransfers);
     } else {
       // Legacy behavior with includeTransfers boolean
+      const dateRange = filtersOrDateRange as DateRange | undefined;
       const includeTransfers = selectedTypesOrIncludeTransfers || false;
       transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
       const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
@@ -668,6 +742,35 @@ class ReportsService {
       lowConfidenceTransactions,
       needsReviewCount
     };
+  }
+
+  private async getFilteredTransactions(filters?: ReportsFilters): Promise<Transaction[]> {
+    const allTransactions = await dataService.getAllTransactions();
+    let filteredTransactions = allTransactions;
+
+    // Apply date range filter
+    if (filters?.dateRange) {
+      filteredTransactions = filteredTransactions.filter(transaction => 
+        transaction.date >= filters.dateRange!.startDate && 
+        transaction.date <= filters.dateRange!.endDate
+      );
+    }
+
+    // Apply category filter
+    if (filters?.selectedCategories && filters.selectedCategories.length > 0) {
+      filteredTransactions = filteredTransactions.filter(transaction =>
+        filters.selectedCategories!.includes(transaction.category)
+      );
+    }
+
+    // Apply account filter
+    if (filters?.selectedAccounts && filters.selectedAccounts.length > 0) {
+      filteredTransactions = filteredTransactions.filter(transaction =>
+        filters.selectedAccounts!.includes(transaction.account)
+      );
+    }
+
+    return filteredTransactions;
   }
 
   private async getTransactionsInRange(dateRange?: DateRange, includeTransfers: boolean = false): Promise<Transaction[]> {

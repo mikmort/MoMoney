@@ -835,6 +835,22 @@ class DataService {
     );
   }
 
+  async getUniqueCategories(): Promise<string[]> {
+    await this.ensureInitialized();
+    const uniqueCategories = Array.from(new Set(this.transactions.map(t => t.category)))
+      .filter(category => category && category.trim() !== '')
+      .sort();
+    return uniqueCategories;
+  }
+
+  async getUniqueAccounts(): Promise<string[]> {
+    await this.ensureInitialized();
+    const uniqueAccounts = Array.from(new Set(this.transactions.map(t => t.account)))
+      .filter(account => account && account.trim() !== '')
+      .sort();
+    return uniqueAccounts;
+  }
+
   async searchTransactions(query: string): Promise<Transaction[]> {
     await this.ensureInitialized();
     const lowerQuery = query.toLowerCase();
