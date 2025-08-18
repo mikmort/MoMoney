@@ -2426,8 +2426,6 @@ const Transactions: React.FC = () => {
       field: 'date',
       sortable: true,
       filter: 'agDateColumnFilter',
-      sort: 'desc',
-      sortIndex: 0,
       width: 120,
       comparator: (a: any, b: any) => {
         // Normalize values that could be Date, string, or number
