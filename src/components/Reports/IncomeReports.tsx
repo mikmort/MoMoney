@@ -6,7 +6,8 @@ import {
   reportsService, 
   MonthlySpendingTrend,
   IncomeExpenseAnalysis,
-  DateRange 
+  DateRange,
+  ReportsFilters
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
 import { MultiSelectFilter } from '../shared/MultiSelectFilter';
@@ -228,11 +229,19 @@ const IncomeReports: React.FC = () => {
     try {
       const currentRange = getCurrentDateRange();
       
+      // Create comprehensive filters object
+      const filters: ReportsFilters = {
+        dateRange: currentRange,
+        selectedTypes: selectedIncomeTypes,
+        selectedCategories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
+      };
+      
       // Get the raw data first
       const [trendsData, analysisData, incomeSourcesData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(currentRange, selectedIncomeTypes),
-        reportsService.getIncomeExpenseAnalysis(currentRange, selectedIncomeTypes),
-        reportsService.getIncomeByCategory(currentRange, selectedIncomeTypes.includes('transfer'))
+        reportsService.getMonthlySpendingTrends(filters),
+        reportsService.getIncomeExpenseAnalysis(filters),
+        reportsService.getIncomeByCategory(filters)
       ]);
       
       setMonthlyTrends(trendsData);
@@ -242,24 +251,22 @@ const IncomeReports: React.FC = () => {
       console.error('Error loading income data:', error);
       // Fallback to basic data if income-specific methods don't exist
       const currentRange = getCurrentDateRange();
+      const filters: ReportsFilters = {
+        dateRange: currentRange,
+        selectedTypes: selectedIncomeTypes,
+        selectedCategories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
+      };
       const [trendsData, analysisData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(currentRange, selectedIncomeTypes),
-        reportsService.getIncomeExpenseAnalysis(currentRange, selectedIncomeTypes)
+        reportsService.getMonthlySpendingTrends(filters),
+        reportsService.getIncomeExpenseAnalysis(filters)
       ]);
       
       setMonthlyTrends(trendsData);
       setIncomeExpenseAnalysis(analysisData);
       setIncomeSources([]);
     }
-  }, [getCurrentDateRange, selectedIncomeTypes]);
-
-  // Filter income sources based on selected categories
-  const filteredIncomeSources = useMemo(() => {
-    if (selectedCategories.length === 0) {
-      return incomeSources;
-    }
-    return incomeSources.filter(source => selectedCategories.includes(source.categoryName));
-  }, [incomeSources, selectedCategories]);
+  }, [getCurrentDateRange, selectedIncomeTypes, selectedCategories, selectedAccounts]);
 
   useEffect(() => {
     loadIncomeData();
@@ -525,11 +532,11 @@ const IncomeReports: React.FC = () => {
       </Grid>
 
       {/* Income Sources Breakdown */}
-      {filteredIncomeSources.length > 0 && (
+      {incomeSources.length > 0 && (
         <Card>
           <h3>Income Sources</h3>
           <IncomeSourcesTable>
-            {filteredIncomeSources.map((source, index) => (
+            {incomeSources.map((source, index) => (
               <div 
                 key={index} 
                 className="source-row"
