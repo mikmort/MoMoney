@@ -6,7 +6,8 @@ import {
   reportsService, 
   MonthlySpendingTrend,
   IncomeExpenseAnalysis,
-  DateRange 
+  DateRange,
+  ReportsFilters
 } from '../../services/reportsService';
 import { StatsCard } from '../shared/StatsCard';
 import { MultiSelectFilter } from '../shared/MultiSelectFilter';
@@ -228,10 +229,18 @@ const IncomeReports: React.FC = () => {
     try {
       const currentRange = getCurrentDateRange();
       
+      // Create comprehensive filters object
+      const filters: ReportsFilters = {
+        dateRange: currentRange,
+        selectedTypes: selectedIncomeTypes,
+        selectedCategories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
+      };
+      
       // Get the raw data first
       const [trendsData, analysisData, incomeSourcesData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(currentRange, selectedIncomeTypes),
-        reportsService.getIncomeExpenseAnalysis(currentRange, selectedIncomeTypes),
+        reportsService.getMonthlySpendingTrends(filters),
+        reportsService.getIncomeExpenseAnalysis(filters),
         reportsService.getIncomeByCategory(currentRange, selectedIncomeTypes.includes('transfer'))
       ]);
       
@@ -242,16 +251,22 @@ const IncomeReports: React.FC = () => {
       console.error('Error loading income data:', error);
       // Fallback to basic data if income-specific methods don't exist
       const currentRange = getCurrentDateRange();
+      const filters: ReportsFilters = {
+        dateRange: currentRange,
+        selectedTypes: selectedIncomeTypes,
+        selectedCategories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
+      };
       const [trendsData, analysisData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(currentRange, selectedIncomeTypes),
-        reportsService.getIncomeExpenseAnalysis(currentRange, selectedIncomeTypes)
+        reportsService.getMonthlySpendingTrends(filters),
+        reportsService.getIncomeExpenseAnalysis(filters)
       ]);
       
       setMonthlyTrends(trendsData);
       setIncomeExpenseAnalysis(analysisData);
       setIncomeSources([]);
     }
-  }, [getCurrentDateRange, selectedIncomeTypes]);
+  }, [getCurrentDateRange, selectedIncomeTypes, selectedCategories, selectedAccounts]);
 
   // Filter income sources based on selected categories
   const filteredIncomeSources = useMemo(() => {
