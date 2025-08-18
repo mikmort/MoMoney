@@ -267,17 +267,6 @@ const IncomeReports: React.FC = () => {
       setIncomeSources([]);
     }
   }, [getCurrentDateRange, selectedIncomeTypes, selectedCategories, selectedAccounts]);
-<<<<<<< HEAD
-=======
-
-  // Filter income sources based on selected categories
-  const filteredIncomeSources = useMemo(() => {
-    if (selectedCategories.length === 0) {
-      return incomeSources;
-    }
-    return incomeSources.filter(source => selectedCategories.includes(source.categoryName));
-  }, [incomeSources, selectedCategories]);
->>>>>>> origin/main
 
   useEffect(() => {
     loadIncomeData();
