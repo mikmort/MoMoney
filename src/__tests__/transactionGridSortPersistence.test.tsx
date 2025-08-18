@@ -17,6 +17,43 @@ jest.mock('../services/fileProcessingService');
 jest.mock('../services/currencyDisplayService');
 jest.mock('../services/receiptProcessingService');
 
+// Mock AgGrid with a simplified version that renders the expected DOM structure
+jest.mock('ag-grid-react', () => ({
+  AgGridReact: ({ rowData }: any) => {
+    // Simple mock that renders the expected DOM structure for testing
+    const mockReact = require('react');
+    return mockReact.createElement('div', { className: 'ag-theme-alpine' }, [
+      // Header
+      mockReact.createElement('div', { 
+        key: 'header',
+        className: 'ag-header-cell',
+        'col-id': 'description',
+        onClick: () => {} // Mock sort function
+      }, 'Description'),
+      // Data rows - sort by description for predictable testing
+      ...(rowData || []).sort((a: any, b: any) => a.description.localeCompare(b.description)).map((row: any, index: number) =>
+        mockReact.createElement('div', { 
+          key: row.id,
+          className: 'ag-row',
+          'row-index': index.toString()
+        }, [
+          mockReact.createElement('span', {
+            key: 'checkbox-container',
+            className: 'ag-selection-checkbox'
+          }, mockReact.createElement('input', {
+            type: 'checkbox',
+            onChange: () => {} // Mock selection handler
+          })),
+          mockReact.createElement('div', {
+            key: 'description',
+            'col-id': 'description'
+          }, row.description)
+        ])
+      )
+    ]);
+  }
+}));
+
 // Mock hooks
 jest.mock('../hooks/useCategoriesManager');
 jest.mock('../hooks/useReimbursementMatching');
