@@ -256,7 +256,11 @@ class ReportsService {
     let expenseTransactions: Transaction[];
     
     // Handle the new ReportsFilters interface
-    if (filtersOrDateRange && 'selectedCategories' in filtersOrDateRange) {
+    if (filtersOrDateRange && (
+      'selectedCategories' in filtersOrDateRange || 
+      'selectedAccounts' in filtersOrDateRange || 
+      'selectedTypes' in filtersOrDateRange
+    )) {
       const filters = filtersOrDateRange as ReportsFilters;
       transactions = await this.getFilteredTransactions(filters);
       const selectedTypes = filters.selectedTypes || ['expense'];
@@ -320,7 +324,11 @@ class ReportsService {
     let transactions: Transaction[];
     
     // Handle the new ReportsFilters interface
-    if (filtersOrDateRange && 'selectedCategories' in filtersOrDateRange) {
+    if (filtersOrDateRange && (
+      'selectedCategories' in filtersOrDateRange || 
+      'selectedAccounts' in filtersOrDateRange || 
+      'selectedTypes' in filtersOrDateRange
+    )) {
       const filters = filtersOrDateRange as ReportsFilters;
       transactions = await this.getFilteredTransactions(filters);
     } else {
@@ -357,7 +365,11 @@ class ReportsService {
         let incomeTransactions: Transaction[];
         
         // Handle the new ReportsFilters interface
-        if (filtersOrDateRange && 'selectedCategories' in filtersOrDateRange) {
+        if (filtersOrDateRange && (
+          'selectedCategories' in filtersOrDateRange || 
+          'selectedAccounts' in filtersOrDateRange || 
+          'selectedTypes' in filtersOrDateRange
+        )) {
           const filters = filtersOrDateRange as ReportsFilters;
           const selectedTypes = filters.selectedTypes || ['income', 'expense'];
           
@@ -443,7 +455,11 @@ class ReportsService {
     let expenseTransactions: Transaction[];
     
     // Handle the new ReportsFilters interface
-    if (filtersOrDateRange && 'selectedCategories' in filtersOrDateRange) {
+    if (filtersOrDateRange && (
+      'selectedCategories' in filtersOrDateRange || 
+      'selectedAccounts' in filtersOrDateRange || 
+      'selectedTypes' in filtersOrDateRange
+    )) {
       const filters = filtersOrDateRange as ReportsFilters;
       transactions = await this.getFilteredTransactions(filters);
       const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
