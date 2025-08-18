@@ -241,7 +241,7 @@ const IncomeReports: React.FC = () => {
       const [trendsData, analysisData, incomeSourcesData] = await Promise.all([
         reportsService.getMonthlySpendingTrends(filters),
         reportsService.getIncomeExpenseAnalysis(filters),
-        reportsService.getIncomeByCategory(currentRange, selectedIncomeTypes.includes('transfer'))
+        reportsService.getIncomeByCategory(filters)
       ]);
       
       setMonthlyTrends(trendsData);
@@ -267,14 +267,6 @@ const IncomeReports: React.FC = () => {
       setIncomeSources([]);
     }
   }, [getCurrentDateRange, selectedIncomeTypes, selectedCategories, selectedAccounts]);
-
-  // Filter income sources based on selected categories
-  const filteredIncomeSources = useMemo(() => {
-    if (selectedCategories.length === 0) {
-      return incomeSources;
-    }
-    return incomeSources.filter(source => selectedCategories.includes(source.categoryName));
-  }, [incomeSources, selectedCategories]);
 
   useEffect(() => {
     loadIncomeData();
@@ -540,11 +532,11 @@ const IncomeReports: React.FC = () => {
       </Grid>
 
       {/* Income Sources Breakdown */}
-      {filteredIncomeSources.length > 0 && (
+      {incomeSources.length > 0 && (
         <Card>
           <h3>Income Sources</h3>
           <IncomeSourcesTable>
-            {filteredIncomeSources.map((source, index) => (
+            {incomeSources.map((source, index) => (
               <div 
                 key={index} 
                 className="source-row"

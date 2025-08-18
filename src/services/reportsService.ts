@@ -631,10 +631,31 @@ class ReportsService {
     };
   }
 
-  async getBurnRateAnalysis(dateRange?: DateRange, includeTransfers: boolean = false): Promise<BurnRateAnalysis> {
-    const allTransactions = await this.getTransactionsInRange(dateRange, includeTransfers);
-    const convertedAll = await currencyDisplayService.convertTransactionsBatch(allTransactions);
-    const expenseTransactions = await this.filterTransactionsForReportsLegacy(convertedAll, 'expense', includeTransfers);
+  async getBurnRateAnalysis(filters?: ReportsFilters): Promise<BurnRateAnalysis>;
+  async getBurnRateAnalysis(dateRange?: DateRange, includeTransfers?: boolean): Promise<BurnRateAnalysis>;
+  async getBurnRateAnalysis(filtersOrDateRange?: ReportsFilters | DateRange, includeTransfers: boolean = false): Promise<BurnRateAnalysis> {
+    let transactions: Transaction[];
+    let expenseTransactions: Transaction[];
+    
+    // Handle the new ReportsFilters interface
+    if (filtersOrDateRange && (
+      'selectedCategories' in filtersOrDateRange || 
+      'selectedAccounts' in filtersOrDateRange || 
+      'selectedTypes' in filtersOrDateRange
+    )) {
+      const filters = filtersOrDateRange as ReportsFilters;
+      transactions = await this.getFilteredTransactions(filters);
+      const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
+      const selectedTypes = filters.selectedTypes || ['expense'];
+      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypes);
+    } else {
+      // Legacy behavior
+      const dateRange = filtersOrDateRange as DateRange | undefined;
+      const allTransactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+      const convertedAll = await currencyDisplayService.convertTransactionsBatch(allTransactions);
+      expenseTransactions = await this.filterTransactionsForReportsLegacy(convertedAll, 'expense', includeTransfers);
+      transactions = convertedAll;
+    }
     
     if (expenseTransactions.length === 0) {
       return {
@@ -671,7 +692,7 @@ class ReportsService {
     const projectedMonthlySpending = daysPassed > 0 ? (currentMonthExpenses / daysPassed) * daysInMonth : monthlyBurnRate;
 
     // Get income for balance projection
-  const currentMonthIncome = convertedAll
+    const currentMonthIncome = transactions
       .filter(t => (t.type === 'income' || t.amount > 0) && t.date >= currentMonthStart && t.date <= now)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
@@ -846,22 +867,42 @@ class ReportsService {
   }
 
   // Get income breakdown by category (similar to spending but for income)
-  async getIncomeByCategory(dateRange?: DateRange, includeTransfers: boolean = false): Promise<any[]> {
+  async getIncomeByCategory(filters?: ReportsFilters): Promise<any[]>;
+  async getIncomeByCategory(dateRange?: DateRange, includeTransfers?: boolean): Promise<any[]>;
+  async getIncomeByCategory(filtersOrDateRange?: ReportsFilters | DateRange, includeTransfersOrUndefined?: boolean): Promise<any[]> {
     try {
-      const transactions = await dataService.getAllTransactions();
+      let transactions: Transaction[];
+      let incomeTransactions: Transaction[];
       
-      let filteredTransactions = transactions;
-      
-      // Apply date range filter
-      if (dateRange) {
-        filteredTransactions = filteredTransactions.filter(t => {
-          const transactionDate = new Date(t.date);
-          return transactionDate >= dateRange.startDate && transactionDate <= dateRange.endDate;
-        });
+      // Handle the new ReportsFilters interface
+      if (filtersOrDateRange && (
+        'selectedCategories' in filtersOrDateRange || 
+        'selectedAccounts' in filtersOrDateRange || 
+        'selectedTypes' in filtersOrDateRange
+      )) {
+        const filters = filtersOrDateRange as ReportsFilters;
+        transactions = await this.getFilteredTransactions(filters);
+        const selectedTypes = filters.selectedTypes || ['income'];
+        incomeTransactions = await this.filterTransactionsForReports(transactions, 'income', selectedTypes);
+      } else {
+        // Legacy behavior
+        const dateRange = filtersOrDateRange as DateRange | undefined;
+        const includeTransfers = includeTransfersOrUndefined || false;
+        const allTransactions = await dataService.getAllTransactions();
+        
+        let filteredTransactions = allTransactions;
+        
+        // Apply date range filter
+        if (dateRange) {
+          filteredTransactions = filteredTransactions.filter(t => {
+            const transactionDate = new Date(t.date);
+            return transactionDate >= dateRange.startDate && transactionDate <= dateRange.endDate;
+          });
+        }
+        
+        // Filter for income transactions
+        incomeTransactions = await this.filterTransactionsForReportsLegacy(filteredTransactions, 'income', includeTransfers);
       }
-      
-      // Filter for income transactions
-      const incomeTransactions = await this.filterTransactionsForReportsLegacy(filteredTransactions, 'income', includeTransfers);
       
       // Convert to common currency
       const convertedIncomeTransactions = await currencyDisplayService.convertTransactionsBatch(incomeTransactions);
@@ -884,6 +925,9 @@ class ReportsService {
       
       // Convert to array with additional stats
       return Object.entries(categoryTotals).map(([categoryName, data]) => {
+        const dateRange = filtersOrDateRange && 'dateRange' in filtersOrDateRange 
+          ? (filtersOrDateRange as ReportsFilters).dateRange
+          : (filtersOrDateRange as DateRange | undefined);
         const frequency = this.calculateFrequency(data.transactions, dateRange);
         return {
           categoryName,
