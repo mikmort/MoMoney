@@ -427,8 +427,17 @@ class DataService {
   async addTransaction(transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Promise<Transaction> {
     await this.ensureInitialized();
     const now = new Date();
+    
+    // Ensure transaction type consistency with special categories
+    let correctedTransaction = { ...transaction };
+    if (transaction.category === 'Internal Transfer') {
+      correctedTransaction.type = 'transfer';
+    } else if (transaction.category === 'Asset Allocation') {
+      correctedTransaction.type = 'asset-allocation';
+    }
+    
     const newTransaction: Transaction = {
-      ...transaction,
+      ...correctedTransaction,
       id: uuidv4(),
       addedDate: now,
       lastModifiedDate: now,
@@ -520,8 +529,16 @@ class DataService {
     console.log(`📊 Creating ${transactions.length} new transaction objects with IDs...`);
     
     const newTransactions = transactions.map((transaction, idx) => {
+      // Ensure transaction type consistency with special categories
+      let correctedTransaction = { ...transaction };
+      if (transaction.category === 'Internal Transfer') {
+        correctedTransaction.type = 'transfer';
+      } else if (transaction.category === 'Asset Allocation') {
+        correctedTransaction.type = 'asset-allocation';
+      }
+      
       const newTx = {
-        ...transaction,
+        ...correctedTransaction,
         id: uuidv4(),
         addedDate: now,
         lastModifiedDate: now,
