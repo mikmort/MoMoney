@@ -1387,15 +1387,17 @@ Return ONLY a clean JSON response:
     // then amounts are likely reversed. However, if we have BOTH income and expense patterns
     // detected, we need to be more careful about blanket reversal.
     const minSampleSize = 3;
+    const minIncomeForMixed = 2; // Lower threshold for income in mixed scenarios
     const confidenceThreshold = 0.7; // 70% of transactions should match the reversed pattern
 
     let shouldReverse = false;
 
     // If we have both income and expense patterns, be more conservative
-    const hasBothPatterns = incomeCount >= minSampleSize && expenseCount >= minSampleSize;
+    const hasBothPatterns = incomeCount >= minIncomeForMixed && expenseCount >= minSampleSize;
     
     if (hasBothPatterns) {
       console.log(`🔍 Both income and expense patterns detected - using conservative approach`);
+      console.log(`   📊 Counts: expenses=${expenseCount} (${expensePositiveCount} positive), income=${incomeCount} (${incomeNegativeCount} negative)`);
       
       // Only reverse if BOTH patterns indicate reversal
       const expensePositiveRate = expensePositiveCount / expenseCount;
@@ -1406,6 +1408,7 @@ Return ONLY a clean JSON response:
         shouldReverse = true;
       } else {
         console.log(`✅ Mixed data detected - keeping amounts as-is to preserve transfer fund signs`);
+        console.log(`   📊 Expense positive rate: ${Math.round(expensePositiveRate * 100)}%, income negative rate: ${Math.round(incomeNegativeRate * 100)}%`);
       }
     } else {
       // Original logic for homogeneous data
