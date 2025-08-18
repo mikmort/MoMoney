@@ -494,15 +494,22 @@ class RulesService {
                             transaction.subcategory !== rule.action.subcategoryName;
 
           if (wouldChange) {
+            const updates: Partial<Transaction> = {
+              category: rule.action.categoryName,
+              subcategory: rule.action.subcategoryName,
+              confidence: 1.0,
+              reasoning: `Reclassified by rule: ${rule.name}`,
+              isVerified: false, // Mark as unverified since it was auto-changed
+            };
+            
+            // Apply transaction type if specified in the rule
+            if (rule.action.transactionType) {
+              updates.type = rule.action.transactionType;
+            }
+            
             batchUpdates.push({
               id: transaction.id,
-              updates: {
-                category: rule.action.categoryName,
-                subcategory: rule.action.subcategoryName,
-                confidence: 1.0,
-                reasoning: `Reclassified by rule: ${rule.name}`,
-                isVerified: false, // Mark as unverified since it was auto-changed
-              },
+              updates,
               note: `Reclassified by rule: ${rule.name}`
             });
           }
