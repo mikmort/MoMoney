@@ -1338,6 +1338,7 @@ Return ONLY a clean JSON response:
       'refund', 'return', 'credit', 'reimbursement',
       'dividend', 'interest', 'bonus',
       'transfer in', 'deposit', 'direct deposit',
+      'transfer funds from', 'funds from', 'transfer from', 'wire received', 'wired funds',
       'freelance', 'consulting', 'payment received'
     ];
 
@@ -1383,27 +1384,48 @@ Return ONLY a clean JSON response:
 
     // Decision logic:
     // If we have enough samples and most expenses are positive OR most income is negative,
-    // then amounts are likely reversed
+    // then amounts are likely reversed. However, if we have BOTH income and expense patterns
+    // detected, we need to be more careful about blanket reversal.
     const minSampleSize = 3;
     const confidenceThreshold = 0.7; // 70% of transactions should match the reversed pattern
 
     let shouldReverse = false;
 
-    // Check expense pattern: if most expense-like transactions are positive, amounts are reversed
-    if (expenseCount >= minSampleSize) {
+    // If we have both income and expense patterns, be more conservative
+    const hasBothPatterns = incomeCount >= minSampleSize && expenseCount >= minSampleSize;
+    
+    if (hasBothPatterns) {
+      console.log(`🔍 Both income and expense patterns detected - using conservative approach`);
+      
+      // Only reverse if BOTH patterns indicate reversal
       const expensePositiveRate = expensePositiveCount / expenseCount;
-      if (expensePositiveRate >= confidenceThreshold) {
-        console.log(`🔄 Detected reversed amounts: ${expensePositiveCount}/${expenseCount} (${Math.round(expensePositiveRate * 100)}%) expense-like transactions are positive`);
+      const incomeNegativeRate = incomeCount > 0 ? (incomeNegativeCount / incomeCount) : 0;
+      
+      if (expensePositiveRate >= confidenceThreshold && incomeNegativeRate >= confidenceThreshold) {
+        console.log(`🔄 Both patterns reversed - expenses: ${Math.round(expensePositiveRate * 100)}% positive, income: ${Math.round(incomeNegativeRate * 100)}% negative`);
         shouldReverse = true;
+      } else {
+        console.log(`✅ Mixed data detected - keeping amounts as-is to preserve transfer fund signs`);
       }
-    }
+    } else {
+      // Original logic for homogeneous data
+      
+      // Check expense pattern: if most expense-like transactions are positive, amounts are reversed
+      if (expenseCount >= minSampleSize) {
+        const expensePositiveRate = expensePositiveCount / expenseCount;
+        if (expensePositiveRate >= confidenceThreshold) {
+          console.log(`🔄 Detected reversed amounts: ${expensePositiveCount}/${expenseCount} (${Math.round(expensePositiveRate * 100)}%) expense-like transactions are positive`);
+          shouldReverse = true;
+        }
+      }
 
-    // Check income pattern: if most income-like transactions are negative, amounts are reversed
-    if (incomeCount >= minSampleSize && !shouldReverse) {
-      const incomeNegativeRate = incomeNegativeCount / incomeCount;
-      if (incomeNegativeRate >= confidenceThreshold) {
-        console.log(`🔄 Detected reversed amounts: ${incomeNegativeCount}/${incomeCount} (${Math.round(incomeNegativeRate * 100)}%) income-like transactions are negative`);
-        shouldReverse = true;
+      // Check income pattern: if most income-like transactions are negative, amounts are reversed
+      if (incomeCount >= minSampleSize && !shouldReverse) {
+        const incomeNegativeRate = incomeNegativeCount / incomeCount;
+        if (incomeNegativeRate >= confidenceThreshold) {
+          console.log(`🔄 Detected reversed amounts: ${incomeNegativeCount}/${incomeCount} (${Math.round(incomeNegativeRate * 100)}%) income-like transactions are negative`);
+          shouldReverse = true;
+        }
       }
     }
 
