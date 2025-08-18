@@ -36,6 +36,10 @@ const mockUseAccountManagement = useAccountManagement as jest.MockedFunction<typ
 
 const mockDataService = dataService as jest.Mocked<typeof dataService>;
 
+// Import and mock currencyDisplayService
+import { currencyDisplayService } from '../services/currencyDisplayService';
+const mockCurrencyDisplayService = currencyDisplayService as jest.Mocked<typeof currencyDisplayService>;
+
 // Mock transactions with different descriptions to test sorting
 const mockTransactions: Transaction[] = [
   {
@@ -144,6 +148,16 @@ describe('Transaction Grid Sort Persistence', () => {
       getAccountOptions: () => ['Checking'],
       detectAccountsFromTransactions: jest.fn()
     });
+
+    // Mock currencyDisplayService
+    mockCurrencyDisplayService.initialize.mockResolvedValue();
+    mockCurrencyDisplayService.getDefaultCurrency.mockResolvedValue('USD');
+    mockCurrencyDisplayService.formatTransactionAmount.mockImplementation((transaction: any) => 
+      Promise.resolve({
+        displayAmount: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(transaction.amount),
+        isConverted: false
+      })
+    );
   });
 
   it('should preserve sort order when clicking checkboxes', async () => {
