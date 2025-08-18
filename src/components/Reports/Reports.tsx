@@ -225,6 +225,31 @@ const Reports: React.FC = () => {
   const [dateRangeType, setDateRangeType] = useState<DateRangeType>('last-12-months');
   const [customDateRange, setCustomDateRange] = useState<DateRange | null>(null);
   const [selectedTransactionTypes, setSelectedTransactionTypes] = useState<string[]>(['income', 'expense']);
+  
+  // Transaction type mappings for display names
+  const transactionTypeOptions = [
+    { value: 'income', label: 'income' },
+    { value: 'expense', label: 'expense' },
+    { value: 'transfer', label: 'transfer' },
+    { value: 'asset-allocation', label: 'Asset Allocation' }
+  ];
+  
+  // Map display names back to internal values for API calls
+  const getInternalTransactionTypes = (displayNames: string[]): string[] => {
+    return displayNames.map(displayName => {
+      const option = transactionTypeOptions.find(opt => opt.label === displayName);
+      return option ? option.value : displayName.toLowerCase();
+    });
+  };
+  
+  // Map internal values to display names for UI
+  const getDisplayTransactionTypes = (internalValues: string[]): string[] => {
+    return internalValues.map(internalValue => {
+      const option = transactionTypeOptions.find(opt => opt.value === internalValue);
+      return option ? option.label : internalValue;
+    });
+  };
+  
   const [spendingByCategory, setSpendingByCategory] = useState<SpendingByCategory[]>([]);
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
   const [incomeExpenseAnalysis, setIncomeExpenseAnalysis] = useState<IncomeExpenseAnalysis | null>(null);
@@ -536,9 +561,9 @@ const Reports: React.FC = () => {
             <label>Transaction Types</label>
             <MultiSelectFilter
               label="Transaction Types"
-              options={['income', 'expense', 'transfer', 'asset-allocation']}
-              selectedValues={selectedTransactionTypes}
-              onChange={setSelectedTransactionTypes}
+              options={transactionTypeOptions.map(opt => opt.label)}
+              selectedValues={getDisplayTransactionTypes(selectedTransactionTypes)}
+              onChange={(displayNames) => setSelectedTransactionTypes(getInternalTransactionTypes(displayNames))}
               placeholder="Select types..."
             />
           </div>
