@@ -830,7 +830,7 @@ const Transactions: React.FC = () => {
   
   // Transfer display options
   const [transferDisplayOptions, setTransferDisplayOptions] = useState<TransferDisplayOptions>({
-    showTransfers: false,
+    showTransfers: true,
     collapseMatched: true,
     showFees: false
   });
