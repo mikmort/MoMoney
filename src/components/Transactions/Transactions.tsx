@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
@@ -1250,12 +1250,27 @@ const Transactions: React.FC = () => {
 
   // Grid API reference
   const [gridApi, setGridApi] = useState<any>(null);
+  
+  // Store the current column state to preserve sort order across re-renders
+  const columnStateRef = useRef<any>(null);
 
   // Handle row selection changes
   const onSelectionChanged = useCallback(() => {
     if (gridApi) {
       const selectedRows = gridApi.getSelectedRows();
       setSelectedTransactions(selectedRows);
+    }
+  }, [gridApi]);
+
+  // Handle sort changes to store the current column state (including sort)
+  const onSortChanged = useCallback(() => {
+    if (gridApi) {
+      const columnState = gridApi.getColumnState();
+      // Only store if there's actual sorting applied
+      const hasSorting = columnState.some((col: any) => col.sort !== null);
+      if (hasSorting) {
+        columnStateRef.current = columnState;
+      }
     }
   }, [gridApi]);
 
@@ -1541,6 +1556,11 @@ const Transactions: React.FC = () => {
     // Use setTimeout to avoid ResizeObserver conflicts
     setTimeout(() => {
       params.api.sizeColumnsToFit();
+      
+      // Restore column state (including sort) if it exists
+      if (columnStateRef.current) {
+        params.api.applyColumnState({ state: columnStateRef.current });
+      }
     }, 0);
   }, []);
 
@@ -1548,6 +1568,16 @@ const Transactions: React.FC = () => {
   useEffect(() => {
     // This effect can be removed as it was specific to transfer filtering
   }, [gridApi]);
+
+  // Preserve sort order when data changes
+  useEffect(() => {
+    if (gridApi && columnStateRef.current) {
+      // Use setTimeout to ensure the grid has finished rendering with new data
+      setTimeout(() => {
+        gridApi.applyColumnState({ state: columnStateRef.current });
+      }, 0);
+    }
+  }, [gridApi, filteredTransactions]);
 
 
 
@@ -3161,6 +3191,7 @@ const Transactions: React.FC = () => {
               rowData={filteredTransactions}
               onGridReady={onGridReady}
               onSelectionChanged={onSelectionChanged}
+              onSortChanged={onSortChanged}
               rowSelection="multiple"
               suppressRowClickSelection={true}
               pagination={true}
