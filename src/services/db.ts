@@ -44,6 +44,7 @@ const APP_VERSION_KEY = 'APP_DATA_VERSION';
 const MIGRATION_PREFIX = 'MIGRATION_COMPLETED_';
 export const INTERNAL_TRANSFER_MIGRATION_KEY = `${MIGRATION_PREFIX}internal_transfer_types_v1`;
 export const ASSET_ALLOCATION_MIGRATION_KEY = `${MIGRATION_PREFIX}asset_allocation_types_v1`;
+export const ORPHANED_MATCHES_CLEANUP_MIGRATION_KEY = `${MIGRATION_PREFIX}orphaned_matches_cleanup_v1`;
 
 // Helper function to check if a migration has been completed
 export const isMigrationCompleted = (migrationKey: string): boolean => {
