@@ -1938,9 +1938,9 @@ class DataService {
 
   /**
    * Fix 2: One-time cleanup method to remove orphaned reimbursementId references
+   * Note: This method assumes data is already loaded (called during initialization)
    */
   async cleanupOrphanedMatches(): Promise<{ fixed: number; errors: string[] }> {
-    await this.ensureInitialized();
     const errors: string[] = [];
     let fixed = 0;
 
