@@ -1,6 +1,6 @@
 import { Transaction, DuplicateDetectionResult, DuplicateTransaction, CategoryRule, DuplicateDetectionConfig } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, DBHealthCheck, INTERNAL_TRANSFER_MIGRATION_KEY, ASSET_ALLOCATION_MIGRATION_KEY, isMigrationCompleted, markMigrationCompleted } from './db';
+import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, DBHealthCheck, INTERNAL_TRANSFER_MIGRATION_KEY, ASSET_ALLOCATION_MIGRATION_KEY, ORPHANED_MATCHES_CLEANUP_MIGRATION_KEY, isMigrationCompleted, markMigrationCompleted } from './db';
 import { rulesService } from './rulesService';
 import { transferMatchingService } from './transferMatchingService';
 import { notificationService } from './notificationService';
@@ -84,6 +84,21 @@ class DataService {
         markMigrationCompleted(ASSET_ALLOCATION_MIGRATION_KEY);
       } else {
         txLog('[TX] Asset Allocation migration already completed, skipping');
+      }
+
+      if (!isMigrationCompleted(ORPHANED_MATCHES_CLEANUP_MIGRATION_KEY)) {
+        txLog('[TX] Running Orphaned Matches cleanup migration...');
+        const migrationResult = await this.cleanupOrphanedMatches();
+        if (migrationResult.fixed > 0 || migrationResult.errors.length > 0) {
+          txLog(`[TX] Orphaned Matches cleanup completed: ${migrationResult.fixed} fixed, ${migrationResult.errors.length} errors`);
+          if (migrationResult.errors.length > 0) {
+            txError('[TX] Migration errors:', migrationResult.errors);
+          }
+        }
+        // Mark migration as completed regardless of outcome to prevent infinite retries
+        markMigrationCompleted(ORPHANED_MATCHES_CLEANUP_MIGRATION_KEY);
+      } else {
+        txLog('[TX] Orphaned Matches cleanup already completed, skipping');
       }
       
       // Perform health check after loading data
@@ -801,6 +816,9 @@ class DataService {
     const index = this.transactions.findIndex(t => t.id === id);
     if (index === -1) return false;
 
+    // Fix 1: Unmatch transactions before deletion to prevent orphaned reimbursementId references
+    await this.unmatchTransactionBeforeDeletion(id);
+
     // Remove transaction from in-memory array
     this.transactions.splice(index, 1);
     
@@ -830,6 +848,12 @@ class DataService {
 
   async deleteTransactions(ids: string[]): Promise<number> {
     await this.ensureInitialized();
+    
+    // Fix 1: Unmatch transactions before bulk deletion to prevent orphaned reimbursementId references
+    for (const id of ids) {
+      await this.unmatchTransactionBeforeDeletion(id);
+    }
+    
     const initialLength = this.transactions.length;
     this.transactions = this.transactions.filter(t => !ids.includes(t.id));
     const deletedCount = initialLength - this.transactions.length;
@@ -1870,6 +1894,86 @@ class DataService {
       undoStackSize: undoStack.length,
       redoStackSize: redoStack.length
     };
+  }
+
+  /**
+   * Helper method to unmatch a transaction before deletion to prevent orphaned reimbursementId references
+   */
+  private async unmatchTransactionBeforeDeletion(transactionId: string): Promise<void> {
+    // Find any transaction that has this ID as its reimbursementId (i.e., matches to this transaction)
+    const matchingTransaction = this.transactions.find(tx => tx.reimbursementId === transactionId);
+    
+    if (matchingTransaction) {
+      // Remove the reimbursementId link and clean up matching notes
+      await this.updateTransaction(matchingTransaction.id, {
+        reimbursementId: undefined,
+        notes: this.removeMatchNoteFromTransaction(matchingTransaction.notes || '')
+      });
+    }
+
+    // Also check if the transaction being deleted has a reimbursementId (matches to another transaction)
+    const transactionToDelete = this.transactions.find(tx => tx.id === transactionId);
+    if (transactionToDelete?.reimbursementId) {
+      const matchedTransaction = this.transactions.find(tx => tx.id === transactionToDelete.reimbursementId);
+      if (matchedTransaction) {
+        // Remove the reimbursementId link and clean up matching notes from the matched transaction
+        await this.updateTransaction(matchedTransaction.id, {
+          reimbursementId: undefined,
+          notes: this.removeMatchNoteFromTransaction(matchedTransaction.notes || '')
+        });
+      }
+    }
+  }
+
+  /**
+   * Remove match-related notes from transaction notes
+   */
+  private removeMatchNoteFromTransaction(notes: string): string {
+    return notes
+      .replace(/\n?\[Matched Transfer: .+?\]/g, '')
+      .replace(/\n?\[Manual Transfer Match\]/g, '')
+      .replace(/\n?\[Matched Transaction: .+?\]/g, '') // Support for same-account matches
+      .trim();
+  }
+
+  /**
+   * Fix 2: One-time cleanup method to remove orphaned reimbursementId references
+   */
+  async cleanupOrphanedMatches(): Promise<{ fixed: number; errors: string[] }> {
+    await this.ensureInitialized();
+    const errors: string[] = [];
+    let fixed = 0;
+
+    try {
+      const transactionIds = new Set(this.transactions.map(tx => tx.id));
+      
+      for (const transaction of this.transactions) {
+        if (transaction.reimbursementId && !transactionIds.has(transaction.reimbursementId)) {
+          // Found an orphaned reimbursementId - the referenced transaction doesn't exist
+          try {
+            await this.updateTransaction(transaction.id, {
+              reimbursementId: undefined,
+              notes: this.removeMatchNoteFromTransaction(transaction.notes || '')
+            });
+            fixed++;
+          } catch (error) {
+            const errorMsg = `Failed to cleanup orphaned match for transaction ${transaction.id}: ${error}`;
+            errors.push(errorMsg);
+            console.error(`[TX] ${errorMsg}`);
+          }
+        }
+      }
+
+      if (fixed > 0) {
+        console.log(`[TX] Cleaned up ${fixed} orphaned reimbursementId references`);
+      }
+    } catch (error) {
+      const errorMsg = `Orphaned matches cleanup failed: ${error}`;
+      errors.push(errorMsg);
+      console.error(`[TX] ${errorMsg}`);
+    }
+
+    return { fixed, errors };
   }
 }
 
