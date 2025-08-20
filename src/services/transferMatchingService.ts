@@ -841,11 +841,82 @@ class TransferMatchingService {
   }
 
   private removeMatchNoteFromTransaction(notes: string): string {
+    if (!notes) return '';
+    
     return notes
       .replace(/\n?\[Matched Transfer: .+?\]/g, '')
       .replace(/\n?\[Manual Transfer Match\]/g, '')
       .replace(/\n?\[Matched Transaction: .+?\]/g, '') // Add support for same-account matches
+      .replace(/^\n+|\n+$/g, '') // Remove leading and trailing newlines
+      .replace(/\s{2,}/g, ' ') // Replace multiple spaces with single space
       .trim();
+  }
+
+  /**
+   * Find all transactions that reference a given transaction ID via reimbursementId
+   */
+  findTransactionsReferencingId(transactions: Transaction[], targetId: string): Transaction[] {
+    return transactions.filter(tx => tx.reimbursementId === targetId);
+  }
+
+  /**
+   * Unmatch any transactions that reference the given transaction IDs
+   * This is called before deleting transactions to prevent orphaned references
+   */
+  async unmatchTransactionsReferencingIds(transactions: Transaction[], idsToDelete: string[]): Promise<Transaction[]> {
+    let updatedTransactions = [...transactions];
+    
+    for (const idToDelete of idsToDelete) {
+      // Find transactions that reference this ID
+      const referencingTransactions = this.findTransactionsReferencingId(updatedTransactions, idToDelete);
+      
+      // Clear the reimbursementId and remove match notes from each referencing transaction
+      for (const referencingTx of referencingTransactions) {
+        const index = updatedTransactions.findIndex(tx => tx.id === referencingTx.id);
+        if (index !== -1) {
+          updatedTransactions[index] = {
+            ...updatedTransactions[index],
+            reimbursementId: undefined,
+            notes: this.removeMatchNoteFromTransaction(updatedTransactions[index].notes || '')
+          };
+        }
+      }
+    }
+    
+    return updatedTransactions;
+  }
+
+  /**
+   * Clean up orphaned reimbursementId references (one-time cleanup for existing databases)
+   * Returns updated transactions with orphaned references removed
+   */
+  async cleanupOrphanedReimbursementIds(transactions: Transaction[]): Promise<Transaction[]> {
+    const existingIds = new Set(transactions.map(tx => tx.id));
+    const updatedTransactions = [...transactions];
+    let cleanedCount = 0;
+    
+    for (let i = 0; i < updatedTransactions.length; i++) {
+      const tx = updatedTransactions[i];
+      
+      // Check if this transaction has a reimbursementId that points to a non-existent transaction
+      if (tx.reimbursementId && !existingIds.has(tx.reimbursementId)) {
+        console.log(`🧹 Cleaning orphaned reimbursementId reference: ${tx.id} → ${tx.reimbursementId}`);
+        
+        updatedTransactions[i] = {
+          ...tx,
+          reimbursementId: undefined,
+          notes: this.removeMatchNoteFromTransaction(tx.notes || '')
+        };
+        
+        cleanedCount++;
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      console.log(`✅ Cleaned up ${cleanedCount} orphaned reimbursementId references`);
+    }
+    
+    return updatedTransactions;
   }
 }
 

@@ -86,6 +86,16 @@ class DataService {
         txLog('[TX] Asset Allocation migration already completed, skipping');
       }
       
+      // Run one-time cleanup for orphaned reimbursementId references
+      try {
+        const cleanedCount = await this.cleanupOrphanedReimbursementIds();
+        if (cleanedCount > 0) {
+          txLog(`[TX] Cleaned up ${cleanedCount} orphaned reimbursementId references`);
+        }
+      } catch (error) {
+        txError('[TX] Failed to clean up orphaned reimbursementId references:', error);
+      }
+      
       // Perform health check after loading data
       const { needsReset, healthCheck } = await performPostInitHealthCheck();
       this.healthCheckResults = healthCheck;
@@ -801,8 +811,12 @@ class DataService {
     const index = this.transactions.findIndex(t => t.id === id);
     if (index === -1) return false;
 
+    // First, unmatch any transactions that reference this transaction before deletion
+    const updatedTransactions = await transferMatchingService.unmatchTransactionsReferencingIds(this.transactions, [id]);
+    this.transactions = updatedTransactions;
+
     // Remove transaction from in-memory array
-    this.transactions.splice(index, 1);
+    this.transactions.splice(this.transactions.findIndex(t => t.id === id), 1);
     
     // Clean up associated history records from memory
     if (this.history[id]) {
@@ -831,6 +845,11 @@ class DataService {
   async deleteTransactions(ids: string[]): Promise<number> {
     await this.ensureInitialized();
     const initialLength = this.transactions.length;
+
+    // First, unmatch any transactions that reference the transactions being deleted
+    this.transactions = await transferMatchingService.unmatchTransactionsReferencingIds(this.transactions, ids);
+    
+    // Then filter out the transactions to delete
     this.transactions = this.transactions.filter(t => !ids.includes(t.id));
     const deletedCount = initialLength - this.transactions.length;
     
@@ -869,6 +888,29 @@ class DataService {
     }
     
     return deletedCount;
+  }
+
+  /**
+   * One-time cleanup method to fix databases with orphaned reimbursementId references
+   * This should be called after loading the database to clean up any inconsistencies
+   */
+  async cleanupOrphanedReimbursementIds(): Promise<number> {
+    await this.ensureInitialized();
+    
+    console.log('🧹 Running one-time cleanup for orphaned reimbursementId references...');
+    const updatedTransactions = await transferMatchingService.cleanupOrphanedReimbursementIds(this.transactions);
+    
+    // Count how many transactions were cleaned
+    const cleanedCount = this.transactions.filter((tx, index) => 
+      tx.reimbursementId !== updatedTransactions[index].reimbursementId
+    ).length;
+    
+    if (cleanedCount > 0) {
+      this.transactions = updatedTransactions;
+      await this.saveToDB();
+    }
+    
+    return cleanedCount;
   }
 
   // Query operations
