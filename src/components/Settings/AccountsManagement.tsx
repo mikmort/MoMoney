@@ -6,6 +6,7 @@ import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
 import { Account, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../../types';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
+import { useNotification } from '../../hooks/useNotification';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { accountManagementService } from '../../services/accountManagementService';
 import BalanceHistoryModal from '../Accounts/BalanceHistoryModal';
@@ -176,6 +177,7 @@ interface AccountsManagementProps {}
 export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const navigate = useNavigate();
   const { accounts, addAccount, updateAccount, deleteAccount, error, refreshAccounts } = useAccountManagement();
+  const { showAlert, showConfirmation } = useNotification();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showSetBalanceModal, setShowSetBalanceModal] = useState(false);
@@ -306,15 +308,43 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   };
 
   const handleSaveAccount = async () => {
-    if (editingAccount) {
-      // Update existing account
-      await updateAccount(editingAccount.id, accountForm);
-    } else {
-      // Add new account
-      addAccount(accountForm);
+    try {
+      if (editingAccount) {
+        // Update existing account
+        const updatedAccount = await updateAccount(editingAccount.id, accountForm);
+        if (!updatedAccount) {
+          showAlert('Failed to update account. Please try again.', 'error');
+          return;
+        }
+        showAlert('Account updated successfully!', 'success');
+      } else {
+        // Add new account
+        const newAccount = await addAccount(accountForm);
+        if (!newAccount) {
+          showAlert('Failed to add account. Please try again.', 'error');
+          return;
+        }
+        showAlert('Account added successfully!', 'success');
+      }
+      setShowEditModal(false);
+      setEditingAccount(null);
+      
+      // Reset form to default values
+      setAccountForm({
+        name: '',
+        type: 'checking',
+        institution: '',
+        currency: 'USD',
+        balance: 0,
+        isActive: true
+      });
+      
+      // Force refresh accounts to ensure UI is updated
+      refreshAccounts();
+    } catch (error) {
+      console.error('Error saving account:', error);
+      showAlert('An unexpected error occurred while saving the account.', 'error');
     }
-    setShowEditModal(false);
-    setEditingAccount(null);
   };
 
   const handleFormChange = (field: string, value: any) => {
@@ -326,30 +356,41 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
 
   const handleSetBalance = async (balance: number, date: Date) => {
     if (editingAccount) {
-      // Update the editing account with new historical balance and date
-      const updatedAccount = {
-        ...editingAccount,
-        balance: balance,
-        historicalBalance: balance,
-        historicalBalanceDate: date
-      };
+      try {
+        // Update the editing account with new historical balance and date
+        const updatedAccount = {
+          ...editingAccount,
+          balance: balance,
+          historicalBalance: balance,
+          historicalBalanceDate: date
+        };
 
-      // Update in the database
-      await updateAccount(editingAccount.id, {
-        balance: balance,
-        historicalBalance: balance,
-        historicalBalanceDate: date
-      });
+        // Update in the database
+        const result = await updateAccount(editingAccount.id, {
+          balance: balance,
+          historicalBalance: balance,
+          historicalBalanceDate: date
+        });
+        
+        if (!result) {
+          showAlert('Failed to update account balance. Please try again.', 'error');
+          return;
+        }
 
-      // Update the form and editing account state
-      setEditingAccount(updatedAccount);
-      setAccountForm(prev => ({
-        ...prev,
-        balance: balance
-      }));
+        // Update the form and editing account state
+        setEditingAccount(updatedAccount);
+        setAccountForm(prev => ({
+          ...prev,
+          balance: balance
+        }));
 
-      // Force refresh the accounts to update the UI
-      refreshAccounts();
+        // Force refresh the accounts to update the UI
+        refreshAccounts();
+        showAlert('Account balance updated successfully!', 'success');
+      } catch (error) {
+        console.error('Error updating account balance:', error);
+        showAlert('An unexpected error occurred while updating the balance.', 'error');
+      }
     }
   };
 
