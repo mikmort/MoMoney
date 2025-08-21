@@ -177,7 +177,7 @@ interface AccountsManagementProps {}
 export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
   const navigate = useNavigate();
   const { accounts, addAccount, updateAccount, deleteAccount, error, refreshAccounts } = useAccountManagement();
-  const { showAlert, showConfirmation } = useNotification();
+  const { showAlert } = useNotification();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showSetBalanceModal, setShowSetBalanceModal] = useState(false);
@@ -313,18 +313,18 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         // Update existing account
         const updatedAccount = await updateAccount(editingAccount.id, accountForm);
         if (!updatedAccount) {
-          showAlert('Failed to update account. Please try again.', 'error');
+          showAlert('error', 'Failed to update account. Please try again.');
           return;
         }
-        showAlert('Account updated successfully!', 'success');
+        showAlert('success', 'Account updated successfully!');
       } else {
         // Add new account
         const newAccount = await addAccount(accountForm);
         if (!newAccount) {
-          showAlert('Failed to add account. Please try again.', 'error');
+          showAlert('error', 'Failed to add account. Please try again.');
           return;
         }
-        showAlert('Account added successfully!', 'success');
+        showAlert('success', 'Account added successfully!');
       }
       setShowEditModal(false);
       setEditingAccount(null);
@@ -343,7 +343,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
       refreshAccounts();
     } catch (error) {
       console.error('Error saving account:', error);
-      showAlert('An unexpected error occurred while saving the account.', 'error');
+      showAlert('error', 'An unexpected error occurred while saving the account.');
     }
   };
 
@@ -373,7 +373,7 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
         });
         
         if (!result) {
-          showAlert('Failed to update account balance. Please try again.', 'error');
+          showAlert('error', 'Failed to update account balance. Please try again.');
           return;
         }
 
@@ -386,10 +386,10 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
 
         // Force refresh the accounts to update the UI
         refreshAccounts();
-        showAlert('Account balance updated successfully!', 'success');
+        showAlert('success', 'Account balance updated successfully!');
       } catch (error) {
         console.error('Error updating account balance:', error);
-        showAlert('An unexpected error occurred while updating the balance.', 'error');
+        showAlert('error', 'An unexpected error occurred while updating the balance.');
       }
     }
   };
