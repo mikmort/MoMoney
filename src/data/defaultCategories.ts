@@ -13,7 +13,8 @@ export const defaultCategories: Category[] = [
       { id: 'salary-secondary', name: 'Secondary Job', description: 'Part-time or second job' },
       { id: 'salary-overtime', name: 'Overtime', description: 'Overtime pay' },
       { id: 'salary-bonus', name: 'Bonus', description: 'Performance bonuses' },
-      { id: 'salary-commission', name: 'Commission', description: 'Sales commissions' }
+      { id: 'salary-commission', name: 'Commission', description: 'Sales commissions' },
+      { id: 'salary-income-taxes', name: 'Income Taxes', description: 'Income tax withholdings and payments', keywords: ['tax', 'income tax', 'withholding', 'irs', 'federal tax', 'state tax'] }
     ]
   },
   {
