@@ -6,7 +6,7 @@ import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
 import { Account, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../../types';
 import { useAccountManagement } from '../../hooks/useAccountManagement';
-import { useNotification } from '../../hooks/useNotification';
+import { useNotification } from '../../contexts/NotificationContext';
 import { userPreferencesService } from '../../services/userPreferencesService';
 import { accountManagementService } from '../../services/accountManagementService';
 import BalanceHistoryModal from '../Accounts/BalanceHistoryModal';
