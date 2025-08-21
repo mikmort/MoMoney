@@ -10,6 +10,8 @@ if (process.env.NODE_ENV === 'development') {
     (window as any).dataService = dataService;
     console.log('💡 DataService is available at window.dataService for debugging');
     console.log('💡 Try: dataService.logTransferMatchingDiagnostic()');
+    console.log('💡 Try: dataService.manualCleanupOrphanedMatches()');
+    console.log('💡 Try: dataService.forceOrphanedMatchesCleanupOnNextStart()');
   });
 }
 

@@ -118,10 +118,14 @@ export class AccountManagementService {
         if (transactionsToUpdate.length > 0) {
           console.log(`🔄 Updating ${transactionsToUpdate.length} transactions from account "${oldAccount.name}" to "${updates.name}"`);
           
-          // Update each transaction to use the new account name
-          for (const transaction of transactionsToUpdate) {
-            await ds.updateTransaction(transaction.id, { account: updates.name });
-          }
+          // Use batch update instead of individual updates to avoid performance issues
+          const batchUpdates = transactionsToUpdate.map((transaction: any) => ({
+            id: transaction.id,
+            updates: { account: updates.name },
+            note: `Account renamed from "${oldAccount.name}" to "${updates.name}"`
+          }));
+          
+          await ds.batchUpdateTransactions(batchUpdates);
         }
       } catch (error) {
         console.error('Error updating transactions after account rename:', error);
@@ -717,12 +721,8 @@ ${userPrompt}`;
         
         console.log(`💰 Calculated current balance for ${account.name}: ${account.historicalBalance} + ${balanceChange} = ${currentBalance}`);
         
-        // Update the account with the calculated balance
-        await this.updateAccount(accountId, { 
-          balance: currentBalance, 
-          lastSyncDate: new Date() 
-        });
-        
+        // Don't automatically update the account - just return the calculated balance
+        // This prevents infinite loops when this method is called from UI components
         return currentBalance;
       }
 
@@ -733,12 +733,8 @@ ${userPrompt}`;
 
       console.log(`💰 Calculated current balance for ${account.name} from all transactions: ${currentBalance}`);
       
-      // Update the account with the calculated balance
-      await this.updateAccount(accountId, { 
-        balance: currentBalance, 
-        lastSyncDate: new Date() 
-      });
-      
+      // Don't automatically update the account - just return the calculated balance
+      // This prevents infinite loops when this method is called from UI components
       return currentBalance;
 
     } catch (error) {

@@ -12,6 +12,7 @@ class DataService {
   private transactions: Transaction[] = [];
   private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
   private isInitialized = false;
+  private isRunningTransferMatching = false; // Prevent multiple concurrent transfer matching runs
   private healthCheckResults: DBHealthCheck | null = null;
   private healthCheckFailures = 0; // Track consecutive health check failures
   private needsAnomalyDetection = false; // Track if anomaly detection needs to be re-run
@@ -578,15 +579,20 @@ class DataService {
 
     console.log(`DataService: Total transactions now: ${this.transactions.length}`);
     
-    // Attempt automatic transfer matching for new transactions
+    // Attempt automatic transfer matching when new transactions are added
     const hasNewTransfers = newTransactions.some(tx => tx.type === 'transfer');
-    if (hasNewTransfers) {
-      console.log(`DataService: Attempting automatic transfer matching for new transactions`);
+    const hasAnyTransfers = this.transactions.some(tx => tx.type === 'transfer');
+    
+    if ((hasNewTransfers || (hasAnyTransfers && newTransactions.length > 0)) && !this.isRunningTransferMatching) {
+      console.log(`[TX] Running transfer matching - new transfers: ${hasNewTransfers}, existing transfers: ${hasAnyTransfers}`);
+      this.isRunningTransferMatching = true;
       try {
         // Run automatic matching on all transactions to find matches with the newly added ones
         this.transactions = await transferMatchingService.autoMatchTransfers(this.transactions);
       } catch (error) {
-        console.warn('DataService: Automatic transfer matching failed:', error);
+        console.warn('[TX] Automatic transfer matching failed during add:', error);
+      } finally {
+        this.isRunningTransferMatching = false;
       }
     }
     
@@ -701,6 +707,24 @@ class DataService {
       lastModifiedDate: new Date(),
     };
     
+    // Check if transfer matching should be triggered - only when type actually changes to/from transfer
+    const wasTransfer = current.type === 'transfer';
+    const isNowTransfer = this.transactions[index].type === 'transfer';
+    const typeActuallyChanged = wasTransfer !== isNowTransfer;
+    
+    if (typeActuallyChanged && !this.isRunningTransferMatching) {
+      console.log(`[TX] Running transfer matching due to transaction type change: ${current.type} -> ${this.transactions[index].type}`);
+      this.isRunningTransferMatching = true;
+      try {
+        // Run automatic matching since a transaction changed to/from transfer type
+        this.transactions = await transferMatchingService.autoMatchTransfers(this.transactions);
+      } catch (error) {
+        console.warn('[TX] Transfer matching failed during update:', error);
+      } finally {
+        this.isRunningTransferMatching = false;
+      }
+    }
+    
     await this.saveToDB();
     return this.transactions[index];
   }
@@ -795,6 +819,22 @@ class DataService {
     
     // Save to database only once after all updates
     if (updatedTransactions.length > 0) {
+      // Check if any transactions were changed to/from transfer type
+      const shouldRunTransferMatching = updatedTransactions.some(tx => tx.type === 'transfer') ||
+                                       this.transactions.some(tx => tx.type === 'transfer');
+      
+      if (shouldRunTransferMatching && !this.isRunningTransferMatching) {
+        console.log(`[TX] Running transfer matching after batch update of ${updatedTransactions.length} transactions`);
+        this.isRunningTransferMatching = true;
+        try {
+          this.transactions = await transferMatchingService.autoMatchTransfers(this.transactions);
+        } catch (error) {
+          console.warn('[TX] Transfer matching failed during batch update:', error);
+        } finally {
+          this.isRunningTransferMatching = false;
+        }
+      }
+      
       await this.saveToDB();
       
       // Add a single batch history entry if we skipped individual histories
@@ -850,11 +890,25 @@ class DataService {
     await this.ensureInitialized();
     
     // Fix 1: Unmatch transactions before bulk deletion to prevent orphaned reimbursementId references
-    // Improved: Handle bulk deletion more efficiently to avoid race conditions
+    // Improved: Handle bulk deletion more efficiently to avoid race conditions and multiple saves
     const idsSet = new Set(ids);
+    const transactionsToUpdate = new Map<string, Partial<Transaction>>();
     
+    // Collect all unmatch operations without persisting them yet
     for (const id of ids) {
-      await this.unmatchTransactionBeforeDeletionBulk(id, idsSet);
+      this.unmatchTransactionBeforeDeletionBulk(id, idsSet, transactionsToUpdate);
+    }
+    
+    // Apply all collected updates in memory (without calling saveToDB for each)
+    for (const [transactionId, updates] of transactionsToUpdate) {
+      const index = this.transactions.findIndex(t => t.id === transactionId);
+      if (index !== -1) {
+        this.transactions[index] = { 
+          ...this.transactions[index], 
+          ...updates,
+          lastModifiedDate: new Date()
+        };
+      }
     }
     
     const initialLength = this.transactions.length;
@@ -1068,10 +1122,8 @@ class DataService {
         });
       });
       
-      // Defer transfer auto-matching until after first paint
-      if (this.transactions.length > 0) {
-        this.deferTransferAutoMatching();
-      }
+      // Transfer auto-matching is now handled when transactions are added/updated
+      // This prevents infinite loops while still running matching when needed
       
       if (process.env.NODE_ENV !== 'test') {
         console.log(`Loaded ${this.transactions.length} transactions and ${historyEntries.length} history entries from IndexedDB`);
@@ -1804,48 +1856,6 @@ class DataService {
     return restoredTransaction;
   }
   
-  private deferTransferAutoMatching(): void {
-    // Run transfer matching much later to avoid blocking initial UI load
-    // Use setTimeout instead of requestAnimationFrame for better control
-    setTimeout(async () => {
-      try {
-        console.log('[TX] Starting deferred transfer auto-matching...');
-        const startTime = Date.now();
-        
-        // Set a timeout for the operation
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Transfer matching timeout')), 15000); // 15 second timeout
-        });
-        
-        const matchingPromise = transferMatchingService.autoMatchTransfers(this.transactions);
-        
-        const matchedTransactions = await Promise.race([matchingPromise, timeoutPromise]) as Transaction[];
-        
-        const duration = Date.now() - startTime;
-        console.log(`[TX] Transfer auto-matching completed in ${duration}ms`);
-        
-        if (matchedTransactions !== this.transactions) {
-          this.transactions = matchedTransactions;
-          // Only save if we finished in reasonable time and found meaningful changes
-          if (duration < 10000) {
-            try {
-              await this.saveToDB();
-              console.log('[TX] ✅ Auto-matched transfers and saved to DB');
-            } catch (error) {
-              console.error('[TX] ❌ Failed to save auto-matched transfers:', error);
-              console.warn('[TX] ⚠️ Transfer matches applied in memory but not persisted to database');
-            }
-          } else {
-            console.warn('[TX] Transfer matching took too long, not saving results');
-          }
-        }
-      } catch (error) {
-        console.error('[TX] Deferred transfer auto-matching failed:', error);
-        // Continue with original transactions if matching fails
-      }
-    }, 2000); // 2 second delay to ensure UI is fully loaded first
-  }
-
   // Get current health status
   async getHealthStatus(): Promise<DBHealthCheck | null> {
     return this.healthCheckResults;
@@ -1902,28 +1912,68 @@ class DataService {
   /**
    * Helper method to unmatch a transaction before deletion in bulk operations
    * This version is aware of other transactions being deleted simultaneously to avoid race conditions
+   * Handles both reimbursement matching and transfer matching cleanup
    */
-  private async unmatchTransactionBeforeDeletionBulk(transactionId: string, idsBeingDeleted: Set<string>): Promise<void> {
+  private unmatchTransactionBeforeDeletionBulk(transactionId: string, idsBeingDeleted: Set<string>, transactionsToUpdate: Map<string, Partial<Transaction>>): void {
+    const transactionToDelete = this.transactions.find(tx => tx.id === transactionId);
+    if (!transactionToDelete) return;
+
+    // === REIMBURSEMENT MATCHING CLEANUP ===
     // Find any transaction that has this ID as its reimbursementId (i.e., matches to this transaction)
     const matchingTransaction = this.transactions.find(tx => tx.reimbursementId === transactionId);
     
     if (matchingTransaction && !idsBeingDeleted.has(matchingTransaction.id)) {
       // Only unmatch if the matching transaction is NOT being deleted
-      await this.updateTransaction(matchingTransaction.id, {
+      // Collect the update instead of applying it immediately
+      const existingUpdates = transactionsToUpdate.get(matchingTransaction.id) || {};
+      transactionsToUpdate.set(matchingTransaction.id, {
+        ...existingUpdates,
         reimbursementId: undefined,
         notes: this.removeMatchNoteFromTransaction(matchingTransaction.notes || '')
       });
     }
 
     // Also check if the transaction being deleted has a reimbursementId (matches to another transaction)
-    const transactionToDelete = this.transactions.find(tx => tx.id === transactionId);
-    if (transactionToDelete?.reimbursementId) {
+    if (transactionToDelete.reimbursementId) {
       const matchedTransaction = this.transactions.find(tx => tx.id === transactionToDelete.reimbursementId);
       if (matchedTransaction && !idsBeingDeleted.has(matchedTransaction.id)) {
         // Only unmatch if the matched transaction is NOT being deleted
-        await this.updateTransaction(matchedTransaction.id, {
+        // Collect the update instead of applying it immediately
+        const existingUpdates = transactionsToUpdate.get(matchedTransaction.id) || {};
+        transactionsToUpdate.set(matchedTransaction.id, {
+          ...existingUpdates,
           reimbursementId: undefined,
           notes: this.removeMatchNoteFromTransaction(matchedTransaction.notes || '')
+        });
+      }
+    }
+
+    // === TRANSFER MATCHING CLEANUP ===
+    // Find any transaction that has this ID as its transferId (i.e., paired with this transaction)
+    const pairedTransferTransaction = this.transactions.find(tx => tx.transferId === transactionId);
+    
+    if (pairedTransferTransaction && !idsBeingDeleted.has(pairedTransferTransaction.id)) {
+      // Only unmatch if the paired transaction is NOT being deleted
+      // Collect the update instead of applying it immediately
+      const existingUpdates = transactionsToUpdate.get(pairedTransferTransaction.id) || {};
+      transactionsToUpdate.set(pairedTransferTransaction.id, {
+        ...existingUpdates,
+        transferId: undefined,
+        isTransferPrimary: undefined
+      });
+    }
+
+    // Also check if the transaction being deleted has a transferId (paired with another transaction)
+    if (transactionToDelete.transferId) {
+      const pairedTransaction = this.transactions.find(tx => tx.id === transactionToDelete.transferId);
+      if (pairedTransaction && !idsBeingDeleted.has(pairedTransaction.id)) {
+        // Only unmatch if the paired transaction is NOT being deleted
+        // Collect the update instead of applying it immediately
+        const existingUpdates = transactionsToUpdate.get(pairedTransaction.id) || {};
+        transactionsToUpdate.set(pairedTransaction.id, {
+          ...existingUpdates,
+          transferId: undefined,
+          isTransferPrimary: undefined
         });
       }
     }
@@ -1967,6 +2017,29 @@ class DataService {
       .replace(/\n?\[Manual Transfer Match\]/g, '')
       .replace(/\n?\[Matched Transaction: .+?\]/g, '') // Support for same-account matches
       .trim();
+  }
+
+  /**
+   * Manually trigger cleanup of orphaned reimbursement and transfer matches
+   * This is useful when you suspect there are orphaned references after deletion/re-addition of transactions
+   */
+  async manualCleanupOrphanedMatches(): Promise<{ fixed: number; errors: string[] }> {
+    console.log('[TX] Manual cleanup of orphaned matches requested...');
+    const result = await this.cleanupOrphanedMatches();
+    console.log(`[TX] Manual cleanup completed: ${result.fixed} fixed, ${result.errors.length} errors`);
+    if (result.errors.length > 0) {
+      console.error('[TX] Manual cleanup errors:', result.errors);
+    }
+    return result;
+  }
+
+  /**
+   * Force the orphaned matches cleanup migration to run again on next application start
+   * This resets the migration flag so the cleanup will run during initialization
+   */
+  forceOrphanedMatchesCleanupOnNextStart(): void {
+    localStorage.removeItem(ORPHANED_MATCHES_CLEANUP_MIGRATION_KEY);
+    console.log('[TX] Orphaned matches cleanup migration flag reset - cleanup will run on next application start');
   }
 
   /**
@@ -2123,21 +2196,35 @@ class DataService {
       
       for (let i = 0; i < this.transactions.length; i++) {
         const transaction = this.transactions[i];
+        let needsUpdate = false;
+        let updatedTransaction = { ...transaction };
+        
+        // Check for orphaned reimbursementId
         if (transaction.reimbursementId && !transactionIds.has(transaction.reimbursementId)) {
           // Found an orphaned reimbursementId - the referenced transaction doesn't exist
+          updatedTransaction.reimbursementId = undefined;
+          updatedTransaction.notes = this.removeMatchNoteFromTransaction(transaction.notes || '');
+          needsUpdate = true;
+        }
+        
+        // Check for orphaned transferId
+        if (transaction.transferId && !transactionIds.has(transaction.transferId)) {
+          // Found an orphaned transferId - the referenced transaction doesn't exist
+          updatedTransaction.transferId = undefined;
+          updatedTransaction.isTransferPrimary = undefined;
+          needsUpdate = true;
+        }
+        
+        if (needsUpdate) {
           try {
             // Update the transaction in place to avoid calling ensureInitialized()
-            this.transactions[i] = {
-              ...transaction,
-              reimbursementId: undefined,
-              notes: this.removeMatchNoteFromTransaction(transaction.notes || '')
-            };
+            this.transactions[i] = updatedTransaction;
             
             // Save to database directly
             await db.transactions.put(this.transactions[i]);
             fixed++;
           } catch (error) {
-            const errorMsg = `Failed to cleanup orphaned match for transaction ${transaction.id}: ${error}`;
+            const errorMsg = `Failed to cleanup orphaned matches for transaction ${transaction.id}: ${error}`;
             errors.push(errorMsg);
             console.error(`[TX] ${errorMsg}`);
           }
@@ -2145,7 +2232,7 @@ class DataService {
       }
 
       if (fixed > 0) {
-        console.log(`[TX] Cleaned up ${fixed} orphaned reimbursementId references`);
+        console.log(`[TX] Cleaned up ${fixed} orphaned reimbursementId/transferId references`);
       }
     } catch (error) {
       const errorMsg = `Orphaned matches cleanup failed: ${error}`;
