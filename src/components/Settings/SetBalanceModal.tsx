@@ -155,7 +155,11 @@ export const SetBalanceModal: React.FC<SetBalanceModalProps> = ({
             Current Balance: {formatCurrency(account.balance)}
             {account.historicalBalanceDate && (
               <div style={{ fontSize: '0.85em', marginTop: '4px' }}>
-                as of {account.historicalBalanceDate.toLocaleDateString()}
+                as of {
+                  account.historicalBalanceDate instanceof Date 
+                    ? account.historicalBalanceDate.toLocaleDateString()
+                    : new Date(account.historicalBalanceDate).toLocaleDateString()
+                }
               </div>
             )}
           </div>

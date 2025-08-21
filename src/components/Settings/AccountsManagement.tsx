@@ -1095,7 +1095,11 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
               </div>
               {editingAccount?.historicalBalanceDate && (
                 <small style={{ color: '#666', marginTop: '4px', display: 'block' }}>
-                  Balance set as of {editingAccount.historicalBalanceDate.toLocaleDateString()}
+                  Balance set as of {
+                    editingAccount.historicalBalanceDate instanceof Date 
+                      ? editingAccount.historicalBalanceDate.toLocaleDateString()
+                      : new Date(editingAccount.historicalBalanceDate).toLocaleDateString()
+                  }
                 </small>
               )}
             </div>

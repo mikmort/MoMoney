@@ -4,6 +4,15 @@ import App from './App';
 // Initialize Chart.js components early in the application lifecycle
 import './utils/chartConfig';
 
+// Expose dataService globally for debugging in development
+if (process.env.NODE_ENV === 'development') {
+  import('./services/dataService').then(({ dataService }) => {
+    (window as any).dataService = dataService;
+    console.log('💡 DataService is available at window.dataService for debugging');
+    console.log('💡 Try: dataService.logTransferMatchingDiagnostic()');
+  });
+}
+
 // Suppress ResizeObserver loop completed with undelivered notifications warnings
 // This is a common issue with AgGrid and other components that dynamically resize
 const resizeObserverErrorHandler = (e: ErrorEvent) => {

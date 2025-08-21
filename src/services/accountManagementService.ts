@@ -384,7 +384,14 @@ ${userPrompt}`;
     try {
       const stored = localStorage.getItem(this.storageKey);
       if (stored) {
-        this.accounts = JSON.parse(stored);
+        const rawAccounts = JSON.parse(stored);
+        // Convert date strings back to Date objects
+        this.accounts = rawAccounts.map((account: any) => ({
+          ...account,
+          historicalBalanceDate: account.historicalBalanceDate 
+            ? new Date(account.historicalBalanceDate) 
+            : undefined
+        }));
       }
     } catch (err) {
       console.error('Failed to load accounts from storage:', err);

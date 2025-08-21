@@ -850,8 +850,11 @@ class DataService {
     await this.ensureInitialized();
     
     // Fix 1: Unmatch transactions before bulk deletion to prevent orphaned reimbursementId references
+    // Improved: Handle bulk deletion more efficiently to avoid race conditions
+    const idsSet = new Set(ids);
+    
     for (const id of ids) {
-      await this.unmatchTransactionBeforeDeletion(id);
+      await this.unmatchTransactionBeforeDeletionBulk(id, idsSet);
     }
     
     const initialLength = this.transactions.length;
@@ -1897,6 +1900,36 @@ class DataService {
   }
 
   /**
+   * Helper method to unmatch a transaction before deletion in bulk operations
+   * This version is aware of other transactions being deleted simultaneously to avoid race conditions
+   */
+  private async unmatchTransactionBeforeDeletionBulk(transactionId: string, idsBeingDeleted: Set<string>): Promise<void> {
+    // Find any transaction that has this ID as its reimbursementId (i.e., matches to this transaction)
+    const matchingTransaction = this.transactions.find(tx => tx.reimbursementId === transactionId);
+    
+    if (matchingTransaction && !idsBeingDeleted.has(matchingTransaction.id)) {
+      // Only unmatch if the matching transaction is NOT being deleted
+      await this.updateTransaction(matchingTransaction.id, {
+        reimbursementId: undefined,
+        notes: this.removeMatchNoteFromTransaction(matchingTransaction.notes || '')
+      });
+    }
+
+    // Also check if the transaction being deleted has a reimbursementId (matches to another transaction)
+    const transactionToDelete = this.transactions.find(tx => tx.id === transactionId);
+    if (transactionToDelete?.reimbursementId) {
+      const matchedTransaction = this.transactions.find(tx => tx.id === transactionToDelete.reimbursementId);
+      if (matchedTransaction && !idsBeingDeleted.has(matchedTransaction.id)) {
+        // Only unmatch if the matched transaction is NOT being deleted
+        await this.updateTransaction(matchedTransaction.id, {
+          reimbursementId: undefined,
+          notes: this.removeMatchNoteFromTransaction(matchedTransaction.notes || '')
+        });
+      }
+    }
+  }
+
+  /**
    * Helper method to unmatch a transaction before deletion to prevent orphaned reimbursementId references
    */
   private async unmatchTransactionBeforeDeletion(transactionId: string): Promise<void> {
@@ -1937,8 +1970,149 @@ class DataService {
   }
 
   /**
+   * Simple console diagnostic for transfer matching issues
+   */
+  async logTransferMatchingDiagnostic(): Promise<void> {
+    const result = await this.diagnoseTransferMatchingInconsistencies();
+    
+    console.log('=== TRANSFER MATCHING DIAGNOSTIC REPORT ===');
+    console.log(`Total Transactions: ${result.totalTransactions}`);
+    console.log(`Transfer Transactions: ${result.transferTransactions}`);
+    console.log(`Matched Transfer Transactions: ${result.matchedTransferTransactions}`);
+    console.log(`Actual Valid Matches: ${result.actualMatches}`);
+    console.log(`Expected Matched Transaction Count: ${result.actualMatches * 2}`);
+    console.log(`Discrepancy: ${result.matchedTransferTransactions - (result.actualMatches * 2)}`);
+    
+    console.log('\n=== ORPHANED REIMBURSEMENT IDs ===');
+    if (result.orphanedReimbursementIds.length > 0) {
+      result.orphanedReimbursementIds.forEach((orphan, idx) => {
+        console.log(`${idx + 1}. Transaction ${orphan.transactionId.substring(0, 8)}... pointing to non-existent ${orphan.reimbursementId.substring(0, 8)}...`);
+        console.log(`   Description: ${orphan.description}`);
+        console.log(`   Amount: ${orphan.amount}`);
+        console.log(`   Date: ${orphan.date}`);
+      });
+    } else {
+      console.log('No orphaned reimbursementId references found');
+    }
+
+    console.log('\n=== BIDIRECTIONAL MATCH ISSUES ===');
+    if (result.bidirectionalMatchIssues.length > 0) {
+      result.bidirectionalMatchIssues.forEach((issue, idx) => {
+        console.log(`${idx + 1}. Transaction ${issue.transactionId.substring(0, 8)}... -> ${issue.reimbursementId.substring(0, 8)}...`);
+        console.log(`   Issue: ${issue.issue}`);
+      });
+    } else {
+      console.log('No bidirectional match issues found');
+    }
+  }
+
+  /**
+   * Diagnostic method to identify transfer matching inconsistencies
+   */
+  async diagnoseTransferMatchingInconsistencies(): Promise<{
+    totalTransactions: number;
+    transferTransactions: number;
+    matchedTransferTransactions: number;
+    actualMatches: number;
+    orphanedReimbursementIds: Array<{
+      transactionId: string;
+      reimbursementId: string;
+      description: string;
+      amount: number;
+      date: string;
+    }>;
+    bidirectionalMatchIssues: Array<{
+      transactionId: string;
+      reimbursementId: string;
+      issue: string;
+    }>;
+  }> {
+    await this.ensureInitialized();
+
+    const totalTransactions = this.transactions.length;
+    const transferTransactions = this.transactions.filter(tx => tx.type === 'transfer').length;
+    const matchedTransferTransactions = this.transactions.filter(tx => tx.type === 'transfer' && tx.reimbursementId).length;
+    
+    const orphanedReimbursementIds: Array<{
+      transactionId: string;
+      reimbursementId: string;
+      description: string;
+      amount: number;
+      date: string;
+    }> = [];
+    
+    const bidirectionalMatchIssues: Array<{
+      transactionId: string;
+      reimbursementId: string;
+      issue: string;
+    }> = [];
+
+    const transactionIds = new Set(this.transactions.map(tx => tx.id));
+    
+    // Check each transaction with a reimbursementId
+    for (const transaction of this.transactions) {
+      if (transaction.reimbursementId) {
+        // Check if the referenced transaction exists
+        if (!transactionIds.has(transaction.reimbursementId)) {
+          orphanedReimbursementIds.push({
+            transactionId: transaction.id,
+            reimbursementId: transaction.reimbursementId,
+            description: transaction.description,
+            amount: transaction.amount,
+            date: transaction.date.toISOString().split('T')[0]
+          });
+        } else {
+          // Check bidirectional consistency
+          const referencedTransaction = this.transactions.find(tx => tx.id === transaction.reimbursementId);
+          if (referencedTransaction) {
+            if (!referencedTransaction.reimbursementId) {
+              bidirectionalMatchIssues.push({
+                transactionId: transaction.id,
+                reimbursementId: transaction.reimbursementId,
+                issue: 'Referenced transaction has no reimbursementId back-reference'
+              });
+            } else if (referencedTransaction.reimbursementId !== transaction.id) {
+              bidirectionalMatchIssues.push({
+                transactionId: transaction.id,
+                reimbursementId: transaction.reimbursementId,
+                issue: `Referenced transaction points to different transaction: ${referencedTransaction.reimbursementId}`
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Count actual valid matches (pairs where both transactions reference each other)
+    const processedIds = new Set<string>();
+    let actualMatches = 0;
+    
+    for (const transaction of this.transactions) {
+      if (transaction.reimbursementId && !processedIds.has(transaction.id)) {
+        const matchedTransaction = this.transactions.find(tx => tx.id === transaction.reimbursementId);
+        if (matchedTransaction && matchedTransaction.reimbursementId === transaction.id) {
+          actualMatches++;
+          processedIds.add(transaction.id);
+          processedIds.add(matchedTransaction.id);
+        }
+      }
+    }
+
+    return {
+      totalTransactions,
+      transferTransactions,
+      matchedTransferTransactions,
+      actualMatches,
+      orphanedReimbursementIds,
+      bidirectionalMatchIssues
+    };
+  }
+
+  /**
    * Fix 2: One-time cleanup method to remove orphaned reimbursementId references
    * Note: This method assumes data is already loaded (called during initialization)
+   * IMPORTANT: This is called during initialization, so we can't use updateTransaction()
+   * as it would call ensureInitialized() and create an infinite loop
    */
   async cleanupOrphanedMatches(): Promise<{ fixed: number; errors: string[] }> {
     const errors: string[] = [];
@@ -1947,14 +2121,20 @@ class DataService {
     try {
       const transactionIds = new Set(this.transactions.map(tx => tx.id));
       
-      for (const transaction of this.transactions) {
+      for (let i = 0; i < this.transactions.length; i++) {
+        const transaction = this.transactions[i];
         if (transaction.reimbursementId && !transactionIds.has(transaction.reimbursementId)) {
           // Found an orphaned reimbursementId - the referenced transaction doesn't exist
           try {
-            await this.updateTransaction(transaction.id, {
+            // Update the transaction in place to avoid calling ensureInitialized()
+            this.transactions[i] = {
+              ...transaction,
               reimbursementId: undefined,
               notes: this.removeMatchNoteFromTransaction(transaction.notes || '')
-            });
+            };
+            
+            // Save to database directly
+            await db.transactions.put(this.transactions[i]);
             fixed++;
           } catch (error) {
             const errorMsg = `Failed to cleanup orphaned match for transaction ${transaction.id}: ${error}`;
