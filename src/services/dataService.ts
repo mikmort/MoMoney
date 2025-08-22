@@ -102,6 +102,18 @@ class DataService {
         txLog('[TX] Orphaned Matches cleanup already completed, skipping');
       }
 
+      // Always-enforced integrity: ensure any newly imported/added Internal Transfer transactions
+      // have the correct type even if they arrived after the one-time migration ran.
+      // (e.g., imports from older backups, manual JSON edits, legacy rules outputs.)
+      try {
+        const driftFixed = await this.fixInternalTransferTypeDrift();
+        if (driftFixed > 0) {
+          txLog(`[TX] Internal Transfer integrity pass fixed ${driftFixed} drifted transaction type(s)`);
+        }
+      } catch (e) {
+        txError('[TX] Internal Transfer integrity pass failed', e);
+      }
+
       // Lightweight synchronization: ensure transferId and reimbursementId stay aligned for existing data
       // This addresses legacy data where only reimbursementId was populated for transfers
       if (process.env.NODE_ENV !== 'test') { // Avoid altering existing test fixtures
@@ -1227,6 +1239,31 @@ class DataService {
     }
     
     return { fixed: fixedCount, errors };
+  }
+
+  /**
+   * Lightweight always-run integrity check to catch any Internal Transfer transactions whose
+   * type was not corrected by the one-time migration (e.g. added later via import). Does NOT
+   * record history entries to avoid noise on repeated app loads; this is idempotent.
+   * Returns number of transactions fixed.
+   */
+  private async fixInternalTransferTypeDrift(): Promise<number> {
+    // Fast path: nothing to do if no transactions yet
+    if (this.transactions.length === 0) return 0;
+    const __IS_TEST__ = process.env.NODE_ENV === 'test';
+    const txLog = (...args: any[]) => { if (!__IS_TEST__) console.log(...args); };
+    let fixed = 0;
+    for (let i = 0; i < this.transactions.length; i++) {
+      const tx = this.transactions[i];
+      if (tx.category === 'Internal Transfer' && tx.type !== 'transfer') {
+        this.transactions[i] = { ...tx, type: 'transfer', lastModifiedDate: new Date() };
+        fixed++;
+      }
+    }
+    if (fixed > 0) {
+      try { await this.saveToDB(); } catch (e) { txLog('[TX] Failed saving Internal Transfer drift fixes', e); }
+    }
+    return fixed;
   }
 
   /**
