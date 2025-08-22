@@ -1,6 +1,7 @@
 import { Transaction, CollapsedTransfer } from '../types';
 import { dataService } from './dataService';
 import { accountManagementService } from './accountManagementService';
+import { currencyExchangeService } from './currencyExchangeService';
 
 export interface TransferMatch {
   id: string;
@@ -154,7 +155,7 @@ class TransferMatchingService {
       }
     });
 
-    const matches: TransferMatch[] = [];
+  const matches: TransferMatch[] = [];
     const matchedIds = new Set<string>();
     const processedPairs = new Set<string>(); // Track processed transaction pairs to prevent duplicates
 
@@ -164,6 +165,26 @@ class TransferMatchingService {
     let dateMatches = 0;
     let accountMatches = 0;
     let finalMatches = 0;
+
+    // Prepare currency normalization map (account currency -> USD)
+    const manualCurrencies = new Set<string>();
+    candidateTransactions.forEach(tx => manualCurrencies.add(this.getTransactionCurrency(tx)));
+    const manualRates: Record<string, number> = {};
+    for (const cur of manualCurrencies) {
+      if (cur === 'USD') manualRates[cur] = 1; else {
+        try {
+          const rateInfo = await currencyExchangeService.getExchangeRate(cur, 'USD');
+          if (rateInfo?.rate) manualRates[cur] = rateInfo.rate;
+        } catch (e) {
+          console.warn('⚠️ Manual match exchange rate fetch failed for', cur, e);
+        }
+      }
+    }
+    const norm = (tx: Transaction) => {
+      const cur = this.getTransactionCurrency(tx);
+      const rate = manualRates[cur];
+      return rate ? tx.amount * rate : tx.amount;
+    };
 
     // Find potential matches using relaxed heuristics for manual search
     for (const sourceTx of candidateTransactions) {
@@ -180,8 +201,10 @@ class TransferMatchingService {
 
         // Check if amounts are inverse (one positive, one negative, similar magnitude)
         // Use relaxed tolerance for manual matching, especially for exchange rates
-        const sameCurrency = this.haveSameCurrency(sourceTx, targetTx);
-        const amountMatch = this.areAmountsMatchingForManualSearch(sourceTx, targetTx, tolerancePercentage);
+  const sameCurrency = this.haveSameCurrency(sourceTx, targetTx);
+  const sourceAmt = sameCurrency ? sourceTx.amount : norm(sourceTx);
+  const targetAmt = sameCurrency ? targetTx.amount : norm(targetTx);
+  const amountMatch = this.areAmountsMatching(sourceAmt, targetAmt, tolerancePercentage);
         
         if (!amountMatch) {
           // Debug failed amount matches for first few pairs
@@ -256,10 +279,10 @@ class TransferMatchingService {
           id: `manual-transfer-match-${sourceTx.id}-${targetTx.id}`,
           sourceTransactionId: sourceTx.id,
           targetTransactionId: targetTx.id,
-          confidence: this.calculateManualMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(sourceTx.amount - Math.abs(targetTx.amount)), sameCurrency),
+          confidence: this.calculateManualMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(Math.abs(sourceAmt) - Math.abs(targetAmt)), sameCurrency),
           matchType: 'approximate', // Manual matches are always considered approximate due to relaxed criteria
           dateDifference: Math.round(dateDiff),
-          amountDifference: Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)),
+          amountDifference: Math.abs(Math.abs(sourceAmt) - Math.abs(targetAmt)),
           reasoning: sameCurrency 
             ? `Possible manual match: ${sourceTx.account} ↔ ${targetTx.account}, ${Math.round(dateDiff)} days apart`
             : `Possible match with exchange rate tolerance: ${sourceTx.account} ↔ ${targetTx.account}, ${Math.round(dateDiff)} days apart (≤12% amount difference)`,
@@ -339,6 +362,28 @@ class TransferMatchingService {
     const matches: TransferMatch[] = [];
     const matchedIds = new Set<string>();
 
+    // Normalize cross-currency amounts by converting to USD (account currency based)
+    const candidateCurrencies = new Set<string>();
+    candidateTransactions.forEach(tx => candidateCurrencies.add(this.getTransactionCurrency(tx)));
+    const currencyRates: Record<string, number> = {};
+    for (const cur of candidateCurrencies) {
+      if (cur === 'USD') {
+        currencyRates[cur] = 1;
+      } else {
+        try {
+          const rateInfo = await currencyExchangeService.getExchangeRate(cur, 'USD');
+          if (rateInfo?.rate) currencyRates[cur] = rateInfo.rate; else console.warn('⚠️ No rate for', cur, '-> USD');
+        } catch (e) {
+          console.warn('⚠️ Exchange rate fetch failed for', cur, e);
+        }
+      }
+    }
+    const normalizedAmount = (tx: Transaction): number => {
+      const cur = this.getTransactionCurrency(tx);
+      const rate = currencyRates[cur];
+      return rate ? tx.amount * rate : tx.amount; // preserve sign
+    };
+
     // Find potential matches using simple heuristics first
     for (const sourceTx of candidateTransactions) {
       if (matchedIds.has(sourceTx.id)) continue;
@@ -349,10 +394,12 @@ class TransferMatchingService {
         // Check if amounts are inverse (one positive, one negative, similar magnitude)
         // New requirement: If amounts aren't identical AND both have same currency (no conversion), 
         // only allow auto-matching for very small differences that could be fees (< $5 or < 0.5%)
-        const sameCurrency = this.haveSameCurrency(sourceTx, targetTx);
-        const amountsIdentical = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)) < 0.01;
-        const amountDiff = Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount));
-        const avgAmount = (Math.abs(sourceTx.amount) + Math.abs(targetTx.amount)) / 2;
+  const sameCurrency = this.haveSameCurrency(sourceTx, targetTx);
+  const sourceAmt = sameCurrency ? sourceTx.amount : normalizedAmount(sourceTx);
+  const targetAmt = sameCurrency ? targetTx.amount : normalizedAmount(targetTx);
+  const amountsIdentical = Math.abs(Math.abs(sourceAmt) - Math.abs(targetAmt)) < 0.01;
+  const amountDiff = Math.abs(Math.abs(sourceAmt) - Math.abs(targetAmt));
+  const avgAmount = (Math.abs(sourceAmt) + Math.abs(targetAmt)) / 2;
         const percentDiff = avgAmount > 0 ? amountDiff / avgAmount : 0;
         
         // For same currency transactions, only allow small differences that could be fees
@@ -364,7 +411,7 @@ class TransferMatchingService {
           }
         }
         
-        const amountMatch = this.areAmountsMatching(sourceTx.amount, targetTx.amount, tolerancePercentage);
+  const amountMatch = this.areAmountsMatching(sourceAmt, targetAmt, tolerancePercentage);
         
         if (!amountMatch) continue;
         
@@ -382,10 +429,10 @@ class TransferMatchingService {
           id: `transfer-match-${sourceTx.id}-${targetTx.id}`,
           sourceTransactionId: sourceTx.id,
           targetTransactionId: targetTx.id,
-          confidence: this.calculateMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(sourceTx.amount - Math.abs(targetTx.amount))),
+          confidence: this.calculateMatchConfidence(sourceTx, targetTx, dateDiff, Math.abs(Math.abs(sourceAmt) - Math.abs(targetAmt))),
           matchType: shouldAutoMatch && dateDiff === 0 && amountMatch ? 'exact' : 'approximate',
           dateDifference: Math.round(dateDiff),
-          amountDifference: Math.abs(Math.abs(sourceTx.amount) - Math.abs(targetTx.amount)),
+          amountDifference: Math.abs(Math.abs(sourceAmt) - Math.abs(targetAmt)),
           reasoning: `Transfer match: ${sourceTx.account} ↔ ${targetTx.account}, ${Math.round(dateDiff)} days apart`,
           isVerified: false
         };
