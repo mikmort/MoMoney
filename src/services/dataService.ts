@@ -101,6 +101,36 @@ class DataService {
       } else {
         txLog('[TX] Orphaned Matches cleanup already completed, skipping');
       }
+
+      // Lightweight synchronization: ensure transferId and reimbursementId stay aligned for existing data
+      // This addresses legacy data where only reimbursementId was populated for transfers
+      if (process.env.NODE_ENV !== 'test') { // Avoid altering existing test fixtures
+        let syncedPairs = 0;
+        for (let i = 0; i < this.transactions.length; i++) {
+          const tx = this.transactions[i];
+            if (tx.type === 'transfer' && tx.reimbursementId) {
+              const peer = this.transactions.find(p => p.id === tx.reimbursementId);
+              if (peer) {
+                if (!tx.transferId || tx.transferId !== tx.reimbursementId) {
+                  this.transactions[i] = { ...tx, transferId: tx.reimbursementId, isTransferPrimary: tx.amount < 0 ? true : tx.isTransferPrimary };
+                  syncedPairs++;
+                }
+                const peerIndex = this.transactions.findIndex(p => p.id === peer.id);
+                if (peerIndex !== -1) {
+                  const peerTx = this.transactions[peerIndex];
+                  if (!peerTx.transferId || peerTx.transferId !== peerTx.reimbursementId) {
+                    this.transactions[peerIndex] = { ...peerTx, transferId: peerTx.reimbursementId, isTransferPrimary: peerTx.amount < 0 ? true : peerTx.isTransferPrimary };
+                    syncedPairs++;
+                  }
+                }
+              }
+            }
+        }
+        if (syncedPairs > 0) {
+          txLog(`[TX] Synchronized ${syncedPairs} legacy transfer link fields (reimbursementId ⇄ transferId)`);
+          try { await this.saveToDB(); } catch (e) { txError('[TX] Failed saving transfer link sync:', e); }
+        }
+      }
       
       // Perform health check after loading data
       const { needsReset, healthCheck } = await performPostInitHealthCheck();

@@ -31,6 +31,9 @@ export interface Transaction {
   location?: string;
   reimbursed?: boolean; // True if this expense has been reimbursed
   reimbursementId?: string; // ID of the matching reimbursement transaction
+  // NOTE: For transfers this field is also used to link the opposite leg.
+  // transferId is kept in sync with reimbursementId for backward compatibility with
+  // older UI logic that referenced transferId. New code should treat them as mirrors.
   originalCurrency?: string; // Original currency for foreign transactions
   exchangeRate?: number; // Exchange rate if converted from foreign currency
   // File attachment metadata

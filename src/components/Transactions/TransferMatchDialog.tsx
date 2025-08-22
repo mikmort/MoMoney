@@ -5,6 +5,7 @@ import { Transaction } from '../../types';
 import { TransferMatch } from '../../services/transferMatchingService';
 import { useTransferMatching } from '../../hooks/useTransferMatching';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
+import { dataService } from '../../services/dataService';
 
 const ModalOverlay = styled.div`
   position: fixed;
@@ -399,6 +400,15 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
         transaction.id,
         selectedTransactionForManualMatch
       );
+      // Also persist legacy linkage fields explicitly (defensive in case service call path changes)
+      const sourceTx = allTransactions.find(t => t.id === transaction.id);
+      const targetTx = allTransactions.find(t => t.id === selectedTransactionForManualMatch);
+      if (sourceTx && targetTx) {
+        await dataService.batchUpdateTransactions([
+          { id: sourceTx.id, updates: { transferId: targetTx.id, isTransferPrimary: sourceTx.amount < 0 } },
+          { id: targetTx.id, updates: { transferId: sourceTx.id, isTransferPrimary: targetTx.amount < 0 } }
+        ], { skipHistory: true });
+      }
       onTransactionsUpdate(updatedTransactions);
       setSelectedTransactionForManualMatch('');
       await loadMatches(); // Refresh matches

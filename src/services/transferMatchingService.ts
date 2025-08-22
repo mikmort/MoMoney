@@ -473,6 +473,10 @@ class TransferMatchingService {
         updatedTransactions[sourceIndex] = {
           ...updatedTransactions[sourceIndex],
           reimbursementId: match.targetTransactionId,
+          // Maintain legacy transfer link fields for durability / legacy UI expectations
+          transferId: match.targetTransactionId,
+          // Mark the negative amount (outflow) as primary for deterministic ordering
+          isTransferPrimary: updatedTransactions[sourceIndex].amount < 0,
           notes: updatedTransactions[sourceIndex].notes 
             ? `${updatedTransactions[sourceIndex].notes}\n[Matched Transfer: ${match.confidence.toFixed(2)} confidence]`
             : `[Matched Transfer: ${match.confidence.toFixed(2)} confidence]`
@@ -481,10 +485,22 @@ class TransferMatchingService {
         updatedTransactions[targetIndex] = {
           ...updatedTransactions[targetIndex],
           reimbursementId: match.sourceTransactionId,
+          transferId: match.sourceTransactionId,
+          isTransferPrimary: updatedTransactions[targetIndex].amount < 0,
           notes: updatedTransactions[targetIndex].notes 
             ? `${updatedTransactions[targetIndex].notes}\n[Matched Transfer: ${match.confidence.toFixed(2)} confidence]`
             : `[Matched Transfer: ${match.confidence.toFixed(2)} confidence]`
         };
+
+        // Persist immediately so export sees linkage (avoid relying on later batch updates)
+        try {
+          await dataService.batchUpdateTransactions([
+            { id: match.sourceTransactionId, updates: { reimbursementId: match.targetTransactionId, transferId: match.targetTransactionId, isTransferPrimary: updatedTransactions[sourceIndex].amount < 0 }, note: 'Auto transfer match applied' },
+            { id: match.targetTransactionId, updates: { reimbursementId: match.sourceTransactionId, transferId: match.sourceTransactionId, isTransferPrimary: updatedTransactions[targetIndex].amount < 0 }, note: 'Auto transfer match applied' }
+          ], { skipHistory: true });
+        } catch (e) {
+          console.warn('⚠️ Failed immediate persistence of transfer match, will rely on later save:', e);
+        }
       }
     }
     
@@ -821,12 +837,16 @@ class TransferMatchingService {
       updatedTransactions[sourceIndex] = {
         ...updatedTransactions[sourceIndex],
         reimbursementId: undefined,
+          transferId: undefined,
+          isTransferPrimary: undefined,
         notes: this.removeMatchNoteFromTransaction(updatedTransactions[sourceIndex].notes || '')
       };
       
       updatedTransactions[targetIndex] = {
         ...updatedTransactions[targetIndex],
         reimbursementId: undefined,
+          transferId: undefined,
+          isTransferPrimary: undefined,
         notes: this.removeMatchNoteFromTransaction(updatedTransactions[targetIndex].notes || '')
       };
     }
@@ -903,6 +923,8 @@ class TransferMatchingService {
       // Link the transactions
       const sourceUpdates = {
         reimbursementId: targetId,
+  transferId: targetId,
+  isTransferPrimary: sourceTx.amount < 0,
         notes: sourceTx.notes 
           ? `${sourceTx.notes}\n[Manual Transfer Match]`
           : '[Manual Transfer Match]'
@@ -910,6 +932,8 @@ class TransferMatchingService {
 
       const targetUpdates = {
         reimbursementId: sourceId,
+  transferId: sourceId,
+  isTransferPrimary: targetTx.amount < 0,
         notes: targetTx.notes 
           ? `${targetTx.notes}\n[Manual Transfer Match]`
           : '[Manual Transfer Match]'
@@ -1041,6 +1065,7 @@ class TransferMatchingService {
         updatedTransactions[sourceIndex] = {
           ...updatedTransactions[sourceIndex],
           reimbursementId: match.targetTransactionId,
+          transferId: match.targetTransactionId,
           notes: updatedTransactions[sourceIndex].notes 
             ? `${updatedTransactions[sourceIndex].notes}\n[Matched Transaction: ${match.confidence.toFixed(2)} confidence]`
             : `[Matched Transaction: ${match.confidence.toFixed(2)} confidence]`
@@ -1049,6 +1074,7 @@ class TransferMatchingService {
         updatedTransactions[targetIndex] = {
           ...updatedTransactions[targetIndex],
           reimbursementId: match.sourceTransactionId,
+          transferId: match.sourceTransactionId,
           notes: updatedTransactions[targetIndex].notes 
             ? `${updatedTransactions[targetIndex].notes}\n[Matched Transaction: ${match.confidence.toFixed(2)} confidence]`
             : `[Matched Transaction: ${match.confidence.toFixed(2)} confidence]`

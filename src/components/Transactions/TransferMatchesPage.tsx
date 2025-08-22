@@ -577,11 +577,15 @@ export const TransferMatchesPage: React.FC = () => {
     try {
       const updatedTransactions = await applyTransferMatches(transactions, [match]);
       await dataService.updateTransaction(match.sourceTransactionId, {
-        reimbursementId: match.targetTransactionId,
+  reimbursementId: match.targetTransactionId,
+  transferId: match.targetTransactionId,
+  isTransferPrimary: (transactions.find(t => t.id === match.sourceTransactionId)?.amount || 0) < 0,
         notes: (transactions.find(t => t.id === match.sourceTransactionId)?.notes || '') + '\n[Transfer Match Applied]'
       });
       await dataService.updateTransaction(match.targetTransactionId, {
-        reimbursementId: match.sourceTransactionId,
+  reimbursementId: match.sourceTransactionId,
+  transferId: match.sourceTransactionId,
+  isTransferPrimary: (transactions.find(t => t.id === match.targetTransactionId)?.amount || 0) < 0,
         notes: (transactions.find(t => t.id === match.targetTransactionId)?.notes || '') + '\n[Transfer Match Applied]'
       });
       setTransactions(updatedTransactions);
@@ -595,10 +599,14 @@ export const TransferMatchesPage: React.FC = () => {
     try {
       const updatedTransactions = await unmatchTransfers(transactions, match.id);
       await dataService.updateTransaction(match.sourceTransactionId, {
-        reimbursementId: undefined
+  reimbursementId: undefined,
+  transferId: undefined,
+  isTransferPrimary: undefined
       });
       await dataService.updateTransaction(match.targetTransactionId, {
-        reimbursementId: undefined
+  reimbursementId: undefined,
+  transferId: undefined,
+  isTransferPrimary: undefined
       });
       setTransactions(updatedTransactions);
       await loadData(); // Refresh all data
@@ -645,11 +653,15 @@ export const TransferMatchesPage: React.FC = () => {
 
       // Update the database
       await dataService.updateTransaction(selectedSource, {
-        reimbursementId: selectedTarget,
+  reimbursementId: selectedTarget,
+  transferId: selectedTarget,
+  isTransferPrimary: (sourceTx?.amount || 0) < 0,
         notes: (transactions.find(t => t.id === selectedSource)?.notes || '') + '\n' + matchNote
       });
       await dataService.updateTransaction(selectedTarget, {
-        reimbursementId: selectedSource,
+  reimbursementId: selectedSource,
+  transferId: selectedSource,
+  isTransferPrimary: (targetTx?.amount || 0) < 0,
         notes: (transactions.find(t => t.id === selectedTarget)?.notes || '') + '\n' + matchNote
       });
       
