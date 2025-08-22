@@ -4,7 +4,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { ColDef, GridReadyEvent } from 'ag-grid-community';
 import styled from 'styled-components';
 import { Card, PageHeader, Button, FlexBox } from '../../styles/globalStyles';
-import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, CollapsedTransfer, TransferDisplayOptions, DuplicateTransaction } from '../../types';
+import { Transaction, ReimbursementMatch, Account, AnomalyResult, TransactionSplit, DuplicateTransaction } from '../../types';
 import { dataService } from '../../services/dataService';
 import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 import { useReimbursementMatching } from '../../hooks/useReimbursementMatching';
@@ -20,7 +20,6 @@ import { RemoveDuplicatesDialog } from './RemoveDuplicatesDialog';
 import { fileProcessingService } from '../../services/fileProcessingService';
 import { FileImport } from './FileImport';
 import { TransactionSplitManager } from '../shared/TransactionSplitManager';
-import { TransferList } from './TransferList';
 import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { rulesService } from '../../services/rulesService';
@@ -827,17 +826,9 @@ const Transactions: React.FC = () => {
   const [showReimbursementPanel, setShowReimbursementPanel] = useState(false);
   const [showReimbursedTransactions, setShowReimbursedTransactions] = useState(true);
   const [showInvestmentTransactions, setShowInvestmentTransactions] = useState(false); // Hide investments by default
+  // Transfer quick filter state (UI list removed, filters retained)
   const [showMatchedTransactions, setShowMatchedTransactions] = useState(false);
   const [showUnmatchedTransactions, setShowUnmatchedTransactions] = useState(false);
-  
-  const [collapsedTransfers, setCollapsedTransfers] = useState<CollapsedTransfer[]>([]);
-  
-  // Transfer display options
-  const [transferDisplayOptions, setTransferDisplayOptions] = useState<TransferDisplayOptions>({
-    showTransfers: true,
-    collapseMatched: true,
-    showFees: false
-  });
   
   // Categories management hook
   const { categories, getAllCategoryOptions, getSubcategories } = useCategoriesManager();
@@ -1030,9 +1021,7 @@ const Transactions: React.FC = () => {
     let baseTransactions = transactions;
     
     // Handle transfer display options - filter out transfers if needed
-    if (!transferDisplayOptions.showTransfers) {
-      baseTransactions = transactions.filter(t => t.type !== 'transfer');
-    }
+  // Transfer display options removed – keep all transactions
     
     let filtered = baseTransactions.slice();
 
@@ -1089,7 +1078,7 @@ const Transactions: React.FC = () => {
     }
 
     return filtered;
-  }, [transactions, transferDisplayOptions.showTransfers, filters, showReimbursedTransactions, showInvestmentTransactions, showMatchedTransactions, showUnmatchedTransactions, filterNonReimbursed, getMatchedTransfers, getUnmatchedTransfers]);
+  }, [transactions, filters, showReimbursedTransactions, showInvestmentTransactions, showMatchedTransactions, showUnmatchedTransactions, filterNonReimbursed, getMatchedTransfers, getUnmatchedTransfers]);
 
   // Helper function to parse category string (e.g., "Food > Restaurants" or "Food")
   const parseCategoryString = (categoryString: string): { category: string; subcategory?: string } => {
@@ -1517,19 +1506,11 @@ const Transactions: React.FC = () => {
         
         setTransactions(allTransactions);
         
-        if (allTransactions.length > 0) {
-          // Load collapsed transfers
-          const collapsed = await dataService.getCollapsedTransfers();
-          setCollapsedTransfers(collapsed);
-        } else {
-          setTransactions(allTransactions);
-          setCollapsedTransfers([]);
-        }
+  // Transfer list removed – no collapsed transfer loading
       } catch (error) {
         console.error('❌ Error loading transactions:', error);
         // Fall back to empty array if loading fails
         setTransactions([]);
-        setCollapsedTransfers([]);
       }
     };
 
@@ -1758,9 +1739,7 @@ const Transactions: React.FC = () => {
     
     const { transaction, updatedTransaction, newCategory, newSubcategory } = categoryEditData;
     
-    // Preserve current filter states before transaction update
-    const currentShowUnmatched = showUnmatchedTransactions;
-    const currentShowMatched = showMatchedTransactions;
+  // Transfer filter state preservation removed
     
     try {
       if (option === 'current') {
@@ -1815,13 +1794,7 @@ const Transactions: React.FC = () => {
       setTransactions(refreshedTransactions);
       // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
       
-      // Ensure filter states are preserved after transaction update
-      if (currentShowUnmatched && !showUnmatchedTransactions) {
-        setShowUnmatchedTransactions(true);
-      }
-      if (currentShowMatched && !showMatchedTransactions) {
-        setShowMatchedTransactions(true);
-      }
+  // Transfer filter state restoration removed
       
       console.log(`✅ Category edit applied with option: ${option}`);
     } catch (error) {
@@ -3220,32 +3193,7 @@ const Transactions: React.FC = () => {
       </Card>
 
       {/* Transfer List Section */}
-      {transferDisplayOptions.showTransfers && (
-        <TransferList
-          collapsedTransfers={collapsedTransfers}
-          allTransfers={transactions.filter(t => t.type === 'transfer')}
-          displayOptions={transferDisplayOptions}
-          onDisplayOptionsChange={setTransferDisplayOptions}
-          onUnmatchTransfer={async (matchId: string) => {
-            try {
-              const updatedTransactions = await unmatchTransfers(transactions, matchId);
-              setTransactions(updatedTransactions);
-              
-              // Reload collapsed transfers
-              const collapsed = await dataService.getCollapsedTransfers();
-              setCollapsedTransfers(collapsed);
-            } catch (error) {
-              console.error('Error unmatching transfer:', error);
-            }
-          }}
-          onViewTransaction={(transactionId: string) => {
-            const transaction = transactions.find(t => t.id === transactionId);
-            if (transaction) {
-              setConfidencePopupData({ isOpen: true, transaction });
-            }
-          }}
-        />
-      )}
+  {/* Transfer list removed */}
 
       {/* History Modal */}
       {showHistoryModal && historyFor && (
