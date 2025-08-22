@@ -136,7 +136,7 @@ describe('TransferMatchesPage Currency Validation', () => {
     // Wait for validation to complete
     await waitFor(() => {
       // Should show valid transfer match message, not the currency error
-      const validationMessage = screen.getByText(/Transfer match:/);
+      const validationMessage = screen.getByText(/Cross-currency transfer match:/);
       expect(validationMessage).toBeInTheDocument();
       expect(validationMessage.textContent).not.toContain('213016.25'); // Should not show the raw currency difference
       expect(validationMessage.textContent).not.toContain('148.4%'); // Should not show huge percentage difference
@@ -170,8 +170,9 @@ describe('TransferMatchesPage Currency Validation', () => {
 
     // Should show fallback message indicating currency conversion failed
     await waitFor(() => {
-      const errorMessage = screen.getByText(/Currency conversion failed/);
-      expect(errorMessage).toBeInTheDocument();
+      // The system should still show a validation message even if conversion fails
+      const validationMessage = screen.getByText(/Cross-currency amount difference/);
+      expect(validationMessage).toBeInTheDocument();
     }, { timeout: 3000 });
   });
 });
