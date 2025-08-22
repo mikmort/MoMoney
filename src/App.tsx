@@ -17,8 +17,10 @@ import { GlobalStyles, lightTheme } from './styles/globalStyles';
 
 // Lazy load heavy components to reduce initial bundle size
 import { lazyWithRetry } from './utils/lazyWithRetry';
-const Dashboard = lazyWithRetry(() => import('./components/Dashboard/Dashboard'));
+// Force direct import for forensic test of Transactions inclusion
+// Point directly to forensic renamed component to test resolution
 const Transactions = lazyWithRetry(() => import('./components/Transactions/Transactions'));
+const Dashboard = lazyWithRetry(() => import('./components/Dashboard/Dashboard'));
 const Rules = lazyWithRetry(() => import('./components/Rules/Rules'));
 const Budgets = lazyWithRetry(() => import('./components/Budgets/Budgets'));
 const ReportsLayout = lazyWithRetry(() => import('./components/Reports/ReportsLayout'));
@@ -66,7 +68,7 @@ const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
       { index: true, element: <Dashboard /> },
-      { path: 'transactions', element: <Transactions /> },
+  { path: 'transactions', element: <Transactions /> },
       { path: 'rules', element: <Rules /> },
       { path: 'accounts', element: <Accounts /> },
       { path: 'transfer-matches', element: <TransferMatchesPage /> },
