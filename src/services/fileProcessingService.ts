@@ -456,7 +456,13 @@ export class FileProcessingService {
       lastModified: new Date(file.lastModified).toISOString()
     });
     
-    // Read as ArrayBuffer, then decode with best-fit encoding (UTF-8, Windows-1252, ISO-8859-1)
+    // Handle PDF files differently - read as base64
+    if (file.type === 'application/pdf' || this.getFileType(file.name) === 'pdf') {
+      console.log('📄 Reading PDF file as base64...');
+      return await this.fileToBase64(file);
+    }
+    
+    // For other files, read as ArrayBuffer and decode with best-fit encoding (UTF-8, Windows-1252, ISO-8859-1)
     // This preserves Scandinavian characters (æ, ø, å) commonly found in CSVs saved with legacy encodings.
     const readAsArrayBuffer = (): Promise<ArrayBuffer> =>
       new Promise((resolve, reject) => {
@@ -805,6 +811,10 @@ Return ONLY a clean JSON response:
         console.log('🏦 Parsing as OFX...');
         result = await this.parseOFX(content, mapping);
         break;
+      case 'pdf':
+        console.log('📄 Parsing as PDF...');
+        result = await this.parsePDF(content, mapping);
+        break;
       default:
         console.error(`❌ Unsupported file type: ${fileType}`);
         throw new Error(`Unsupported file type: ${fileType}`);
@@ -860,6 +870,159 @@ Return ONLY a clean JSON response:
       return data;
     } catch (error) {
       throw new Error(`Failed to parse Excel file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async parsePDF(content: string, mapping: FileSchemaMapping): Promise<any[]> {
+    console.log('🔧 PDF PARSING START');
+    console.log(`📄 PDF content length: ${content.length} characters`);
+    console.log(`📋 PDF mapping:`, mapping);
+
+    try {
+      // First, extract text from PDF
+      const pdfText = await this.extractTextFromPDF(content);
+      console.log(`📝 Extracted PDF text (${pdfText.length} chars): ${pdfText.substring(0, 500)}...`);
+
+      // Use AI to extract structured transaction data from PDF text
+      const transactions = await this.extractTransactionsFromPDFWithAI(pdfText);
+      
+      console.log(`✅ PDF parsing complete - extracted ${transactions.length} transactions`);
+      return transactions;
+
+    } catch (error) {
+      console.error('❌ PDF parsing failed:', error);
+      throw new Error(`Failed to parse PDF file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Extract text from PDF content using pdfjs-dist
+   * This adapts the logic from receiptProcessingService but works with file content instead of base64
+   */
+  private async extractTextFromPDF(content: string): Promise<string> {
+    try {
+      // Use pdfjs-dist library that's already available and browser-compatible
+      const pdfjsLib = require('pdfjs-dist');
+      
+      // Set worker source
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+      
+      // Convert content (which should be base64) to Uint8Array
+      let bytes: Uint8Array;
+      
+      // Check if content is base64 encoded or raw
+      if (content.includes('data:application/pdf;base64,')) {
+        // Remove data URL prefix
+        const base64Content = content.split(',')[1];
+        const binaryString = atob(base64Content);
+        bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+      } else {
+        // Assume content is already base64 without prefix
+        try {
+          const binaryString = atob(content);
+          bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+        } catch {
+          // If not base64, treat as raw content
+          bytes = new TextEncoder().encode(content);
+        }
+      }
+      
+      // Load PDF document
+      const loadingTask = pdfjsLib.getDocument({ data: bytes });
+      const pdf = await loadingTask.promise;
+      
+      let fullText = '';
+      
+      // Extract text from each page
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: any) => item.str)
+          .join(' ');
+        fullText += pageText + '\n';
+      }
+      
+      return fullText.trim();
+    } catch (error) {
+      console.warn('PDF text extraction failed:', error);
+      throw new Error(`PDF text extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Use AI to extract structured transaction data from PDF text
+   */
+  private async extractTransactionsFromPDFWithAI(pdfText: string): Promise<any[]> {
+    console.log('🤖 Using AI to extract transactions from PDF text...');
+
+    const prompt = `You are a financial data extraction specialist. Extract transaction data from this bank/credit card statement text and return it as a JSON array.
+
+RULES:
+- Extract ALL transactions from the statement
+- Return ONLY a JSON array, no other text
+- Each transaction must have: date, description, amount (negative for debits/expenses, positive for credits/income)
+- Use ISO date format (YYYY-MM-DD)
+- Include all available details but normalize the description (remove excessive spaces/formatting)
+- If you see transaction categories, include them
+- If amounts are unclear, make your best guess based on context
+- Skip header rows, totals, and non-transaction text
+
+Expected JSON format:
+[
+  {
+    "date": "2024-01-15",
+    "description": "STARBUCKS STORE #123",
+    "amount": -4.85,
+    "category": "Food & Dining"
+  }
+]
+
+STATEMENT TEXT:
+${pdfText}`;
+
+    try {
+      const responseContent = await azureOpenAIService.makeRequest(prompt, 2000);
+      
+      // Clean the response to handle markdown code blocks
+      let cleanedResponse = responseContent;
+      if (cleanedResponse.includes('```json')) {
+        cleanedResponse = cleanedResponse.split('```json')[1];
+      }
+      if (cleanedResponse.includes('```')) {
+        cleanedResponse = cleanedResponse.split('```')[0];
+      }
+      cleanedResponse = cleanedResponse.trim();
+
+      // Parse the JSON response
+      const transactions = JSON.parse(cleanedResponse);
+      
+      if (!Array.isArray(transactions)) {
+        throw new Error('AI response is not an array');
+      }
+
+      console.log(`🤖 AI extracted ${transactions.length} transactions from PDF`);
+      if (transactions.length > 0) {
+        console.log('📊 Sample extracted transactions (first 3):');
+        transactions.slice(0, 3).forEach((txn, idx) => {
+          console.log(`  Transaction ${idx + 1}:`, txn);
+        });
+      }
+
+      return transactions;
+
+    } catch (error) {
+      console.error('❌ AI transaction extraction failed:', error);
+      
+      // Fallback: return empty array rather than failing completely
+      console.warn('🔄 Falling back to empty transaction list due to AI extraction failure');
+      return [];
     }
   }
 
@@ -1903,6 +2066,23 @@ Return ONLY a clean JSON response:
     }
 
     return undefined;
+  }
+
+  /**
+   * Convert File to base64 string
+   */
+  private async fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove the data URL prefix (e.g., "data:application/pdf;base64,")
+        const base64 = result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 }
 
