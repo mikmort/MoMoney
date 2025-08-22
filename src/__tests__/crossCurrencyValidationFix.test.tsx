@@ -5,8 +5,7 @@ import { Transaction } from '../types';
 
 // Mock the currency display service
 jest.mock('../services/currencyDisplayService', () => ({
-  __esModule: true,
-  default: {
+  currencyDisplayService: {
     initialize: jest.fn().mockResolvedValue(undefined),
     getDefaultCurrency: jest.fn().mockResolvedValue('USD'),
     formatAmount: jest.fn().mockResolvedValue('$100.00'),
@@ -128,7 +127,7 @@ describe('Cross-Currency Validation Fix', () => {
     const targetTransaction = createMockTransaction('2', 85, 'Account B'); // 15% difference
     
     const isCrossCurrency = (transaction.originalCurrency && transaction.originalCurrency !== 'USD') ||
-                           (targetTransaction.originalCurrency && targetTransaction.originalCurrency !== 'USD');
+                           (targetTransaction.originalCurrency && targetTransaction.originalCurrency !== 'USD') || false;
     
     const amountDiff = Math.abs(Math.abs(transaction.amount) - Math.abs(targetTransaction.amount));
     const avgAmount = (Math.abs(transaction.amount) + Math.abs(targetTransaction.amount)) / 2;

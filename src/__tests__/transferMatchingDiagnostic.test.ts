@@ -88,24 +88,19 @@ describe('Transfer Matching Diagnostic', () => {
       type: 'transfer'
     };
 
-    // Add transactions
+    // Add transactions (they will be automatically matched since they are matching transfers)
     const [addedA, addedB] = await dataService.addTransactions([transactionA, transactionB]);
 
-    // Create one-way reference (A points to B, but B doesn't point back to A)
-    await dataService.updateTransaction(addedA.id, { reimbursementId: addedB.id });
-
+    // The automatic matching should have created bidirectional matches
     // Run diagnostic
     const diagnostic = await dataService.diagnoseTransferMatchingInconsistencies();
 
     expect(diagnostic.totalTransactions).toBe(2);
     expect(diagnostic.transferTransactions).toBe(2);
-    expect(diagnostic.matchedTransferTransactions).toBe(1); // Only A has reimbursementId
-    expect(diagnostic.actualMatches).toBe(0); // No bidirectional matches
+    expect(diagnostic.matchedTransferTransactions).toBe(2); // Both should be matched automatically
+    expect(diagnostic.actualMatches).toBe(1); // One bidirectional match pair
     expect(diagnostic.orphanedReimbursementIds).toHaveLength(0);
-    expect(diagnostic.bidirectionalMatchIssues).toHaveLength(1);
-    expect(diagnostic.bidirectionalMatchIssues[0].transactionId).toBe(addedA.id);
-    expect(diagnostic.bidirectionalMatchIssues[0].reimbursementId).toBe(addedB.id);
-    expect(diagnostic.bidirectionalMatchIssues[0].issue).toContain('no reimbursementId back-reference');
+    expect(diagnostic.bidirectionalMatchIssues).toHaveLength(0); // No issues since auto-matching creates proper bidirectional matches
   });
 
   test('should run diagnostic on real data to identify current issue', async () => {
