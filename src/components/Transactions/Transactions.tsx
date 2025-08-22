@@ -1010,7 +1010,6 @@ const Transactions: React.FC = () => {
 
   // Transfer matching functionality
   const { 
-    unmatchTransfers,
     getUnmatchedTransfers,
     countUnmatchedTransfers,
     getMatchedTransfers 
