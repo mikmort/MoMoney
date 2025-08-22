@@ -3155,6 +3155,10 @@ const Transactions: React.FC = () => {
           <div className="label">Transactions</div>
           <div className="value">{stats.count}</div>
         </div>
+        <div className="stat">
+          <div className="label">Visible / Total</div>
+          <div className="value">{filteredTransactions.length} / {transactions.length}</div>
+        </div>
       </StatsBar>
 
       <Card>

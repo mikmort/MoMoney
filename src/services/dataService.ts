@@ -16,6 +16,7 @@ class DataService {
   private healthCheckResults: DBHealthCheck | null = null;
   private healthCheckFailures = 0; // Track consecutive health check failures
   private needsAnomalyDetection = false; // Track if anomaly detection needs to be re-run
+  private internalTransferTypeAuditDone = false; // One-time runtime audit to fix lingering Internal Transfer type mismatches
   
   // In-memory undo/redo stacks for fast operations during active editing
   private undoStacks: { [transactionId: string]: Transaction[] } = {};
@@ -448,6 +449,26 @@ class DataService {
   async getAllTransactions(): Promise<Transaction[]> {
     await this.ensureInitialized();
     console.log(`DataService: getAllTransactions called, returning ${this.transactions.length} transactions`);
+    // One-time post-initialization audit in case legacy data was loaded before new integrity pass existed
+    if (!this.internalTransferTypeAuditDone) {
+      const mismatches = this.transactions.filter(t => t.category === 'Internal Transfer' && t.type !== 'transfer');
+      if (mismatches.length > 0) {
+        console.log(`[TX] Auditing Internal Transfer type mismatches in getAllTransactions: found ${mismatches.length}`);
+        for (let i = 0; i < this.transactions.length; i++) {
+          const tx = this.transactions[i];
+          if (tx.category === 'Internal Transfer' && tx.type !== 'transfer') {
+            this.transactions[i] = { ...tx, type: 'transfer', lastModifiedDate: new Date() };
+          }
+        }
+        try {
+          await this.saveToDB();
+          console.log(`[TX] Corrected ${mismatches.length} Internal Transfer transaction type(s) during audit`);
+        } catch (e) {
+          console.warn('[TX] Failed to persist Internal Transfer audit fixes', e);
+        }
+      }
+      this.internalTransferTypeAuditDone = true;
+    }
     return [...this.transactions];
   }
 

@@ -428,6 +428,7 @@ const Settings: React.FC = () => {
   const [deploymentInfo, setDeploymentInfo] = useState<string | null>(null);
   const [isExportingSupport, setIsExportingSupport] = useState(false);
   const [isDeduping, setIsDeduping] = useState(false);
+  const [isRepairingTransfers, setIsRepairingTransfers] = useState(false);
   const [isLoadingSampleData, setIsLoadingSampleData] = useState(false);
   const [showExchangeRates, setShowExchangeRates] = useState(false);
   const [exchangeRates, setExchangeRates] = useState<CurrencyExchangeRate[]>([]);
@@ -745,6 +746,29 @@ const Settings: React.FC = () => {
       showAlert('error', 'Failed to scan/remove duplicates.');
     } finally {
       setIsDeduping(false);
+    }
+  };
+
+  const handleRepairInternalTransferTypes = async () => {
+    if (isRepairingTransfers) return;
+    setIsRepairingTransfers(true);
+    try {
+      // Fetch all transactions (will also run internal audit if needed)
+      const all = await dataService.getAllTransactions();
+      const mismatches = all.filter(t => t.category === 'Internal Transfer' && t.type !== 'transfer');
+      if (mismatches.length === 0) {
+        showAlert('info', 'No Internal Transfer type mismatches found.', 'Integrity Check');
+      } else {
+        const now = new Date();
+        const updates = mismatches.map(t => ({ id: t.id, updates: { type: 'transfer' as const, lastModifiedDate: now } }));
+        await dataService.batchUpdateTransactions(updates);
+        showAlert('success', `Repaired ${updates.length} Internal Transfer transaction mismatch${updates.length === 1 ? '' : 'es'}.`, 'Repair Complete');
+      }
+    } catch (error) {
+      console.error('Failed repairing Internal Transfer types', error);
+      showAlert('error', 'Failed to repair Internal Transfer type mismatches.', 'Repair Failed');
+    } finally {
+      setIsRepairingTransfers(false);
     }
   };
 
@@ -1184,6 +1208,12 @@ const Settings: React.FC = () => {
           <Button onClick={handleScanAndRemoveDuplicates} disabled={isDeduping}>
             {isDeduping ? 'Scanning…' : '🧹 Scan & Remove Exact Duplicates'}
           </Button>
+          <div style={{ marginTop: '16px' }}>
+            <p>Repair any Internal Transfer transactions incorrectly marked as income or expense.</p>
+            <Button onClick={handleRepairInternalTransferTypes} disabled={isRepairingTransfers}>
+              {isRepairingTransfers ? 'Repairing…' : '🔄 Repair Internal Transfer Types'}
+            </Button>
+          </div>
         </div>
         
         <DangerZone>

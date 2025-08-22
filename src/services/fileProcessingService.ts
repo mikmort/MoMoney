@@ -602,6 +602,11 @@ export class FileProcessingService {
 
   private async getAISchemaMapping(fileContent: string, fileType: StatementFile['fileType']): Promise<AISchemaMappingResponse> {
     try {
+      // Bypass AI for PDF schema mapping – we know the extracted structure (date, description, amount)
+      if (fileType === 'pdf' || process.env.REACT_APP_DISABLE_AI === 'true') {
+        console.log('🛑 Skipping AI schema mapping (PDF or AI disabled) – using built-in PDF mapping');
+        return this.getDefaultSchemaMapping(fileType);
+      }
       // Get a sample of the file content for AI analysis
       const sampleContent = this.getSampleContent(fileContent, fileType);
       
@@ -676,6 +681,19 @@ Return ONLY a clean JSON response:
     let reasoning = 'Using default mapping due to AI analysis failure';
 
     switch (fileType) {
+      case 'pdf':
+        mapping = {
+          hasHeaders: true,
+          skipRows: 0,
+          dateFormat: 'YYYY-MM-DD',
+            amountFormat: 'negative for debits',
+          dateColumn: 'date',
+          descriptionColumn: 'description',
+          amountColumn: 'amount'
+        };
+        confidence = 0.9;
+        reasoning = 'PDF extraction produces normalized objects with date/description/amount keys';
+        break;
       case 'ofx':
         mapping = {
           hasHeaders: false,
@@ -884,10 +902,10 @@ Return ONLY a clean JSON response:
       console.log(`📝 Extracted PDF text (${pdfText.length} chars): ${pdfText.substring(0, 500)}...`);
 
       // Use AI to extract structured transaction data from PDF text
-      const transactions = await this.extractTransactionsFromPDFWithAI(pdfText);
-      
-      console.log(`✅ PDF parsing complete - extracted ${transactions.length} transactions`);
-      return transactions;
+  const transactions = await this.extractTransactionsFromPDFWithAI(pdfText);
+  const normalized = this.convertPDFRowsToTransactions(transactions);
+  console.log(`✅ PDF parsing complete - extracted ${transactions.length} transactions (normalized: ${normalized.length})`);
+  return normalized;
 
     } catch (error) {
       console.error('❌ PDF parsing failed:', error);
@@ -961,69 +979,140 @@ Return ONLY a clean JSON response:
    */
   private async extractTransactionsFromPDFWithAI(pdfText: string): Promise<any[]> {
     console.log('🤖 Using AI to extract transactions from PDF text...');
+    // 1. Condense the PDF text to keep within proxy limits (observed 4000 char cap for a single message)
+    const MAX_CHARS = 3500;
+    const condensed = this.condensePdfTextForAI(pdfText, MAX_CHARS);
 
-    const prompt = `You are a financial data extraction specialist. Extract transaction data from this bank/credit card statement text and return it as a JSON array.
-
-RULES:
-- Extract ALL transactions from the statement
-- Return ONLY a JSON array, no other text
-- Each transaction must have: date, description, amount (negative for debits/expenses, positive for credits/income)
-- Use ISO date format (YYYY-MM-DD)
-- Include all available details but normalize the description (remove excessive spaces/formatting)
-- If you see transaction categories, include them
-- If amounts are unclear, make your best guess based on context
-- Skip header rows, totals, and non-transaction text
-
-Expected JSON format:
-[
-  {
-    "date": "2024-01-15",
-    "description": "STARBUCKS STORE #123",
-    "amount": -4.85,
-    "category": "Food & Dining"
-  }
-]
-
-STATEMENT TEXT:
-${pdfText}`;
+    const prompt = `Extract bank statement transactions as pure JSON array only. Fields: date (YYYY-MM-DD), description (trimmed), amount (negative for debits, positive for credits). Skip headers, balances, page markers.
+Statement snippet (may be truncated):\n${condensed}`;
 
     try {
-      const responseContent = await azureOpenAIService.makeRequest(prompt, 2000);
-      
-      // Clean the response to handle markdown code blocks
-      let cleanedResponse = responseContent;
-      if (cleanedResponse.includes('```json')) {
-        cleanedResponse = cleanedResponse.split('```json')[1];
+      // Skip AI entirely if clearly unavailable (development mode without deployment)
+      const skipAI = (process.env.REACT_APP_DISABLE_AI === 'true');
+      let responseContent: string | null = null;
+      if (!skipAI) {
+        responseContent = await azureOpenAIService.makeRequest(prompt, 2000);
       }
-      if (cleanedResponse.includes('```')) {
-        cleanedResponse = cleanedResponse.split('```')[0];
+      if (responseContent) {
+        let cleanedResponse = responseContent;
+        if (cleanedResponse.includes('```json')) cleanedResponse = cleanedResponse.split('```json')[1];
+        if (cleanedResponse.includes('```')) cleanedResponse = cleanedResponse.split('```')[0];
+        cleanedResponse = cleanedResponse.trim();
+        const transactions = JSON.parse(cleanedResponse);
+        if (Array.isArray(transactions)) {
+          console.log(`🤖 AI extracted ${transactions.length} transactions from PDF`);
+          if (transactions.length > 0) {
+            console.log('📊 Sample extracted transactions (first 3):');
+            transactions.slice(0, 3).forEach((txn, idx) => console.log(`  Transaction ${idx + 1}:`, txn));
+          }
+          return transactions;
+        }
+        throw new Error('AI response not array');
       }
-      cleanedResponse = cleanedResponse.trim();
-
-      // Parse the JSON response
-      const transactions = JSON.parse(cleanedResponse);
-      
-      if (!Array.isArray(transactions)) {
-        throw new Error('AI response is not an array');
-      }
-
-      console.log(`🤖 AI extracted ${transactions.length} transactions from PDF`);
-      if (transactions.length > 0) {
-        console.log('📊 Sample extracted transactions (first 3):');
-        transactions.slice(0, 3).forEach((txn, idx) => {
-          console.log(`  Transaction ${idx + 1}:`, txn);
-        });
-      }
-
-      return transactions;
-
+      throw new Error('AI skipped or empty response');
     } catch (error) {
-      console.error('❌ AI transaction extraction failed:', error);
-      
-      // Fallback: return empty array rather than failing completely
-      console.warn('🔄 Falling back to empty transaction list due to AI extraction failure');
+      console.warn('❌ AI transaction extraction failed or skipped – attempting heuristic fallback:', (error as Error).message);
+      const heuristic = this.basicHeuristicPDFExtraction(pdfText);
+      if (heuristic.length > 0) {
+        console.log(`🛟 Heuristic PDF parser extracted ${heuristic.length} transactions`);
+        return heuristic;
+      }
+      console.warn('🔄 Fallback produced no transactions');
       return [];
     }
+  }
+
+  /**
+   * Convert already-extracted PDF rows (date, description, amount) directly into Transaction-like raw rows
+   * expected further down the pipeline, skipping the generic column-mapping logic.
+   */
+  private convertPDFRowsToTransactions(rawRows: any[]): any[] {
+    if (!Array.isArray(rawRows)) return [];
+    return rawRows
+      .filter(r => r && r.date && r.description && typeof r.amount !== 'undefined')
+      .map(r => ({
+        date: r.date,
+        description: String(r.description).trim(),
+        amount: r.amount,
+        notes: r.notes || ''
+      }));
+  }
+
+  // Reduce large PDF text to lines likely containing transactions (dates + amounts) for AI prompt
+  private condensePdfTextForAI(full: string, maxChars: number): string {
+    if (full.length <= maxChars) return full;
+    const lines = full.split(/\n|\r|\r\n/).map(l => l.trim()).filter(l => l.length > 0);
+    const dateLike = /(\b\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4}\b)|(\b\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})/i;
+    const amountLike = /[-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/;
+    const candidateLines: string[] = [];
+    for (const l of lines) {
+      if (dateLike.test(l) && amountLike.test(l)) candidateLines.push(l);
+      if (candidateLines.length > 400) break; // Hard cap
+    }
+    const condensed = candidateLines.join('\n');
+    if (condensed.length <= maxChars) return condensed;
+    return condensed.substring(0, maxChars);
+  }
+
+  // Heuristic extraction when AI unavailable: parse lines containing date + amount
+  private basicHeuristicPDFExtraction(pdfText: string): any[] {
+    const lines = pdfText.split(/\n|\r|\r\n/).map(l => l.trim()).filter(l => l.length > 0);
+    const dateRegexes = [
+      /\b(\d{1,2})[\.\/-](\d{1,2})[\.\/-](\d{2,4})\b/, // dd.mm.yyyy or dd-mm-yyyy
+      /\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{2,4})\b/i
+    ];
+    const amountRegex = /([-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})|[-+]?\d+(?:[.,]\d{2}))/; // capture first plausible amount
+    const monthMap: Record<string,string> = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',sept:'09',oct:'10',nov:'11',dec:'12'};
+
+    const results: any[] = [];
+    for (const rawLine of lines) {
+      let dateISO: string | null = null;
+      let line = rawLine;
+      for (const dr of dateRegexes) {
+        const m = dr.exec(line);
+        if (m) {
+          if (dr === dateRegexes[0]) {
+            let [dd, mm, yyyy] = [m[1], m[2], m[3]];
+            if (yyyy.length === 2) yyyy = (parseInt(yyyy,10) > 50 ? '19' : '20') + yyyy; // crude pivot
+            if (dd.length === 1) dd = '0'+dd;
+            if (mm.length === 1) mm = '0'+mm;
+            dateISO = `${yyyy}-${mm}-${dd}`;
+          } else {
+            // Month name form
+            let dd = m[1]; const monRaw = m[2].toLowerCase(); let yyyy = m[3];
+            if (yyyy.length === 2) yyyy = '20'+yyyy;
+            if (dd.length === 1) dd = '0'+dd;
+            const mm = monthMap[monRaw] || '01';
+            dateISO = `${yyyy}-${mm}-${dd}`;
+          }
+          line = line.replace(m[0], '').trim();
+          break;
+        }
+      }
+      if (!dateISO) continue;
+      const amountMatch = amountRegex.exec(line);
+      if (!amountMatch) continue;
+      const amountStr = amountMatch[1];
+      // Remove thousand separators and normalize decimal
+      let normalized = amountStr.replace(/\s/g,'');
+      // If both . and , appear, assume . thousands and , decimal
+      if (/[.,]/.test(normalized)) {
+        const lastComma = normalized.lastIndexOf(',');
+        const lastDot = normalized.lastIndexOf('.');
+        if (lastComma > lastDot) { // comma likely decimal
+          normalized = normalized.replace(/\./g,'').replace(',','.');
+        } else if (lastDot > lastComma) { // dot decimal
+          normalized = normalized.replace(/,/g,'');
+        }
+      }
+      const amount = parseFloat(normalized);
+      if (isNaN(amount)) continue;
+      // Heuristic: expenses often shown without sign but context may not be available; leave as parsed
+      const description = line.replace(amountMatch[0], '').trim().replace(/\s{2,}/g,' ');
+      results.push({ date: dateISO, description, amount });
+      if (results.length >= 500) break; // safety limit
+    }
+    return results;
   }
 
   private async processTransactions(
