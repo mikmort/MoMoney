@@ -618,8 +618,9 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
           </MatchesList>
         )}
 
-        {/* Potential New Matches */}
-        <MatchesList>
+  {/* Potential New Matches (hidden if we already have existing matches AND zero potentials) */}
+  {(existingMatches.length === 0 || potentialMatches.length > 0) && (
+  <MatchesList>
           <div className="matches-header">
             <h3>Potential Matches ({potentialMatches.length})</h3>
           </div>
@@ -668,7 +669,8 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
               );
             })
           )}
-        </MatchesList>
+  </MatchesList>
+  )}
 
         {/* Manual Match Section */}
         {availableTransactionsForManualMatch.length > 0 && (
