@@ -415,25 +415,129 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
 
   // Deprecated local formatter removed in favor of currencyDisplayService
 
-  const validateManualMatch = () => {
+  const validateManualMatch = useCallback(async () => {
     if (!transaction || !selectedTransactionForManualMatch) return null;
 
     const selectedTx = allTransactions.find(t => t.id === selectedTransactionForManualMatch);
     if (!selectedTx) return null;
 
-    const amountDiff = Math.abs(Math.abs(transaction.amount) - Math.abs(selectedTx.amount));
-    const tolerance = 0.12; // 12% tolerance for manual matching with exchange rates
-    const avgAmount = (Math.abs(transaction.amount) + Math.abs(selectedTx.amount)) / 2;
-    const isValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
+    console.log('🔍 TransferMatchDialog validation starting...');
+    console.log('Source TX:', transaction.description, transaction.amount);
+    console.log('Target TX:', selectedTx.description, selectedTx.amount);
+
+    // Determine if this is a cross-currency transfer using comprehensive detection
+    const sourceCurrencyIndicators = (transaction.originalCurrency && transaction.originalCurrency !== 'USD') ||
+                                    (transaction.notes && (
+                                      transaction.notes.includes('Foreign Spend Amount') ||
+                                      transaction.notes.includes('DANISH KRONE') ||
+                                      transaction.notes.includes('EURO') ||
+                                      transaction.notes.includes('EUR') ||
+                                      transaction.notes.includes('DKK') ||
+                                      transaction.notes.includes('GBP') ||
+                                      transaction.notes.includes('JPY') ||
+                                      transaction.notes.includes('Currency Exchange Rate')
+                                    ));
+                                    
+    const targetCurrencyIndicators = (selectedTx.originalCurrency && selectedTx.originalCurrency !== 'USD') ||
+                                    (selectedTx.notes && (
+                                      selectedTx.notes.includes('Foreign Spend Amount') ||
+                                      selectedTx.notes.includes('DANISH KRONE') ||
+                                      selectedTx.notes.includes('EURO') ||
+                                      selectedTx.notes.includes('EUR') ||
+                                      selectedTx.notes.includes('DKK') ||
+                                      selectedTx.notes.includes('GBP') ||
+                                      selectedTx.notes.includes('JPY') ||
+                                      selectedTx.notes.includes('Currency Exchange Rate')
+                                    ));
+                                    
+    const isCrossCurrency = sourceCurrencyIndicators || targetCurrencyIndicators;
+    console.log('🌍 Cross-currency detected:', isCrossCurrency);
+    console.log('Source currency indicators:', sourceCurrencyIndicators);
+    console.log('Target currency indicators:', targetCurrencyIndicators);
+
+    // Convert both transactions to default currency for proper comparison
+    let sourceAmount = transaction.amount;
+    let targetAmount = selectedTx.amount;
+    let conversionFailed = false;
+
+    try {
+      console.log('💱 Attempting currency conversion...');
+      const sourceConverted = await currencyDisplayService.convertTransactionAmount(transaction);
+      const targetConverted = await currencyDisplayService.convertTransactionAmount(selectedTx);
+      
+      console.log('💱 Source converted from', sourceAmount, 'to', sourceConverted.amount);
+      console.log('💱 Target converted from', targetAmount, 'to', targetConverted.amount);
+      
+      sourceAmount = sourceConverted.amount;
+      targetAmount = targetConverted.amount;
+    } catch (error) {
+      console.warn('❌ Currency conversion failed for manual match validation:', error);
+      conversionFailed = true;
+      console.log('🔄 Using original amounts as fallback');
+    }
+
+    const amountDiff = Math.abs(Math.abs(sourceAmount) - Math.abs(targetAmount));
+    const avgAmount = (Math.abs(sourceAmount) + Math.abs(targetAmount)) / 2;
     const percentageDiff = avgAmount > 0 ? (amountDiff / avgAmount) * 100 : 0;
 
-    return {
+    console.log('📊 Final calculation:');
+    console.log('  Source amount (converted):', sourceAmount);
+    console.log('  Target amount (converted):', targetAmount);
+    console.log('  Amount difference:', amountDiff);
+    console.log('  Percentage difference:', percentageDiff.toFixed(1) + '%');
+
+    // Use different tolerances and messaging for cross-currency vs same-currency transfers
+    let tolerance: number;
+    let isValid: boolean;
+    
+    if (isCrossCurrency) {
+      // More lenient tolerance for cross-currency transfers (up to 15% for exchange rate fluctuations)
+      tolerance = 0.15; // 15%
+      isValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
+      console.log('🌍 Cross-currency validation: tolerance 15%, valid:', isValid);
+    } else {
+      // Stricter tolerance for same-currency transfers
+      tolerance = 0.12; // 12% tolerance for manual matching
+      isValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
+      console.log('💵 Same-currency validation: tolerance 12%, valid:', isValid);
+    }
+
+    const result = {
       isValid,
       amountDiff,
       percentageDiff,
-      selectedTransaction: selectedTx
+      selectedTransaction: selectedTx,
+      isCrossCurrency,
+      conversionFailed
     };
-  };
+
+    console.log('✅ Validation result:', result);
+    return result;
+  }, [transaction, selectedTransactionForManualMatch, allTransactions]);
+
+  const [validation, setValidation] = useState<{
+    isValid: boolean;
+    amountDiff: number;
+    percentageDiff: number;
+    selectedTransaction: Transaction;
+    isCrossCurrency: boolean | "" | undefined;
+    conversionFailed: boolean;
+  } | null>(null);
+
+  // Update validation when selection changes
+  useEffect(() => {
+    if (!transaction || !selectedTransactionForManualMatch) {
+      setValidation(null);
+      return;
+    }
+
+    const updateValidation = async () => {
+      const result = await validateManualMatch();
+      setValidation(result);
+    };
+
+    updateValidation();
+  }, [transaction, selectedTransactionForManualMatch, validateManualMatch]);
 
   const availableTransactionsForManualMatch = allTransactions.filter(t =>
     t.type === 'transfer' &&
@@ -443,8 +547,6 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
   );
 
   if (!isOpen || !transaction) return null;
-
-  const validation = validateManualMatch();
 
   return (
     <ModalOverlay onClick={onClose}>
@@ -594,12 +696,12 @@ export const TransferMatchDialog: React.FC<TransferMatchDialogProps> = ({
               </Button>
             </div>
 
-            {validation && (
+            {validation && validation.amountDiff !== undefined && (
               <div className={`amount-validation ${validation.isValid ? 'valid' : 'invalid'}`}>
                 {validation.isValid ? (
-                  <span>✅ Amounts match within tolerance (${validation.amountDiff.toFixed(2)} difference, {validation.percentageDiff.toFixed(1)}%)</span>
+                  <span>✅ {validation.isCrossCurrency ? 'Cross-currency transfer match' : 'Amounts match within tolerance'}: ${validation.amountDiff.toFixed(2)} difference ({validation.percentageDiff.toFixed(1)}%){validation.isCrossCurrency ? ' - within acceptable range for currency conversion' : ''}</span>
                 ) : (
-                  <span>⚠️ Amount difference is significant: ${validation.amountDiff.toFixed(2)} ({validation.percentageDiff.toFixed(1)}%). This may not be a transfer match.</span>
+                  <span>⚠️ {validation.isCrossCurrency ? 'Cross-currency amount difference' : 'Amount difference is significant'}: ${validation.amountDiff.toFixed(2)} ({validation.percentageDiff.toFixed(1)}%). {validation.isCrossCurrency ? 'This is large for a transfer match - please verify the exchange rates are correct.' : 'This may not be a transfer match.'}</span>
                 )}
               </div>
             )}

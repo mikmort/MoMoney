@@ -1,4 +1,6 @@
 import { Transaction, CollapsedTransfer } from '../types';
+import { dataService } from './dataService';
+import { accountManagementService } from './accountManagementService';
 
 export interface TransferMatch {
   id: string;
@@ -54,6 +56,33 @@ export interface SameAccountMatchResponse {
 }
 
 class TransferMatchingService {
+  
+  /**
+   * Get the currency of a transaction from its associated account
+   */
+  private getTransactionCurrency(transaction: Transaction): string {
+    const accounts = accountManagementService.getAccounts();
+    
+    // Try to match by account ID first, then by name
+    const account = accounts.find(acc => acc.id === transaction.account) || 
+                    accounts.find(acc => acc.name === transaction.account);
+    
+    if (!account) {
+      console.warn(`⚠️ Account not found for transaction ${transaction.id}: "${transaction.account}"`);
+      return 'USD'; // Default to USD if account not found
+    }
+    
+    return account.currency || 'USD';
+  }
+
+  /**
+   * Check if a transaction is a foreign currency transaction (not USD)
+   */
+  private isForeignTransaction(transaction: Transaction): boolean {
+    const currency = this.getTransactionCurrency(transaction);
+    return currency !== 'USD';
+  }
+
   /**
    * Find matching transfer transactions for manual user search with relaxed criteria
    * Uses expanded date range (+/- 8 days) and exchange rate tolerance (+/- 12%)
@@ -67,24 +96,83 @@ class TransferMatchingService {
       tolerancePercentage = 0.12 // Relaxed for exchange rates: +/- 12%
     } = request;
 
-    // Filter transfer transactions within date range
-    const transferTransactions = transactions.filter(tx => 
-      tx.type === 'transfer' &&
-      (!dateRangeStart || tx.date >= dateRangeStart) &&
-      (!dateRangeEnd || tx.date <= dateRangeEnd) &&
-      !tx.reimbursementId // Not already matched
-    );
+    console.log('🔍 findManualTransferMatches called with:', {
+      totalTransactions: transactions.length,
+      dateRangeStart: dateRangeStart?.toISOString(),
+      dateRangeEnd: dateRangeEnd?.toISOString(),
+      maxDaysDifference,
+      tolerancePercentage
+    });
+
+    // Filter transactions within date range - include transfers AND foreign currency expenses
+    const candidateTransactions = transactions.filter(tx => {
+      // Always include transfer transactions
+      if (tx.type === 'transfer' && 
+          (!dateRangeStart || tx.date >= dateRangeStart) &&
+          (!dateRangeEnd || tx.date <= dateRangeEnd) &&
+          !tx.reimbursementId) {
+        return true;
+      }
+      
+      // Also include foreign currency expenses as potential cross-currency matches
+      if ((tx.type === 'expense' || tx.type === 'income') &&
+          (!dateRangeStart || tx.date >= dateRangeStart) &&
+          (!dateRangeEnd || tx.date <= dateRangeEnd) &&
+          !tx.reimbursementId) {
+        // Check if this is a foreign currency transaction using account-based detection
+        return this.isForeignTransaction(tx);
+      }
+      
+      return false;
+    });
+
+    console.log('📊 Candidate transactions found:', {
+      total: candidateTransactions.length,
+      transfers: candidateTransactions.filter(tx => tx.type === 'transfer').length,
+      foreignExpenses: candidateTransactions.filter(tx => 
+        (tx.type === 'expense' || tx.type === 'income') && this.isForeignTransaction(tx)
+      ).length,
+      candidateIds: candidateTransactions.map(tx => ({ id: tx.id, type: tx.type, amount: tx.amount, account: tx.account }))
+    });
+
+    // Log detailed info for specific transactions we're looking for
+    console.log('🔍 Looking for specific transactions:');
+    candidateTransactions.forEach(tx => {
+      if (tx.description.toLowerCase().includes('firsttech') || 
+          tx.description.toLowerCase().includes('firsttec') || 
+          tx.description.toLowerCase().includes('michael joseph morton') ||
+          Math.abs(tx.amount) > 700000 || Math.abs(tx.amount) > 100000) {
+        console.log('🎯 Potential target transaction:', {
+          id: tx.id.substring(0,8),
+          description: tx.description,
+          amount: tx.amount,
+          account: tx.account,
+          currency: this.getTransactionCurrency(tx),
+          isForeign: this.isForeignTransaction(tx),
+          date: tx.date.toISOString().split('T')[0]
+        });
+      }
+    });
 
     const matches: TransferMatch[] = [];
     const matchedIds = new Set<string>();
     const processedPairs = new Set<string>(); // Track processed transaction pairs to prevent duplicates
 
+    console.log('🔄 Starting matching loop with', candidateTransactions.length, 'candidates');
+    let pairsChecked = 0;
+    let amountMatches = 0;
+    let dateMatches = 0;
+    let accountMatches = 0;
+    let finalMatches = 0;
+
     // Find potential matches using relaxed heuristics for manual search
-    for (const sourceTx of transferTransactions) {
+    for (const sourceTx of candidateTransactions) {
       if (matchedIds.has(sourceTx.id)) continue;
 
-      for (const targetTx of transferTransactions) {
+      for (const targetTx of candidateTransactions) {
         if (matchedIds.has(targetTx.id) || sourceTx.id === targetTx.id) continue;
+        
+        pairsChecked++;
 
         // Create a unique pair key to prevent duplicate matches in both directions
         const pairKey = [sourceTx.id, targetTx.id].sort().join('-');
@@ -93,16 +181,74 @@ class TransferMatchingService {
         // Check if amounts are inverse (one positive, one negative, similar magnitude)
         // Use relaxed tolerance for manual matching, especially for exchange rates
         const sameCurrency = this.haveSameCurrency(sourceTx, targetTx);
-        const amountMatch = this.areAmountsMatching(sourceTx.amount, targetTx.amount, tolerancePercentage);
+        const amountMatch = this.areAmountsMatchingForManualSearch(sourceTx, targetTx, tolerancePercentage);
         
-        if (!amountMatch) continue;
+        if (!amountMatch) {
+          // Debug failed amount matches for first few pairs
+          if (pairsChecked <= 10) {
+            console.log(`❌ Amount mismatch for pair ${pairsChecked}:`, {
+              source: { id: sourceTx.id.substring(0,8), amount: sourceTx.amount, type: sourceTx.type },
+              target: { id: targetTx.id.substring(0,8), amount: targetTx.amount, type: targetTx.type },
+              tolerance: tolerancePercentage,
+              sameCurrency
+            });
+          }
+          continue;
+        }
+        amountMatches++;
 
         // Check date proximity - expanded range for manual search
         const dateDiff = Math.abs((sourceTx.date.getTime() - targetTx.date.getTime()) / (1000 * 60 * 60 * 24));
-        if (dateDiff > maxDaysDifference) continue;
+        if (dateDiff > maxDaysDifference) {
+          if (pairsChecked <= 10) {
+            console.log(`❌ Date mismatch for pair ${pairsChecked}:`, {
+              source: { id: sourceTx.id.substring(0,8), date: sourceTx.date.toISOString().split('T')[0] },
+              target: { id: targetTx.id.substring(0,8), date: targetTx.date.toISOString().split('T')[0] },
+              dateDiff: Math.round(dateDiff * 10) / 10,
+              maxAllowed: maxDaysDifference
+            });
+          }
+          continue;
+        }
+        dateMatches++;
 
         // Check if accounts are different (transfers should be between different accounts)
-        if (sourceTx.account === targetTx.account) continue;
+        // Exception: For cross-currency matching, same account is allowed (e.g., transfer + foreign currency fee on same account)
+        const sourceForeign = this.isForeignTransaction(sourceTx);
+        const targetForeign = this.isForeignTransaction(targetTx);
+        const isCrossCurrencyMatch = sourceForeign || targetForeign;
+        
+        if (sourceTx.account === targetTx.account && !isCrossCurrencyMatch) {
+          if (pairsChecked <= 10) {
+            console.log(`❌ Same account (not cross-currency) for pair ${pairsChecked}:`, {
+              source: { 
+                id: sourceTx.id.substring(0,8), 
+                account: sourceTx.account, 
+                amount: sourceTx.amount,
+                originalCurrency: sourceTx.originalCurrency,
+                notes: sourceTx.notes?.substring(0, 100) || 'N/A',
+                isForeign: sourceForeign 
+              },
+              target: { 
+                id: targetTx.id.substring(0,8), 
+                account: targetTx.account, 
+                amount: targetTx.amount,
+                originalCurrency: targetTx.originalCurrency,
+                notes: targetTx.notes?.substring(0, 100) || 'N/A',
+                isForeign: targetForeign 
+              }
+            });
+          }
+          continue;
+        }
+        
+        if (sourceTx.account === targetTx.account && isCrossCurrencyMatch) {
+          console.log(`✅ Same account allowed (cross-currency) for pair ${pairsChecked}:`, {
+            source: { id: sourceTx.id.substring(0,8), account: sourceTx.account, type: sourceTx.type, isForeign: sourceForeign },
+            target: { id: targetTx.id.substring(0,8), account: targetTx.account, type: targetTx.type, isForeign: targetForeign }
+          });
+        }
+        accountMatches++;
 
         // For manual matching, we flag all matches as "Possible Matches"
         // since we're using relaxed criteria
@@ -120,6 +266,15 @@ class TransferMatchingService {
           isVerified: false
         };
 
+        finalMatches++;
+        console.log(`✅ Match found! (#${finalMatches})`, {
+          source: { id: sourceTx.id.substring(0,8), amount: sourceTx.amount, account: sourceTx.account, type: sourceTx.type },
+          target: { id: targetTx.id.substring(0,8), amount: targetTx.amount, account: targetTx.account, type: targetTx.type },
+          confidence: match.confidence,
+          dateDiff: Math.round(dateDiff * 10) / 10,
+          amountDiff: Math.round(match.amountDifference * 100) / 100
+        });
+
         matches.push(match);
         processedPairs.add(pairKey); // Mark this pair as processed to prevent duplicates
         // Don't add to matchedIds for manual matching to allow multiple possibilities
@@ -128,8 +283,31 @@ class TransferMatchingService {
       }
     }
 
-    // Get unmatched transfers (all since we don't mark as matched in manual search)
-    const unmatched = transferTransactions.filter(tx => !matchedIds.has(tx.id));
+    console.log('🔍 Matching loop summary:', {
+      candidatesProcessed: candidateTransactions.length,
+      pairsChecked,
+      amountMatches,
+      dateMatches,
+      accountMatches,
+      finalMatches
+    });
+
+    // Get unmatched transactions (all since we don't mark as matched in manual search)
+    const unmatched = candidateTransactions.filter(tx => !matchedIds.has(tx.id));
+
+    console.log('✅ findManualTransferMatches result:', {
+      matchesFound: matches.length,
+      unmatchedCount: unmatched.length,
+      averageConfidence: matches.length > 0 ? matches.reduce((sum, m) => sum + m.confidence, 0) / matches.length : 0,
+      matches: matches.map(m => ({
+        id: m.id,
+        sourceId: m.sourceTransactionId,
+        targetId: m.targetTransactionId,
+        confidence: m.confidence,
+        matchType: m.matchType,
+        reasoning: m.reasoning
+      }))
+    });
 
     return {
       matches,
@@ -151,8 +329,8 @@ class TransferMatchingService {
     } = request;
 
     // Filter transfer transactions within date range
-    const transferTransactions = transactions.filter(tx => 
-      tx.type === 'transfer' &&
+    const candidateTransactions = transactions.filter(tx => 
+      tx.type === 'transfer' && // Only transfer transactions for matching
       (!dateRangeStart || tx.date >= dateRangeStart) &&
       (!dateRangeEnd || tx.date <= dateRangeEnd) &&
       !tx.reimbursementId // Not already matched
@@ -162,10 +340,10 @@ class TransferMatchingService {
     const matchedIds = new Set<string>();
 
     // Find potential matches using simple heuristics first
-    for (const sourceTx of transferTransactions) {
+    for (const sourceTx of candidateTransactions) {
       if (matchedIds.has(sourceTx.id)) continue;
 
-      for (const targetTx of transferTransactions) {
+      for (const targetTx of candidateTransactions) {
         if (matchedIds.has(targetTx.id) || sourceTx.id === targetTx.id) continue;
 
         // Check if amounts are inverse (one positive, one negative, similar magnitude)
@@ -220,8 +398,8 @@ class TransferMatchingService {
       }
     }
 
-    // Get unmatched transfers
-    const unmatched = transferTransactions.filter(tx => !matchedIds.has(tx.id));
+    // Get unmatched transactions
+    const unmatched = candidateTransactions.filter(tx => !matchedIds.has(tx.id));
 
     // Use AI to improve matching confidence for uncertain matches
     const improvedMatches = await this.enhanceMatchesWithAI(matches, transactions);
@@ -282,6 +460,38 @@ class TransferMatchingService {
     return avgAmount > 0 && (diff / avgAmount) <= tolerance;
   }
 
+  private areAmountsMatchingForManualSearch(sourceTx: Transaction, targetTx: Transaction, tolerance: number): boolean {
+    // For transfer matching, amounts must have opposite signs
+    // One should be positive, the other negative
+    if ((sourceTx.amount > 0) === (targetTx.amount > 0)) {
+      console.log(`❌ Same signs detected:`, {
+        source: { id: sourceTx.id.substring(0,8), amount: sourceTx.amount, sign: sourceTx.amount > 0 ? '+' : '-' },
+        target: { id: targetTx.id.substring(0,8), amount: targetTx.amount, sign: targetTx.amount > 0 ? '+' : '-' }
+      });
+      return false; // Same sign, cannot be a transfer match
+    }
+    
+    const abs1 = Math.abs(sourceTx.amount);
+    const abs2 = Math.abs(targetTx.amount);
+    const diff = Math.abs(abs1 - abs2);
+    const avgAmount = (abs1 + abs2) / 2;
+    
+    // Check if amounts are similar within tolerance
+    const isWithinTolerance = avgAmount > 0 && (diff / avgAmount) <= tolerance;
+    
+    if (!isWithinTolerance) {
+      console.log(`❌ Amount tolerance exceeded:`, {
+        source: { id: sourceTx.id.substring(0,8), amount: sourceTx.amount },
+        target: { id: targetTx.id.substring(0,8), amount: targetTx.amount },
+        abs1, abs2, diff, avgAmount,
+        tolerancePercent: (diff / avgAmount * 100).toFixed(1) + '%',
+        allowedTolerance: (tolerance * 100).toFixed(1) + '%'
+      });
+    }
+    
+    return isWithinTolerance;
+  }
+
   private areAbsoluteAmountsMatching(amount1: number, amount2: number, tolerance: number): boolean {
     // For same-account matching, just check absolute value similarity
     // (opposite sign check is done separately before calling this)
@@ -294,15 +504,29 @@ class TransferMatchingService {
     return avgAmount > 0 && (diff / avgAmount) <= tolerance;
   }
 
+  /**
+   * Determines if a transfer match is manual (user-created) vs automatic (AI-created)
+   * Manual matches: have reimbursementId but no automatic confidence notes
+   * Automatic matches: have reimbursementId AND confidence notes like "[Matched Transfer: 0.85 confidence]"
+   */
+  private isManualMatch(transaction: Transaction): boolean {
+    return !!transaction.reimbursementId && 
+           !!transaction.notes && 
+           !transaction.notes.includes('[Matched Transfer:');
+  }
+
   private haveSameCurrency(tx1: Transaction, tx2: Transaction): boolean {
-    // If both transactions have no original currency, they're in the default currency (same)
-    if (!tx1.originalCurrency && !tx2.originalCurrency) return true;
+    // Get currencies from account information
+    const tx1Currency = this.getTransactionCurrency(tx1);
+    const tx2Currency = this.getTransactionCurrency(tx2);
     
-    // If one has original currency and the other doesn't, they're different currencies
-    if (!tx1.originalCurrency || !tx2.originalCurrency) return false;
+    // If both have explicit original currencies, compare them
+    if (tx1.originalCurrency && tx2.originalCurrency) {
+      return tx1.originalCurrency === tx2.originalCurrency;
+    }
     
-    // Both have original currencies - compare them
-    return tx1.originalCurrency === tx2.originalCurrency;
+    // Compare account currencies
+    return tx1Currency === tx2Currency;
   }
 
   private calculateMatchConfidence(
@@ -322,11 +546,6 @@ class TransferMatchingService {
     if (amountDiff === 0) confidence += 0.3;
     else if (amountDiff <= 0.01) confidence += 0.2;
     else if (amountDiff <= 1) confidence += 0.1;
-    
-    // Description similarity bonus (basic check)
-    if (this.areDescriptionsSimilar(sourceTx.description, targetTx.description)) {
-      confidence += 0.1;
-    }
     
     return Math.min(confidence, 0.99); // Cap at 99%
   }
@@ -362,24 +581,7 @@ class TransferMatchingService {
       confidence -= 0.05; // Different currency requires more caution
     }
     
-    // Description similarity bonus (basic check)
-    if (this.areDescriptionsSimilar(sourceTx.description, targetTx.description)) {
-      confidence += 0.1;
-    }
-    
     return Math.min(confidence, 0.85); // Cap at 85% for manual matches due to relaxed criteria
-  }
-
-  private areDescriptionsSimilar(desc1: string, desc2: string): boolean {
-    const words1 = desc1.toLowerCase().split(/\s+/);
-    const words2 = desc2.toLowerCase().split(/\s+/);
-    
-    // Check for common words indicating transfers
-    const transferWords = ['transfer', 'move', 'atm', 'withdrawal', 'deposit'];
-    const hasTransferWords1 = words1.some(word => transferWords.includes(word));
-    const hasTransferWords2 = words2.some(word => transferWords.includes(word));
-    
-    return hasTransferWords1 || hasTransferWords2;
   }
 
   private async enhanceMatchesWithAI(matches: TransferMatch[], allTransactions: Transaction[]): Promise<TransferMatch[]> {
@@ -394,6 +596,7 @@ class TransferMatchingService {
   /**
    * Automatically find and apply transfer matches to transactions
    * Only applies matches with confidence >= 0.4 (40%)
+   * PRESERVES EXISTING MANUAL MATCHES - never overrides user's manual matching decisions
    */
   async autoMatchTransfers(transactions: Transaction[]): Promise<Transaction[]> {
     const transferTransactions = transactions.filter(tx => tx.type === 'transfer');
@@ -401,6 +604,17 @@ class TransferMatchingService {
     if (transferTransactions.length === 0) {
       return transactions;
     }
+
+    // CRITICAL: Identify existing manual matches to preserve them
+    const existingManualMatches = new Set<string>();
+    transferTransactions.forEach(tx => {
+      if (this.isManualMatch(tx)) {
+        // This is a manual match - preserve it
+        existingManualMatches.add(tx.id);
+        existingManualMatches.add(tx.reimbursementId!);
+        console.log(`🔒 Preserving manual match: ${tx.id} ↔ ${tx.reimbursementId}`);
+      }
+    });
 
     const matchRequest: TransferMatchRequest = {
       transactions: transferTransactions,
@@ -413,15 +627,28 @@ class TransferMatchingService {
       return transactions;
     }
 
-  // Filter matches to only include high-confidence ones (>= 40%)
-  const highConfidenceMatches = matchResult.matches.filter(match => match.confidence >= 0.4);
+    // Filter matches to only include high-confidence ones (>= 40%) AND exclude existing manual matches
+    const highConfidenceMatches = matchResult.matches.filter(match => {
+      const confidence40Plus = match.confidence >= 0.4;
+      const notManualMatch = !existingManualMatches.has(match.sourceTransactionId) && 
+                            !existingManualMatches.has(match.targetTransactionId);
+      
+      if (!notManualMatch) {
+        console.log(`🔒 Skipping auto-match (preserving manual): ${match.sourceTransactionId} ↔ ${match.targetTransactionId}`);
+      }
+      
+      return confidence40Plus && notManualMatch;
+    });
     
     if (highConfidenceMatches.length === 0) {
-      console.log(`🔄 Found ${matchResult.matches.length} transfer matches, but none meet 40% confidence threshold`);
+      const manualSkipped = matchResult.matches.filter(match => 
+        existingManualMatches.has(match.sourceTransactionId) || existingManualMatches.has(match.targetTransactionId)
+      ).length;
+      console.log(`🔄 Found ${matchResult.matches.length} transfer matches, but none meet 40% confidence threshold after excluding ${manualSkipped} manual matches`);
       return transactions;
     }
 
-    console.log(`🔄 Auto-matching ${highConfidenceMatches.length} transfer pairs (${matchResult.matches.length} total found) at ≥40% confidence`);
+    console.log(`🔄 Auto-matching ${highConfidenceMatches.length} transfer pairs (${matchResult.matches.length} total found, preserved ${existingManualMatches.size/2} manual matches) at ≥40% confidence`);
     return await this.applyTransferMatches(transactions, highConfidenceMatches);
   }
 
@@ -627,21 +854,45 @@ class TransferMatchingService {
       }
       
       // Link the transactions
+      const sourceUpdates = {
+        reimbursementId: targetId,
+        notes: sourceTx.notes 
+          ? `${sourceTx.notes}\n[Manual Transfer Match]`
+          : '[Manual Transfer Match]'
+      };
+
+      const targetUpdates = {
+        reimbursementId: sourceId,
+        notes: targetTx.notes 
+          ? `${targetTx.notes}\n[Manual Transfer Match]`
+          : '[Manual Transfer Match]'
+      };
+
+      // Update the in-memory array
       updatedTransactions[sourceIndex] = {
         ...updatedTransactions[sourceIndex],
-        reimbursementId: targetId,
-        notes: updatedTransactions[sourceIndex].notes 
-          ? `${updatedTransactions[sourceIndex].notes}\n[Manual Transfer Match]`
-          : '[Manual Transfer Match]'
+        ...sourceUpdates
       };
       
       updatedTransactions[targetIndex] = {
         ...updatedTransactions[targetIndex],
-        reimbursementId: sourceId,
-        notes: updatedTransactions[targetIndex].notes 
-          ? `${updatedTransactions[targetIndex].notes}\n[Manual Transfer Match]`
-          : '[Manual Transfer Match]'
+        ...targetUpdates
       };
+
+      // Persist changes to database
+      console.log('💾 Persisting manual transfer match to database...', { sourceId, targetId });
+      
+      try {
+        await dataService.batchUpdateTransactions([
+          { id: sourceId, updates: sourceUpdates, note: 'Manual transfer match applied' },
+          { id: targetId, updates: targetUpdates, note: 'Manual transfer match applied' }
+        ]);
+        
+        console.log('✅ Manual transfer match persisted successfully');
+      } catch (error) {
+        console.error('❌ Failed to persist manual transfer match:', error);
+        throw new Error('Failed to save manual transfer match to database');
+      }
     }
     
     return updatedTransactions;

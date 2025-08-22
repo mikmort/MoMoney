@@ -351,7 +351,7 @@ export const TransferMatchesPage: React.FC = () => {
   const {
     isLoading,
     error,
-    findTransferMatches,
+    findManualTransferMatches,
     applyTransferMatches,
     unmatchTransfers,
     getMatchedTransfers,
@@ -381,6 +381,33 @@ export const TransferMatchesPage: React.FC = () => {
     const targetTx = transactions.find(t => t.id === selectedTarget);
 
     if (!sourceTx || !targetTx) return null;
+
+    // Determine if this is a cross-currency transfer using comprehensive detection
+    const sourceCurrencyIndicators = (sourceTx.originalCurrency && sourceTx.originalCurrency !== 'USD') ||
+                                    (sourceTx.notes && (
+                                      sourceTx.notes.includes('Foreign Spend Amount') ||
+                                      sourceTx.notes.includes('DANISH KRONE') ||
+                                      sourceTx.notes.includes('EURO') ||
+                                      sourceTx.notes.includes('EUR') ||
+                                      sourceTx.notes.includes('DKK') ||
+                                      sourceTx.notes.includes('GBP') ||
+                                      sourceTx.notes.includes('JPY') ||
+                                      sourceTx.notes.includes('Currency Exchange Rate')
+                                    ));
+                                    
+    const targetCurrencyIndicators = (targetTx.originalCurrency && targetTx.originalCurrency !== 'USD') ||
+                                    (targetTx.notes && (
+                                      targetTx.notes.includes('Foreign Spend Amount') ||
+                                      targetTx.notes.includes('DANISH KRONE') ||
+                                      targetTx.notes.includes('EURO') ||
+                                      targetTx.notes.includes('EUR') ||
+                                      targetTx.notes.includes('DKK') ||
+                                      targetTx.notes.includes('GBP') ||
+                                      targetTx.notes.includes('JPY') ||
+                                      targetTx.notes.includes('Currency Exchange Rate')
+                                    ));
+                                    
+    const isCrossCurrency = sourceCurrencyIndicators || targetCurrencyIndicators;
 
     // Convert both transactions to default currency for proper comparison
     let sourceAmount = sourceTx.amount;
@@ -432,7 +459,30 @@ export const TransferMatchesPage: React.FC = () => {
     }
     
     const amountDiff = Math.abs(Math.abs(sourceAmount) - Math.abs(targetAmount));
-    const tolerance = conversionFailed ? 0.12 : 0.01; // Use higher tolerance if conversion failed (for different currencies)
+    
+    // For cross-currency transfers, use more lenient validation and better messaging
+    if (isCrossCurrency) {
+      // Use higher tolerance for cross-currency transfers (up to 15% for exchange rate fluctuations)
+      const tolerance = 0.15;
+      const avgAmount = (Math.abs(sourceAmount) + Math.abs(targetAmount)) / 2;
+      const isAmountValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
+      const percentageDiff = avgAmount > 0 ? ((amountDiff / avgAmount) * 100) : 0;
+
+      const formattedDiff = await currencyDisplayService.formatAmount(amountDiff);
+      
+      return {
+        isValid: isAmountValid,
+        reason: isAmountValid 
+          ? `Cross-currency transfer match: ${formattedDiff} difference (${percentageDiff.toFixed(1)}% - within acceptable range for currency conversion)`
+          : `Cross-currency amount difference: ${formattedDiff} (${percentageDiff.toFixed(1)}%). This is large for a transfer match - please verify the exchange rates are correct.`,
+        sourceTx,
+        targetTx,
+        amountDiff
+      };
+    }
+
+    // Same currency transfer - use stricter validation  
+    const tolerance = conversionFailed ? 0.12 : 0.01; // Use higher tolerance if conversion failed
     const avgAmount = (Math.abs(sourceAmount) + Math.abs(targetAmount)) / 2;
     const isAmountValid = avgAmount > 0 && (amountDiff / avgAmount) <= tolerance;
     const percentageDiff = avgAmount > 0 ? ((amountDiff / avgAmount) * 100) : 0;
@@ -442,7 +492,7 @@ export const TransferMatchesPage: React.FC = () => {
       isValid: isAmountValid,
       reason: isAmountValid 
         ? `Transfer match: ${formattedDiff} difference${conversionFailed ? ' (estimated - currency conversion unavailable)' : ''}`
-        : `Amount difference is significant: ${formattedDiff} (${percentageDiff.toFixed(1)}%). This may not be a valid transfer match.${conversionFailed ? ' Currency conversion failed.' : ''}`,
+        : `Same-currency amount difference is significant: ${formattedDiff} (${percentageDiff.toFixed(1)}%). This may not be a valid transfer match.${conversionFailed ? ' Currency conversion failed.' : ''}`,
       sourceTx,
       targetTx,
       amountDiff
@@ -467,27 +517,57 @@ export const TransferMatchesPage: React.FC = () => {
 
   const loadData = useCallback(async () => {
     try {
+      console.log('📊 LoadData starting...');
       const allTransactions = await dataService.getAllTransactions();
       setTransactions(allTransactions);
+      console.log(`📊 Total transactions loaded: ${allTransactions.length}`);
 
       // Get existing matches
       const existing = getMatchedTransfers(allTransactions);
       setExistingMatches(existing);
+      console.log(`📊 Existing matches: ${existing.length}`);
 
-      // Find potential new matches
-      const result = await findTransferMatches({
+      // Count foreign currency transactions for debugging
+      const foreignTx = allTransactions.filter(t => 
+        (t.originalCurrency && t.originalCurrency !== 'USD') ||
+        (t.notes && (
+          t.notes.includes('Foreign Spend Amount') ||
+          t.notes.includes('DANISH KRONE') ||
+          t.notes.includes('EURO') ||
+          t.notes.includes('Currency Exchange Rate')
+        ))
+      );
+      console.log(`📊 Foreign currency transactions: ${foreignTx.length}`);
+      
+      const transferTx = allTransactions.filter(t => t.type === 'transfer');
+      console.log(`📊 Transfer transactions: ${transferTx.length}`);
+
+      // Find potential new matches using manual matching (relaxed criteria: 8 days, 12% tolerance for cross-currency)
+      console.log('🔍 Searching for potential matches...');
+      const result = await findManualTransferMatches({
         transactions: allTransactions,
-        maxDaysDifference: 7,
-        tolerancePercentage: 0.01
+        maxDaysDifference: 8, // Expanded range for manual search
+        tolerancePercentage: 0.12 // 12% tolerance for currency conversion
       });
 
+      console.log('🎯 Find matches result:', result);
       if (result) {
+        console.log(`🎯 Found ${result.matches.length} potential matches`);
         setPotentialMatches(result.matches);
+        
+        // Log details of potential matches
+        result.matches.forEach((match, i) => {
+          const sourceTx = allTransactions.find(t => t.id === match.sourceTransactionId);
+          const targetTx = allTransactions.find(t => t.id === match.targetTransactionId);
+          console.log(`  Match ${i + 1}: ${sourceTx?.description} ↔ ${targetTx?.description} (confidence: ${match.confidence})`);
+        });
+      } else {
+        console.log('❌ No matches result returned');
       }
     } catch (error) {
       console.error('Error loading transfer matches data:', error);
     }
-  }, [findTransferMatches, getMatchedTransfers]);
+  }, [findManualTransferMatches, getMatchedTransfers]);
 
   useEffect(() => {
     loadData();
@@ -583,7 +663,9 @@ export const TransferMatchesPage: React.FC = () => {
   };
 
   const handleFindNewMatches = async () => {
+    console.log('🔍 Find New Matches clicked - loading data...');
     await loadData();
+    console.log('✅ Find New Matches completed - potential matches:', potentialMatches.length);
   };
 
   const handleManualMatchFromGrid = async (transactionId: string) => {
@@ -851,7 +933,7 @@ export const TransferMatchesPage: React.FC = () => {
                   <div>Action</div>
                 </div>
                 {unmatchedTransfers
-                  .filter(t => t.type === 'transfer')
+                  // Show all transaction types for cross-currency matching
                   .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)) // Sort by absolute value descending
                   .map(transaction => (
                     <UnmatchedRow key={transaction.id}>
