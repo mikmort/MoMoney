@@ -271,6 +271,7 @@ class ReportsService {
     let transactions: Transaction[];
     let shouldIncludeTransfers = false;
     let shouldIncludeAssetAllocation = false;
+  let selectedCategoryFilter: string[] | undefined;
     
     // Handle the new ReportsFilters interface
     if (filtersOrDateRange && (
@@ -283,6 +284,7 @@ class ReportsService {
       const selectedTypes = filters.selectedTypes || ['expense'];
       shouldIncludeTransfers = selectedTypes.includes('transfer');
       shouldIncludeAssetAllocation = selectedTypes.includes('asset-allocation');
+      selectedCategoryFilter = filters.selectedCategories;
     } else {
       // Handle legacy calls
       const dateRange = filtersOrDateRange as DateRange | undefined;
@@ -301,6 +303,16 @@ class ReportsService {
     // Filter transactions: expense categories by default, plus transfers/asset-allocation if requested
     const expenseCategories = this.getCategoriesOfType('expense');
     let expenseTransactions = transactions.filter(t => expenseCategories.includes(t.category));
+
+    // If the user explicitly filtered by categories, include those even if not in default expense list.
+    if (selectedCategoryFilter && selectedCategoryFilter.length > 0) {
+      const explicitCategoryTransactions = transactions.filter(t => 
+        selectedCategoryFilter!.includes(t.category) && !expenseTransactions.some(e => e.id === t.id)
+      );
+      if (explicitCategoryTransactions.length > 0) {
+        expenseTransactions = [...expenseTransactions, ...explicitCategoryTransactions];
+      }
+    }
     
     // Add transfers if explicitly requested
     if (shouldIncludeTransfers) {
