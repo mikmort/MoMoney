@@ -588,7 +588,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
           {filteredTransactions.length > 0 && (
             <Card>
               <h3>
-                {selectedMonth || selectedSubcategory ? 'Filtered' : 'All'} Transactions ({filteredTransactions.length})
+                {selectedMonth || selectedSubcategory ? 'Filtered Transactions' : 'Transactions'} ({filteredTransactions.length})
                 {selectedMonth && selectedSubcategory && ` - ${selectedMonth} & ${selectedSubcategory}`}
                 {selectedMonth && !selectedSubcategory && ` - ${selectedMonth}`}
                 {selectedSubcategory && !selectedMonth && ` - ${selectedSubcategory}`}
