@@ -218,7 +218,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     // Group transactions by subcategory
     const subcategoryTotals: { [subcategory: string]: { amount: number; transactions: Transaction[] } } = {};
     
-    categoryData.recentTransactions.forEach(transaction => {
+    categoryData.allTransactions.forEach(transaction => {
       const subcategory = transaction.subcategory || 'Uncategorized';
       if (!subcategoryTotals[subcategory]) {
         subcategoryTotals[subcategory] = { amount: 0, transactions: [] };
@@ -237,7 +237,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
       .sort((a, b) => b.amount - a.amount);
 
     // Filter transactions based on selected month and subcategory
-    let filtered = categoryData.recentTransactions;
+    let filtered = categoryData.allTransactions;
 
     if (selectedMonth) {
       filtered = filtered.filter(transaction => {

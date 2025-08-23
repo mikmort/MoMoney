@@ -40,6 +40,7 @@ export interface CategoryDeepDive {
   largestTransaction: Transaction;
   smallestTransaction: Transaction;
   recentTransactions: Transaction[];
+  allTransactions: Transaction[];
   trend: { label: string; amount: number }[];
   trendGranularity: TrendGranularity;
   trendTitle: string;
@@ -625,6 +626,7 @@ class ReportsService {
       largestTransaction,
       smallestTransaction,
       recentTransactions,
+      allTransactions: categoryTransactions,
       trend,
       trendGranularity: granularity,
       trendTitle: title
