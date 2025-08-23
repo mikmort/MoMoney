@@ -67,13 +67,16 @@ export class AzureOpenAIService {
   private initialized = true; // Always initialized since we don't need client setup
   private readonly fallbackDeployments: string[];
   private readonly messageCharBudget: number;
+  // Cache the last deployment that succeeded so we can prioritize it and avoid initial 502 noise
+  private lastSuccessfulDeployment?: string;
+  private disabledReason?: string;
 
   constructor() {
-    this.deploymentName = defaultConfig.azure.openai.deploymentName || 'gpt-5-chat';
+  this.deploymentName = defaultConfig.azure.openai.deploymentName || 'gpt-5-chat';
     // Optional comma-separated fallbacks, e.g. "gpt-5-chat,gpt-4o"
     const envFallback = (process.env.REACT_APP_AZURE_OPENAI_FALLBACK_DEPLOYMENTS || '').split(',').map(s => s.trim()).filter(Boolean);
     // Ensure we have at least the opposite popular option as a fallback
-    const defaultAlt = this.deploymentName === 'gpt-5-chat' ? ['gpt-4o'] : ['gpt-5-chat'];
+  const defaultAlt = this.deploymentName === 'gpt-5-chat' ? ['gpt-4o'] : ['gpt-5-chat'];
     const merged = [...envFallback, ...defaultAlt].filter((m, idx, arr) => arr.indexOf(m) === idx);
     // Do not include primary in fallbacks
     this.fallbackDeployments = merged.filter(m => m && m !== this.deploymentName);
@@ -81,6 +84,89 @@ export class AzureOpenAIService {
   // Override with REACT_APP_OPENAI_MSG_CHAR_BUDGET if needed
   const envBudget = parseInt(String(process.env.REACT_APP_OPENAI_MSG_CHAR_BUDGET || ''), 10);
   this.messageCharBudget = Number.isFinite(envBudget) && envBudget > 0 ? envBudget : 8000;
+    // Determine if service should be disabled (placeholder config or missing proxy)
+  if (this.isEffectivelyDisabled()) {
+      this.disabledReason = this.computeDisabledReason();
+      console.info(`AzureOpenAIService disabled: ${this.disabledReason}`);
+    } else {
+      // Kick off async validation (non-blocking). If primary deployment missing, swap to first available fallback.
+      this.validatePrimaryDeployment();
+    }
+  }
+
+  private computeDisabledReason(): string {
+    const cfg = defaultConfig.azure.openai;
+    const hasProxy = !!(process.env.REACT_APP_OPENAI_PROXY_URL || process.env.REACT_APP_FUNCTION_BASE_URL);
+    // If proxy exists we don't need endpoint/apiKey locally and can allow operation
+    if (!hasProxy) {
+      if (!cfg.endpoint || cfg.endpoint.includes('YOUR_AZURE_OPENAI_ENDPOINT')) return 'No proxy and placeholder endpoint';
+      if (!cfg.apiKey || cfg.apiKey.includes('YOUR_AZURE_OPENAI_API_KEY')) return 'No proxy and placeholder api key';
+    }
+    return 'n/a';
+  }
+
+  private isEffectivelyDisabled(): boolean {
+    const hasProxy = !!(process.env.REACT_APP_OPENAI_PROXY_URL || process.env.REACT_APP_FUNCTION_BASE_URL);
+    if (hasProxy) return false; // proxy handles auth/model routing
+    const cfg = defaultConfig.azure.openai;
+    const placeholderEndpoint = !cfg.endpoint || cfg.endpoint.startsWith('YOUR_');
+    const placeholderKey = !cfg.apiKey || cfg.apiKey.startsWith('YOUR_');
+    return placeholderEndpoint || placeholderKey;
+  }
+
+  // Lightweight probe to detect missing deployment early and switch to fallback to prevent repeated 502s.
+  private async validatePrimaryDeployment() {
+    if (this.disabledReason && this.disabledReason !== 'n/a') return; // skip real disable
+    // Check for persisted successful deployment to skip failed primary
+    try {
+      const persisted = localStorage.getItem('ai:lastSuccessfulDeployment');
+      if (persisted) {
+        this.lastSuccessfulDeployment = persisted;
+        (this as any).deploymentName = persisted;
+        return; // trust persisted working model
+      }
+    } catch {}
+    const primary = this.deploymentName;
+    // If there are no fallbacks, nothing to do.
+    if (!this.fallbackDeployments.length) return;
+    // Try a minimal call that should succeed quickly. We use a very small test prompt.
+    try {
+      const testReq: any = {
+        deployment: primary,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+        temperature: 0
+      };
+      const resp = await this.callOpenAIProxy(testReq);
+      if (resp && resp.success) {
+        this.lastSuccessfulDeployment = primary;
+        return;
+      }
+      // If not success treat as failure and attempt fallback below
+    } catch (e: any) {
+      const msg = String(e?.message || '').toLowerCase();
+      const missing = msg.includes('deploymentnotfound') || msg.includes('404');
+      if (!missing) return; // Different error, keep primary
+      // Try fallbacks sequentially until one works; switch permanently.
+      for (const fb of this.fallbackDeployments) {
+        try {
+          const fbReq: any = {
+            deployment: fb,
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 1,
+            temperature: 0
+          };
+          const fbResp = await this.callOpenAIProxy(fbReq);
+          if (fbResp && fbResp.success) {
+            console.warn(`Primary OpenAI deployment '${primary}' missing. Switching to fallback '${fb}'.`);
+            (this as any).deploymentName = fb; // update primary reference
+            this.lastSuccessfulDeployment = fb;
+            try { localStorage.setItem('ai:lastSuccessfulDeployment', fb); } catch {}
+            break;
+          }
+        } catch { /* try next */ }
+      }
+    }
   }
 
   // Build a very compact catalog string like: id1:subA|subB;id2:subC
@@ -188,8 +274,14 @@ export class AzureOpenAIService {
     const attemptsPerDeployment = options?.attemptsPerDeployment ?? 2;
     const base = options?.baseBackoffMs ?? 400;
 
-    const deployments = [request.deployment || this.deploymentName, ...this.fallbackDeployments]
-      .filter((d, i, arr) => d && arr.indexOf(d) === i);
+    // Build deployment preference list: last successful first (if still requested), then requested, then fallbacks
+    const basePrimary = request.deployment || this.deploymentName;
+    const ordered = [
+      this.lastSuccessfulDeployment && this.lastSuccessfulDeployment !== basePrimary ? this.lastSuccessfulDeployment : undefined,
+      basePrimary,
+      ...this.fallbackDeployments
+    ].filter((d, i, arr) => d && arr.indexOf(d) === i) as string[];
+    const deployments = ordered;
 
     let lastErr: any;
     for (const dep of deployments) {
@@ -207,14 +299,22 @@ export class AzureOpenAIService {
             // try next deployment
             lastErr = new Error(resp.error || 'Proxy returned error');
           } else {
+            // Record winning deployment to reduce future failures/noise
+            this.lastSuccessfulDeployment = dep;
+            try { localStorage.setItem('ai:lastSuccessfulDeployment', dep); } catch {}
             return resp;
           }
         } catch (e: any) {
           const msg = String(e?.message || '').toLowerCase();
           const is429 = msg.includes('http 429');
           const is5xx = /http\s*5\d\d/.test(msg);
+          const isDeploymentMissing = msg.includes('deploymentnotfound');
           const retriable = is429 || is5xx || msg.includes('timeout') || msg.includes('fetch') || msg.includes('network');
           lastErr = e;
+          // Suppress noisy console errors for missing deployment when we'll try a fallback next
+          if (isDeploymentMissing && attempt === 1) {
+            console.warn(`OpenAI deployment '${dep}' not found. Trying fallback...`);
+          }
           if (retriable && attempt < attemptsPerDeployment) {
             const wait = base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 200);
             await new Promise(r => setTimeout(r, wait));
@@ -267,6 +367,14 @@ export class AzureOpenAIService {
 
   async classifyTransaction(request: AIClassificationRequest): Promise<AIClassificationResponse> {
     const startTime = Date.now();
+    if (this.disabledReason) {
+      return {
+        categoryId: 'uncategorized',
+        confidence: 0.1,
+        reasoning: `AI disabled: ${this.disabledReason}`,
+        proxyMetadata: { model: this.deploymentName, processingTime: 0, keyTokens: [] }
+      };
+    }
   // Sanitize inputs early so they are available in catch paths as well
   const sanitized = sanitizeTransactionForAI(
     request.transactionText || '',
@@ -358,6 +466,9 @@ export class AzureOpenAIService {
   async classifyTransactionsBatch(
     requests: AIClassificationRequest[]
   ): Promise<AIClassificationResponse[]> {
+    if (this.disabledReason) {
+      return requests.map(() => ({ categoryId: 'uncategorized', confidence: 0.05, reasoning: `AI disabled: ${this.disabledReason}` }));
+    }
     if (!requests.length) return [];
     // Dynamically size chunks to stay under proxy message size limits
     const categories = requests[0].availableCategories as any;
@@ -563,6 +674,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
   }
 
   async testConnection(): Promise<boolean> {
+  if (this.disabledReason) return false;
     try {
       console.log('Testing OpenAI proxy connection...');
       
@@ -598,6 +710,9 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
       temperature?: number;
     }
   ): Promise<any> {
+    if (this.disabledReason) {
+      return { choices: [{ message: { role: 'assistant', content: 'AI disabled' } }] };
+    }
     const proxyRequest: OpenAIProxyRequest = {
       deployment: this.deploymentName,
       messages,
@@ -624,6 +739,9 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
 
   async detectAnomalies(request: AnomalyDetectionRequest): Promise<AnomalyDetectionResponse> {
     const startTime = Date.now();
+    if (this.disabledReason) {
+      return { anomalies: [], totalAnalyzed: request.transactions?.length || 0, processingTime: 0 };
+    }
     if (!request.transactions || request.transactions.length === 0) {
       return {
         anomalies: [],
@@ -833,6 +951,7 @@ ${JSON.stringify(chunk, null, 2)}`;
   }
 
   async makeRequest(prompt: string, maxTokens: number = 1000): Promise<string> {
+  if (this.disabledReason) return 'AI disabled';
     if (process.env.NODE_ENV === 'test') {
       // For OFX files, return invalid JSON to trigger fallback to getDefaultSchemaMapping
       // This ensures OFX files use proper OFX-specific schema mapping
