@@ -537,7 +537,7 @@ class ReportsService {
     }
     
     const totalIncome = incomeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    const totalExpenses = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const totalExpenses = expenseTransactions.reduce((sum, t) => sum + (-t.amount), 0);
 
     const netIncome = totalIncome - totalExpenses;
     const incomeToExpenseRatio = totalExpenses > 0 ? totalIncome / totalExpenses : 0;
@@ -805,7 +805,7 @@ class ReportsService {
     }
 
     // Calculate daily burn rate
-  const totalSpending = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const totalSpending = expenseTransactions.reduce((sum, t) => sum + (-t.amount), 0);
     const earliestDate = new Date(Math.min(...expenseTransactions.map(t => t.date.getTime())));
     const latestDate = new Date(Math.max(...expenseTransactions.map(t => t.date.getTime())));
     const daysDiff = Math.max(1, Math.ceil((latestDate.getTime() - earliestDate.getTime()) / (1000 * 60 * 60 * 24)));
@@ -822,7 +822,7 @@ class ReportsService {
 
     const currentMonthExpenses = expenseTransactions
       .filter(t => t.date >= currentMonthStart && t.date <= now)
-      .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+      .reduce((sum, t) => sum + (-t.amount), 0);
     
     const projectedMonthlySpending = daysPassed > 0 ? (currentMonthExpenses / daysPassed) * daysInMonth : monthlyBurnRate;
 
@@ -842,7 +842,7 @@ class ReportsService {
     const monthlySpending: { [month: string]: number } = {};
     last3MonthsExpenses.forEach(t => {
       const monthKey = t.date.toISOString().slice(0, 7);
-      monthlySpending[monthKey] = (monthlySpending[monthKey] || 0) + Math.abs(t.amount);
+      monthlySpending[monthKey] = (monthlySpending[monthKey] || 0) + (-t.amount);
     });
 
     const monthlyValues = Object.values(monthlySpending);
