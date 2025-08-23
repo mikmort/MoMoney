@@ -3054,15 +3054,15 @@ const Transactions: React.FC = () => {
               onClick={() => {
                 const hasUncategorized = filters.category.includes('Uncategorized');
                 if (hasUncategorized) {
-                  // Remove Uncategorized from the filter
-                  setFilters({...filters, category: filters.category.filter(cat => cat !== 'Uncategorized')});
+                  // Deactivate: clear category filter entirely (show all)
+                  setFilters({ ...filters, category: [] });
                 } else {
-                  // Add Uncategorized to the filter
-                  setFilters({...filters, category: [...filters.category, 'Uncategorized']});
+                  // Activate: show ONLY Uncategorized (drop other category selections)
+                  setFilters({ ...filters, category: ['Uncategorized'] });
                 }
               }}
             >
-              ⚠️ Uncategorized ({filteredTransactions.filter(t => t.category === 'Uncategorized').length})
+              ⚠️ Uncategorized ({transactions.filter(t => t.category === 'Uncategorized').length})
             </QuickFilterButton>
             
 
