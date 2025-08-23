@@ -559,20 +559,24 @@ class ReportsService {
   }
 
   async getCategoryDeepDive(categoryName: string, dateRange?: DateRange, includeTransfers: boolean = false): Promise<CategoryDeepDive | null> {
-    const transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
+  // For deep dive we intentionally do NOT exclude internal transfers for the target category
+  // because broad transfer heuristics were removing valid category transactions.
+    const all = await dataService.getAllTransactions();
+    const inRange = dateRange ? all.filter(t => t.date >= dateRange.startDate && t.date <= dateRange.endDate) : all;
+    let working = inRange;
+    if (!includeTransfers) {
+      // Exclude internal transfers except those explicitly in the target category
+      working = inRange.filter(t => !this.isInternalTransfer(t) || t.category === categoryName);
+    }
+    const transactions = working;
     const preferences = await userPreferencesService.getPreferences();
     
     const categoryTransactionsRaw = transactions
       .filter(t => {
-        // Must match the category name
         if (t.category !== categoryName) return false;
-        
-        // Check transaction type
-        if (this.isInternalTransfer(t)) {
-          return includeTransfers && t.amount < 0; // Only include negative transfers for expense analysis
-        }
-        if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
-        return t.type === 'expense' || t.amount < 0;
+        // Do NOT exclude internal transfers for the category itself; we want full parity with pie chart selection
+        if (t.type === 'asset-allocation' && !preferences.includeInvestmentsInReports) return false;
+        return true;
       })
       .sort((a, b) => b.date.getTime() - a.date.getTime());
     const categoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactionsRaw);
@@ -581,14 +585,18 @@ class ReportsService {
       return null;
     }
 
-    const totalAmount = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    const transactionCount = categoryTransactions.length;
-    const averageTransaction = totalAmount / transactionCount;
+  // Spending metrics should align with pie chart (outflows only)
+  // Separate spending (outflows) from overall category transactions (used for counts)
+  const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
+  const totalAmount = spendingTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0); // preserves existing "Total Spent" metric
+  const transactionCount = categoryTransactions.length; // show all transactions (matches drilldown list count)
+  const absoluteAllTotal = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const averageTransaction = transactionCount > 0 ? absoluteAllTotal / transactionCount : 0; // average across all category transactions
     
     // Find largest and smallest transactions
-    const sortedByAmount = [...categoryTransactions].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-    const largestTransaction = sortedByAmount[0];
-    const smallestTransaction = sortedByAmount[sortedByAmount.length - 1];
+  const sortedSpendingByAmount = [...spendingTransactions].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  const largestTransaction = sortedSpendingByAmount[0] || categoryTransactions[0];
+  const smallestTransaction = sortedSpendingByAmount[sortedSpendingByAmount.length - 1] || categoryTransactions[categoryTransactions.length - 1];
     
   // Use all transactions in the selected date range for drilldown (avoid arbitrary 100 limit so charts reflect full period)
   const recentTransactions = categoryTransactions; // already sorted most recent first
@@ -820,6 +828,7 @@ class ReportsService {
       transaction.date <= dateRange.endDate
     );
   }
+
 
   // Utility function to get default date range (last 12 months)
   getDefaultDateRange(): DateRange {
