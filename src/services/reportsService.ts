@@ -565,8 +565,8 @@ class ReportsService {
     const inRange = dateRange ? all.filter(t => t.date >= dateRange.startDate && t.date <= dateRange.endDate) : all;
     let working = inRange;
     if (!includeTransfers) {
-      // Exclude internal transfers except those explicitly in the target category
-      working = inRange.filter(t => !this.isInternalTransfer(t) || t.category === categoryName);
+      // Exclude all internal transfers, regardless of category
+      working = inRange.filter(t => !this.isInternalTransfer(t));
     }
     const transactions = working;
     const preferences = await userPreferencesService.getPreferences();

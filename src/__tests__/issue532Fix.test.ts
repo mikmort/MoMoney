@@ -36,10 +36,12 @@ describe('Issue #532 - Internal Transfer Data Validation Fix', () => {
 
     // Initialize dataService and inject the problematic transaction
     await dataService['ensureInitialized']();
+    // Disable audit to test manual migration
+    dataService['internalTransferTypeAuditDone'] = true;
     dataService['transactions'] = [problematicTransaction];
 
-    // Verify the problem exists
-    let transactions = await dataService.getAllTransactions();
+    // Verify the problem exists when audit is disabled
+    let transactions = [...dataService['transactions']]; // Direct access without audit
     expect(transactions).toHaveLength(1);
     expect(transactions[0].category).toBe("Internal Transfer");
     expect(transactions[0].type).toBe("expense"); // Problem!
