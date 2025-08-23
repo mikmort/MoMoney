@@ -586,12 +586,11 @@ class ReportsService {
     }
 
   // Spending metrics should align with pie chart (outflows only)
-  // Separate spending (outflows) from overall category transactions (used for counts)
+  // Spending metrics (negative amounts) retained for Total Spent; transactionCount remains spending to preserve existing semantics/tests
   const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
-  const totalAmount = spendingTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0); // preserves existing "Total Spent" metric
-  const transactionCount = categoryTransactions.length; // show all transactions (matches drilldown list count)
-  const absoluteAllTotal = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-  const averageTransaction = transactionCount > 0 ? absoluteAllTotal / transactionCount : 0; // average across all category transactions
+  const totalAmount = spendingTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const transactionCount = spendingTransactions.length;
+  const averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
     
     // Find largest and smallest transactions
   const sortedSpendingByAmount = [...spendingTransactions].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));

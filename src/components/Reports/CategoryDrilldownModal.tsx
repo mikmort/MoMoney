@@ -417,7 +417,14 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
             
             <StatCard>
               <div className="stat-label">Transactions</div>
-              <div className="stat-value">{categoryData.transactionCount}</div>
+              <div className="stat-value">
+                {categoryData.recentTransactions.length}
+                {categoryData.recentTransactions.length !== categoryData.transactionCount && (
+                  <span style={{ display: 'block', fontSize: '0.65rem', color: '#888', marginTop: '4px' }}>
+                    {categoryData.transactionCount} spending
+                  </span>
+                )}
+              </div>
             </StatCard>
             
             <StatCard>
