@@ -1,78 +1,51 @@
 import { fileProcessingService } from '../services/fileProcessingService';
 import { azureOpenAIService } from '../services/azureOpenAIService';
 
-// Mock the PDF.js library
-const mockPage = {
-  getTextContent: jest.fn(() => Promise.resolve({
-    items: [
-      { str: 'Bank Statement' },
-      { str: 'Date' },
-      { str: 'Description' },
-      { str: 'Amount' },
-      { str: '01/15/2024' },
-      { str: 'STARBUCKS STORE #123' },
-      { str: '-4.85' },
-      { str: '01/16/2024' },
-      { str: 'GROCERY OUTLET' },
-      { str: '-25.40' },
-      { str: '01/17/2024' },
-      { str: 'DEPOSIT - PAYCHECK' },
-      { str: '2500.00' }
-    ]
-  }))
-};
+// Mock the entire pdfjs-dist module
+jest.mock('pdfjs-dist', () => {
+  const mockPage = {
+    getTextContent: jest.fn(() => Promise.resolve({
+      items: [
+        { str: 'Bank Statement' },
+        { str: 'Date' },
+        { str: 'Description' },
+        { str: 'Amount' },
+        { str: '01/15/2024' },
+        { str: 'STARBUCKS STORE #123' },
+        { str: '-4.85' },
+        { str: '01/16/2024' },
+        { str: 'GROCERY OUTLET' },
+        { str: '-25.40' },
+        { str: '01/17/2024' },
+        { str: 'DEPOSIT - PAYCHECK' },
+        { str: '2500.00' }
+      ]
+    }))
+  };
 
-const mockPDF = {
-  numPages: 1,
-  getPage: jest.fn(() => Promise.resolve(mockPage))
-};
+  const mockPDF = {
+    numPages: 1,
+    getPage: jest.fn(() => Promise.resolve(mockPage))
+  };
 
-const mockLoadingTask = {
-  promise: Promise.resolve(mockPDF)
-};
+  const mockLoadingTask = {
+    promise: Promise.resolve(mockPDF)
+  };
 
-const mockPDFJS = {
-  getDocument: jest.fn(() => mockLoadingTask),
-  GlobalWorkerOptions: {
-    workerSrc: ''
-  }
-};
-
-// Mock require to return our mock PDF.js
-jest.mock('pdfjs-dist', () => mockPDFJS);
+  return {
+    getDocument: jest.fn(() => mockLoadingTask),
+    GlobalWorkerOptions: {
+      workerSrc: ''
+    }
+  };
+});
 
 // Mock the Azure OpenAI service to return structured transaction data
 const originalMakeRequest = azureOpenAIService.makeRequest;
-jest.spyOn(azureOpenAIService, 'makeRequest').mockImplementation((prompt: string) => {
-  if (prompt.includes('Extract transaction data from this bank/credit card statement')) {
-    // Return mock AI response with structured transaction data
-    return Promise.resolve(JSON.stringify([
-      {
-        date: '2024-01-15',
-        description: 'STARBUCKS STORE #123',
-        amount: -4.85,
-        category: 'Food & Dining'
-      },
-      {
-        date: '2024-01-16', 
-        description: 'GROCERY OUTLET',
-        amount: -25.40,
-        category: 'Groceries'
-      },
-      {
-        date: '2024-01-17',
-        description: 'DEPOSIT - PAYCHECK',
-        amount: 2500.00,
-        category: 'Income'
-      }
-    ]));
-  }
-  // Use original implementation for other AI requests
-  return originalMakeRequest.call(azureOpenAIService, prompt);
-});
 
 describe('PDF Transaction Import', () => {
   beforeEach(() => {
+    // Only clear specific mock calls, not implementations
     jest.clearAllMocks();
   });
 
@@ -96,7 +69,9 @@ describe('PDF Transaction Import', () => {
     
     const extractedText = await service.extractTextFromPDF(mockBase64Content);
     
-    expect(mockPDFJS.getDocument).toHaveBeenCalled();
+    // Test that the mocked PDF.js functions were called
+    const pdfjsLib = require('pdfjs-dist');
+    expect(pdfjsLib.getDocument).toHaveBeenCalled();
     expect(extractedText).toContain('Bank Statement');
     expect(extractedText).toContain('STARBUCKS STORE #123');
     expect(extractedText).toContain('GROCERY OUTLET');
@@ -106,12 +81,35 @@ describe('PDF Transaction Import', () => {
   test('should use AI to extract structured transactions from PDF text', async () => {
     const service = fileProcessingService as any;
     
+    // Set up a spy to see what's happening with the AI service
+    const mockMakeRequest = jest.spyOn(azureOpenAIService, 'makeRequest');
+    mockMakeRequest.mockResolvedValue(JSON.stringify([
+      {
+        date: '2024-01-15',
+        description: 'STARBUCKS STORE #123',
+        amount: -4.85,
+        category: 'Food & Dining'
+      },
+      {
+        date: '2024-01-16', 
+        description: 'GROCERY OUTLET',
+        amount: -25.40,
+        category: 'Groceries'
+      },
+      {
+        date: '2024-01-17',
+        description: 'DEPOSIT - PAYCHECK',
+        amount: 2500.00,
+        category: 'Income'
+      }
+    ]));
+    
     const mockPDFText = 'Bank Statement Date Description Amount 01/15/2024 STARBUCKS STORE #123 -4.85';
     
     const transactions = await service.extractTransactionsFromPDFWithAI(mockPDFText);
     
     expect(azureOpenAIService.makeRequest).toHaveBeenCalledWith(
-      expect.stringContaining('Extract transaction data from this bank/credit card statement'),
+      expect.stringContaining('Extract bank statement transactions as pure JSON array'),
       2000
     );
     
@@ -201,8 +199,9 @@ describe('PDF Transaction Import', () => {
     const service = fileProcessingService as any;
     
     // Mock PDF.js failure for this specific test
-    const originalGetDocument = mockPDFJS.getDocument;
-    mockPDFJS.getDocument = jest.fn(() => ({
+    const pdfjsLib = require('pdfjs-dist');
+    const originalGetDocument = pdfjsLib.getDocument;
+    pdfjsLib.getDocument = jest.fn(() => ({
       promise: Promise.reject(new Error('Invalid PDF'))
     }));
     
@@ -212,7 +211,7 @@ describe('PDF Transaction Import', () => {
       .rejects.toThrow('PDF text extraction failed');
     
     // Restore original mock
-    mockPDFJS.getDocument = originalGetDocument;
+    pdfjsLib.getDocument = originalGetDocument;
   });
 
   test('should handle various PDF base64 formats', async () => {
@@ -226,7 +225,8 @@ describe('PDF Transaction Import', () => {
     // Test with plain base64
     await service.extractTextFromPDF(validBase64);
     
-    expect(mockPDFJS.getDocument).toHaveBeenCalledTimes(2);
+    const pdfjsLib = require('pdfjs-dist');
+    expect(pdfjsLib.getDocument).toHaveBeenCalledTimes(2);
   });
 
   test('should handle AI responses with markdown code blocks', async () => {
