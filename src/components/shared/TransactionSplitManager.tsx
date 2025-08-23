@@ -176,17 +176,27 @@ export const TransactionSplitManager: React.FC<TransactionSplitManagerProps> = (
   const [splits, setSplits] = useState<TransactionSplit[]>([]);
   const [isSplitMode, setIsSplitMode] = useState(false);
 
-  // Initialize splits based on transaction
+  // Initialize splits ONLY when the transaction changes (id) or the original splits reference changes.
+  // Avoid re-initializing on every parent re-render (e.g., when amount field is typed) which caused flicker/resizing.
   useEffect(() => {
     const hasSplits = hasTransactionSplits(transaction);
     setIsSplitMode(hasSplits);
-    
     if (hasSplits) {
       setSplits(transaction.splits!);
     } else {
       setSplits([]);
     }
-  }, [transaction]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transaction.id]);
+
+  // Keep internal splits in sync if parent updates split array (e.g., external modifications) without re-running init logic
+  useEffect(() => {
+    if (!isSplitMode) return;
+    if (transaction.splits && transaction.splits !== splits) {
+      setSplits(transaction.splits);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transaction.splits]);
 
   // Update parent when splits change
   useEffect(() => {
