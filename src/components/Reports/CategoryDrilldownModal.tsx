@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
-import { Line } from 'react-chartjs-2';
+import { Line, Bar } from 'react-chartjs-2';
 import { Card } from '../../styles/globalStyles';
 import { reportsService, CategoryDeepDive, DateRange } from '../../services/reportsService';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
@@ -48,6 +48,25 @@ const ChartContainer = styled.div`
   height: 300px;
   margin-bottom: 30px;
   position: relative;
+`;
+
+const ChartsGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin-bottom: 30px;
+  
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const ChartSection = styled.div`
+  h3 {
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 1.1rem;
+  }
 `;
 
 const TransactionsList = styled.div`
@@ -146,6 +165,10 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
 }) => {
   const [loading, setLoading] = useState(true);
   const [categoryData, setCategoryData] = useState<CategoryDeepDive | null>(null);
+  
+  // Filtering state for interactive charts
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
 
   useEffect(() => {
     const loadCategoryData = async () => {
@@ -182,6 +205,89 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     }).format(date);
   };
 
+  // Process subcategory data and filtered transactions
+  const { subcategoryData, filteredTransactions, filteredTrendData } = useMemo(() => {
+    if (!categoryData) {
+      return { 
+        subcategoryData: [], 
+        filteredTransactions: [],
+        filteredTrendData: []
+      };
+    }
+
+    // Group transactions by subcategory
+    const subcategoryTotals: { [subcategory: string]: { amount: number; transactions: Transaction[] } } = {};
+    
+    categoryData.recentTransactions.forEach(transaction => {
+      const subcategory = transaction.subcategory || 'Uncategorized';
+      if (!subcategoryTotals[subcategory]) {
+        subcategoryTotals[subcategory] = { amount: 0, transactions: [] };
+      }
+      subcategoryTotals[subcategory].amount += Math.abs(transaction.amount);
+      subcategoryTotals[subcategory].transactions.push(transaction);
+    });
+
+    // Convert to array and sort by amount
+    const subcategoryDataArray = Object.entries(subcategoryTotals)
+      .map(([name, data]) => ({
+        name,
+        amount: data.amount,
+        transactions: data.transactions
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    // Filter transactions based on selected month and subcategory
+    let filtered = categoryData.recentTransactions;
+
+    if (selectedMonth) {
+      filtered = filtered.filter(transaction => {
+        const monthLabel = transaction.date.toLocaleDateString('en-US', { 
+          month: 'short', 
+          year: 'numeric' 
+        });
+        return monthLabel === selectedMonth;
+      });
+    }
+
+    if (selectedSubcategory && selectedSubcategory !== 'Uncategorized') {
+      filtered = filtered.filter(transaction => transaction.subcategory === selectedSubcategory);
+    } else if (selectedSubcategory === 'Uncategorized') {
+      filtered = filtered.filter(transaction => !transaction.subcategory);
+    }
+
+    // Filter trend data based on selected subcategory
+    let trendDataFiltered = categoryData.trend;
+    if (selectedSubcategory) {
+      // Group trend by periods and filter by subcategory
+      const periodTotals: { [label: string]: number } = {};
+      
+      filtered.forEach(transaction => {
+        let label: string;
+        if (categoryData.trendGranularity === 'daily') {
+          label = transaction.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        } else if (categoryData.trendGranularity === 'weekly') {
+          // For weekly, we'll use a simplified approach
+          label = transaction.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        } else {
+          // monthly
+          label = transaction.date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        }
+        
+        periodTotals[label] = (periodTotals[label] || 0) + Math.abs(transaction.amount);
+      });
+
+      trendDataFiltered = Object.entries(periodTotals)
+        .map(([label, amount]) => ({ label, amount }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    return {
+      subcategoryData: subcategoryDataArray,
+      filteredTransactions: filtered,
+      filteredTrendData: trendDataFiltered
+    };
+  }, [categoryData, selectedMonth, selectedSubcategory]);
+
   if (loading) {
     return (
       <Modal 
@@ -214,17 +320,84 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
 
   // Prepare chart data
   const trendData = {
-    labels: categoryData.trend.map(item => item.label),
+    labels: filteredTrendData.map(item => item.label),
     datasets: [
       {
         label: `${categoryName} Spending`,
-        data: categoryData.trend.map(item => item.amount),
+        data: filteredTrendData.map(item => item.amount),
         backgroundColor: 'rgba(244, 67, 54, 0.6)',
         borderColor: 'rgba(244, 67, 54, 1)',
         borderWidth: 2,
         fill: false
       }
     ]
+  };
+
+  // Prepare subcategory chart data
+  const subcategoryChartData = {
+    labels: subcategoryData.map(item => item.name),
+    datasets: [
+      {
+        label: 'Spending by Subcategory',
+        data: subcategoryData.map(item => {
+          // If month is selected, filter the data
+          if (selectedMonth) {
+            return item.transactions
+              .filter(t => {
+                const monthLabel = t.date.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  year: 'numeric' 
+                });
+                return monthLabel === selectedMonth;
+              })
+              .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+          }
+          return item.amount;
+        }),
+        backgroundColor: [
+          'rgba(75, 192, 192, 0.6)',
+          'rgba(255, 99, 132, 0.6)', 
+          'rgba(255, 206, 86, 0.6)',
+          'rgba(54, 162, 235, 0.6)',
+          'rgba(153, 102, 255, 0.6)',
+          'rgba(255, 159, 64, 0.6)',
+          'rgba(199, 199, 199, 0.6)',
+          'rgba(83, 102, 255, 0.6)'
+        ],
+        borderColor: [
+          'rgba(75, 192, 192, 1)',
+          'rgba(255, 99, 132, 1)',
+          'rgba(255, 206, 86, 1)',
+          'rgba(54, 162, 235, 1)',
+          'rgba(153, 102, 255, 1)',
+          'rgba(255, 159, 64, 1)',
+          'rgba(199, 199, 199, 1)',
+          'rgba(83, 102, 255, 1)'
+        ],
+        borderWidth: 1
+      }
+    ]
+  };
+
+  // Chart click handlers
+  const handleTrendChartClick = (event: any, elements: any[]) => {
+    if (elements.length > 0) {
+      const index = elements[0].index;
+      const clickedLabel = filteredTrendData[index]?.label;
+      if (clickedLabel) {
+        setSelectedMonth(selectedMonth === clickedLabel ? null : clickedLabel);
+      }
+    }
+  };
+
+  const handleSubcategoryChartClick = (event: any, elements: any[]) => {
+    if (elements.length > 0) {
+      const index = elements[0].index;
+      const clickedSubcategory = subcategoryData[index]?.name;
+      if (clickedSubcategory) {
+        setSelectedSubcategory(selectedSubcategory === clickedSubcategory ? null : clickedSubcategory);
+      }
+    }
   };
 
   return (
@@ -258,52 +431,213 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
             </StatCard>
           </StatsGrid>
 
-          {/* Dynamic Trend Chart */}
+          {/* Interactive Charts */}
           {categoryData.trend.length > 0 && (
-            <>
-              <h3>{categoryData.trendTitle}</h3>
-              <ChartContainer>
-                <Line
-                  data={trendData}
-                  options={{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                      legend: {
-                        display: false
-                      }
-                    },
-                    scales: {
-                      y: {
-                        beginAtZero: true,
-                        ticks: {
-                          callback: function(value) {
-                            return formatCurrency(Number(value));
+            <ChartsGrid>
+              <ChartSection>
+                <h3>
+                  {categoryData.trendTitle}
+                  {selectedSubcategory && ` (${selectedSubcategory})`}
+                </h3>
+                <ChartContainer>
+                  <Line
+                    data={trendData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      interaction: {
+                        mode: 'index',
+                        intersect: false,
+                      },
+                      plugins: {
+                        legend: {
+                          display: false
+                        },
+                        tooltip: {
+                          callbacks: {
+                            label: (context) => {
+                              return `${formatCurrency(Number(context.raw))}`;
+                            },
+                            afterLabel: (context) => {
+                              return 'Click to filter subcategories';
+                            }
                           }
                         }
-                      }
-                    }
-                  }}
-                />
-              </ChartContainer>
-            </>
+                      },
+                      scales: {
+                        y: {
+                          beginAtZero: true,
+                          ticks: {
+                            callback: function(value) {
+                              return formatCurrency(Number(value));
+                            }
+                          }
+                        }
+                      },
+                      onClick: handleTrendChartClick
+                    }}
+                  />
+                </ChartContainer>
+              </ChartSection>
+
+              <ChartSection>
+                <h3>
+                  By Subcategory
+                  {selectedMonth && ` (${selectedMonth})`}
+                </h3>
+                <ChartContainer>
+                  <Bar
+                    data={subcategoryChartData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      interaction: {
+                        mode: 'index',
+                        intersect: false,
+                      },
+                      plugins: {
+                        legend: {
+                          display: false
+                        },
+                        tooltip: {
+                          callbacks: {
+                            label: (context) => {
+                              return `${formatCurrency(Number(context.raw))}`;
+                            },
+                            afterLabel: (context) => {
+                              return 'Click to filter monthly trend';
+                            }
+                          }
+                        }
+                      },
+                      scales: {
+                        y: {
+                          beginAtZero: true,
+                          ticks: {
+                            callback: function(value) {
+                              return formatCurrency(Number(value));
+                            }
+                          }
+                        }
+                      },
+                      onClick: handleSubcategoryChartClick
+                    }}
+                  />
+                </ChartContainer>
+              </ChartSection>
+            </ChartsGrid>
           )}
 
-          {/* All Transactions */}
-          {categoryData.recentTransactions.length > 0 && (
+          {/* Filter Status */}
+          {(selectedMonth || selectedSubcategory) && (
+            <Card style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f0f7ff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: '600', color: '#333' }}>Active Filters:</span>
+                {selectedMonth && (
+                  <span style={{ 
+                    background: '#2196F3', 
+                    color: 'white', 
+                    padding: '4px 8px', 
+                    borderRadius: '4px', 
+                    fontSize: '0.9rem',
+                    cursor: 'pointer'
+                  }} onClick={() => setSelectedMonth(null)}>
+                    Month: {selectedMonth} ✕
+                  </span>
+                )}
+                {selectedSubcategory && (
+                  <span style={{ 
+                    background: '#4CAF50', 
+                    color: 'white', 
+                    padding: '4px 8px', 
+                    borderRadius: '4px', 
+                    fontSize: '0.9rem',
+                    cursor: 'pointer'
+                  }} onClick={() => setSelectedSubcategory(null)}>
+                    Subcategory: {selectedSubcategory} ✕
+                  </span>
+                )}
+                <button
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #ccc',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.9rem',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    setSelectedMonth(null);
+                    setSelectedSubcategory(null);
+                  }}
+                >
+                  Clear All
+                </button>
+              </div>
+            </Card>
+          )}
+
+          {/* Filtered Transactions */}
+          {filteredTransactions.length > 0 && (
             <Card>
-              <h3>All Transactions ({categoryData.recentTransactions.length})</h3>
+              <h3>
+                {selectedMonth || selectedSubcategory ? 'Filtered' : 'All'} Transactions ({filteredTransactions.length})
+                {selectedMonth && selectedSubcategory && ` - ${selectedMonth} & ${selectedSubcategory}`}
+                {selectedMonth && !selectedSubcategory && ` - ${selectedMonth}`}
+                {selectedSubcategory && !selectedMonth && ` - ${selectedSubcategory}`}
+              </h3>
               <TransactionsList>
-                {categoryData.recentTransactions.map((transaction, index) => (
+                {filteredTransactions.map((transaction, index) => (
                   <div key={index} className="transaction-item">
                     <div className="transaction-info">
-                      <div className="description">{transaction.description}</div>
+                      <div className="description">
+                        {transaction.description}
+                        {transaction.subcategory && (
+                          <span style={{ 
+                            marginLeft: '8px', 
+                            fontSize: '0.8rem', 
+                            color: '#666',
+                            background: '#f0f0f0',
+                            padding: '2px 6px',
+                            borderRadius: '3px'
+                          }}>
+                            {transaction.subcategory}
+                          </span>
+                        )}
+                      </div>
                       <div className="date">{formatDate(transaction.date)}</div>
                     </div>
                     <TransactionAmount transaction={transaction} />
                   </div>
                 ))}
               </TransactionsList>
+            </Card>
+          )}
+
+          {/* Show message when filters result in no transactions */}
+          {filteredTransactions.length === 0 && categoryData.recentTransactions.length > 0 && (selectedMonth || selectedSubcategory) && (
+            <Card>
+              <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                No transactions found for the selected filters.
+                <br />
+                <button
+                  style={{
+                    marginTop: '15px',
+                    background: '#2196F3',
+                    color: 'white',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    setSelectedMonth(null);
+                    setSelectedSubcategory(null);
+                  }}
+                >
+                  Clear Filters
+                </button>
+              </div>
             </Card>
           )}
     </Modal>
