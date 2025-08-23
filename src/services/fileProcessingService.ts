@@ -979,43 +979,146 @@ Return ONLY a clean JSON response:
    */
   private async extractTransactionsFromPDFWithAI(pdfText: string): Promise<any[]> {
     console.log('🤖 Using AI to extract transactions from PDF text with schema mapping...');
-    // 1. Condense the PDF text to keep within proxy limits (observed 4000 char cap for a single message)
-    const MAX_CHARS = 3200; // Reduced to allow for larger prompt
-    const condensed = this.condensePdfTextForAI(pdfText, MAX_CHARS);
+    const PER_MESSAGE_LIMIT = 4000; // enforced by proxy per message
+    const USER_SEGMENT_LIMIT = 3800; // safety margin for markers
+    const OVERLAP = 250;
+    const USER_CONFIG_CHUNK = parseInt(String(process.env.REACT_APP_PDF_AI_CHUNK_SIZE || ''), 10);
+    let logicalChunkTarget = USER_CONFIG_CHUNK && USER_CONFIG_CHUNK > 0 ? USER_CONFIG_CHUNK : 9000; // large logical target
+    logicalChunkTarget = Math.min(Math.max(logicalChunkTarget, 1200), 12000);
 
-    // 2. Create comprehensive schema specification for Transaction objects
+    const condensedAll = this.condensePdfTextForAI(pdfText, pdfText.length);
+    const chunks: string[] = [];
+    if (condensedAll.length <= logicalChunkTarget) {
+      chunks.push(condensedAll);
+    } else {
+      let start = 0;
+      while (start < condensedAll.length) {
+        const end = Math.min(start + logicalChunkTarget, condensedAll.length);
+        let slice = condensedAll.slice(start, end);
+        if (end < condensedAll.length) {
+          const nextBreak = condensedAll.indexOf('\n', end);
+          if (nextBreak !== -1 && nextBreak - end < 300) {
+            slice = condensedAll.slice(start, nextBreak);
+            start = nextBreak + 1 - Math.min(OVERLAP, nextBreak + 1);
+          } else {
+            start = end - Math.min(OVERLAP, end - start);
+          }
+        } else {
+          start = end;
+        }
+        chunks.push(slice.trim());
+      }
+    }
+
     const schemaPrompt = this.buildTransactionSchemaPrompt();
-    const fullPrompt = `${schemaPrompt}
-
-BANK STATEMENT DATA (may be truncated):
-${condensed}
-
-Extract ALL transactions and return as pure JSON array following the exact schema above. No explanatory text before or after.`;
+    const allExtracted: any[] = [];
+    const skipAI = process.env.REACT_APP_DISABLE_AI === 'true';
 
     try {
-      // Skip AI entirely if clearly unavailable (development mode without deployment)
-      const skipAI = (process.env.REACT_APP_DISABLE_AI === 'true');
-      let responseContent: string | null = null;
-      if (!skipAI) {
-        responseContent = await azureOpenAIService.makeRequest(fullPrompt, 3000); // Increased token limit for comprehensive responses
-      }
-      if (responseContent) {
-        const transactions = this.parseAndValidateAIResponse(responseContent);
-        if (transactions.length > 0) {
-          console.log(`🤖 AI extracted ${transactions.length} transactions from PDF`);
-          console.log('📊 Sample extracted transactions (first 2):');
-          transactions.slice(0, 2).forEach((txn, idx) => console.log(`  Transaction ${idx + 1}:`, {
-            date: txn.date,
-            description: txn.description?.substring(0, 30) + '...',
-            amount: txn.amount,
-            category: txn.category,
-            confidence: txn.confidence
-          }));
-          return transactions;
+      if (skipAI) throw new Error('AI disabled by REACT_APP_DISABLE_AI');
+      const singleChunk = chunks.length === 1;
+      let consecutiveSizeErrors = 0;
+      const baseDelayMs = 250;
+
+      for (let i = 0; i < chunks.length; i++) {
+        const rawChunk = chunks[i];
+        const userInstruction = `BANK STATEMENT DATA CHUNK ${i + 1}/${chunks.length}:\n${rawChunk}\n\nReturn ONLY JSON array (may be partial for this chunk).`;
+
+        // Build user messages ensuring each segment < PER_MESSAGE_LIMIT
+        const userMessages: { role: 'user'; content: string }[] = [];
+        if (userInstruction.length <= PER_MESSAGE_LIMIT) {
+          userMessages.push({ role: 'user', content: userInstruction });
+        } else {
+          let cursor = 0; let part = 0; const marker = `CHUNKSEG ${i + 1}`;
+          while (cursor < userInstruction.length) {
+            const seg = userInstruction.slice(cursor, cursor + USER_SEGMENT_LIMIT);
+            userMessages.push({ role: 'user', content: `${marker} PART ${++part}:\n${seg}` });
+            cursor += USER_SEGMENT_LIMIT;
+          }
         }
-        throw new Error('No valid transactions found in AI response');
+
+        let responseContent: string | null = null;
+        try {
+          if (singleChunk && userMessages.length === 1) {
+            // Legacy path for tests
+            const legacyPrompt = `${schemaPrompt}\n\n${userInstruction}`;
+            responseContent = await azureOpenAIService.makeRequest(legacyPrompt, 3000);
+          } else {
+            const multiMessages = [ { role: 'system' as const, content: schemaPrompt }, ...userMessages ];
+            const maxTokens = singleChunk ? 3000 : 2000;
+            responseContent = await azureOpenAIService.makeChatRequest(multiMessages, maxTokens, { attempts: 4, baseBackoffMs: 500 });
+          }
+          consecutiveSizeErrors = 0;
+        } catch (err: any) {
+          const msg = String(err?.message || '').toLowerCase();
+          if (msg.includes('content too long')) {
+            consecutiveSizeErrors++;
+            if (consecutiveSizeErrors >= 2 && logicalChunkTarget > 1600) {
+              logicalChunkTarget = Math.max(1600, Math.floor(logicalChunkTarget * 0.7));
+              console.warn(`⚙️ Adjusted logical chunk target to ${logicalChunkTarget} after repeated size errors.`);
+            }
+            if (rawChunk.length > 1200) {
+              const mid = Math.floor(rawChunk.length / 2);
+              const subChunks = [rawChunk.slice(0, mid), rawChunk.slice(mid - OVERLAP)];
+              console.warn(`⚠️ Chunk ${i + 1}/${chunks.length} too large; splitting into ${subChunks.length} sub-chunks.`);
+              for (let s = 0; s < subChunks.length; s++) {
+                const subInstr = `BANK STATEMENT DATA CHUNK ${i + 1}a${s + 1}/${chunks.length}:\n${subChunks[s]}\n\nReturn ONLY JSON array (partial ok).`;
+                const subPrompt = `${schemaPrompt}\n\n${subInstr}`;
+                try {
+                  const subResp = await azureOpenAIService.makeRequest(subPrompt, 1500);
+                  if (subResp) {
+                    const parsed = this.parseAndValidateAIResponse(subResp);
+                    allExtracted.push(...parsed);
+                  }
+                } catch (inner) {
+                  console.warn('Sub-chunk extraction failed:', inner);
+                }
+              }
+              continue;
+            } else {
+              console.warn(`Chunk ${i + 1}/${chunks.length} size error on minimal chunk; skipping.`);
+              continue;
+            }
+          } else if (msg.includes('too many requests') || msg.includes('rate limit')) {
+            const backoff = 600 + Math.floor(Math.random() * 400);
+            console.warn(`⏳ Rate limited on chunk ${i + 1}. Waiting ${backoff}ms then retry.`);
+            await new Promise(r => setTimeout(r, backoff));
+            try {
+              const multiMessages = [ { role: 'system' as const, content: schemaPrompt }, ...userMessages ];
+              responseContent = await azureOpenAIService.makeChatRequest(multiMessages, 1800, { attempts: 3, baseBackoffMs: 600 });
+            } catch (retryErr) {
+              console.warn('Retry after rate limit failed:', retryErr);
+              continue;
+            }
+          } else {
+            console.warn(`Chunk ${i + 1}/${chunks.length} extraction failed:`, err);
+            continue;
+          }
+        }
+
+        if (responseContent) {
+          const parsed = this.parseAndValidateAIResponse(responseContent);
+          if (parsed.length) allExtracted.push(...parsed);
+        }
+
+        if (i + 1 < chunks.length) {
+          const jitter = Math.floor(Math.random() * 200);
+          await new Promise(r => setTimeout(r, baseDelayMs + jitter));
+        }
       }
-      throw new Error('AI skipped or empty response');
+
+      // Deduplicate
+      const seen = new Set<string>();
+      const deduped: any[] = [];
+      for (const t of allExtracted) {
+        const key = `${t.date}|${t.amount}|${(t.description || '').substring(0,24).toLowerCase()}`;
+        if (!seen.has(key)) { seen.add(key); deduped.push(t); }
+      }
+      if (deduped.length) {
+        console.log(`🤖 AI extracted ${deduped.length} combined transactions from ${chunks.length} chunk(s)`);
+        return deduped;
+      }
+      throw new Error('No valid transactions after chunked extraction');
     } catch (error) {
       console.warn('❌ AI transaction extraction failed or skipped – attempting heuristic fallback:', (error as Error).message);
       const heuristic = this.basicHeuristicPDFExtraction(pdfText);
