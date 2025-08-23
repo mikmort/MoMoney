@@ -1042,7 +1042,7 @@ Statement snippet (may be truncated):\n${condensed}`;
   private condensePdfTextForAI(full: string, maxChars: number): string {
     if (full.length <= maxChars) return full;
     const lines = full.split(/\n|\r|\r\n/).map(l => l.trim()).filter(l => l.length > 0);
-    const dateLike = /(\b\d{1,2}[\.\/-]\d{1,2}[\.\/-]\d{2,4}\b)|(\b\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})/i;
+    const dateLike = /(\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b)|(\b\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})/i;
     const amountLike = /[-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/;
     const candidateLines: string[] = [];
     for (const l of lines) {
@@ -1058,7 +1058,7 @@ Statement snippet (may be truncated):\n${condensed}`;
   private basicHeuristicPDFExtraction(pdfText: string): any[] {
     const lines = pdfText.split(/\n|\r|\r\n/).map(l => l.trim()).filter(l => l.length > 0);
     const dateRegexes = [
-      /\b(\d{1,2})[\.\/-](\d{1,2})[\.\/-](\d{2,4})\b/, // dd.mm.yyyy or dd-mm-yyyy
+      /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/, // dd.mm.yyyy or dd-mm-yyyy
       /\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{2,4})\b/i
     ];
     const amountRegex = /([-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})|[-+]?\d+(?:[.,]\d{2}))/; // capture first plausible amount
