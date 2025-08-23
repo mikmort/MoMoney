@@ -398,7 +398,7 @@ const IncomeReports: React.FC = () => {
       {incomeExpenseAnalysis && (
         <Grid columns={4} gap="20px">
           <StatsCard>
-            <div className="label">Total Income</div>
+            <div className="label">Income</div>
             <div className="amount positive">{formatCurrency(incomeExpenseAnalysis.totalIncome)}</div>
           </StatsCard>
           
