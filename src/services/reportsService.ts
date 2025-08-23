@@ -585,10 +585,20 @@ class ReportsService {
       return null;
     }
 
-  // Spending metrics should align with pie chart (outflows only)
-  // Spending metrics (negative amounts) retained for Total Spent; transactionCount remains spending to preserve existing semantics/tests
+  // Calculate net spending: expenses (negative) minus refunds (positive)
+  // This handles cases like: Purchase1: -$400, Purchase2: -$200, Refund: $100 = 400 + 200 - 100 = $500
+  const totalAmount = categoryTransactions.reduce((sum, t) => {
+    if (t.amount < 0) {
+      // Expense: add absolute value to total spending
+      return sum + Math.abs(t.amount);
+    } else {
+      // Refund: subtract from total spending
+      return sum - t.amount;
+    }
+  }, 0);
+  
+  // For transaction count, include only spending transactions to maintain compatibility
   const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
-  const totalAmount = spendingTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
   const transactionCount = spendingTransactions.length;
   const averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
     
@@ -609,7 +619,15 @@ class ReportsService {
       if (!trendTotals[periodKey]) {
         trendTotals[periodKey] = { amount: 0, date: transaction.date };
       }
-      trendTotals[periodKey].amount += Math.abs(transaction.amount);
+      
+      // Calculate net spending for trends: expenses minus refunds
+      if (transaction.amount < 0) {
+        // Expense: add absolute value
+        trendTotals[periodKey].amount += Math.abs(transaction.amount);
+      } else {
+        // Refund: subtract amount
+        trendTotals[periodKey].amount -= transaction.amount;
+      }
     });
     
     const trend = Object.entries(trendTotals)
