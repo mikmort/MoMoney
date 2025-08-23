@@ -624,8 +624,8 @@ class ReportsService {
       return null;
     }
 
-  // Spending metrics should align with pie chart (outflows only)
-  // Updated to use new calculation logic based on category type
+  // Calculate net spending: properly handle expenses and refunds based on category type
+  // This handles cases like: Purchase1: -$400, Purchase2: -$200, Refund: $100 = 400 + 200 - 100 = $500
   
   // Determine if this is an expense or income category
   const expenseCategories = this.getCategoriesOfType('expense');
@@ -638,9 +638,20 @@ class ReportsService {
   let averageTransaction: number;
 
   if (isExpenseCategory) {
-    // For expense categories: sum all amounts and flip sign to make expenses positive
-    totalAmount = categoryTransactions.reduce((sum, t) => sum + (-t.amount), 0);
-    transactionCount = categoryTransactions.length;
+    // For expense categories: properly handle refunds by subtracting positive amounts
+    totalAmount = categoryTransactions.reduce((sum, t) => {
+      if (t.amount < 0) {
+        // Expense: add absolute value to total spending
+        return sum + Math.abs(t.amount);
+      } else {
+        // Refund: subtract from total spending
+        return sum - t.amount;
+      }
+    }, 0);
+    
+    // Count only spending transactions for compatibility
+    const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
+    transactionCount = spendingTransactions.length;
     averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
   } else if (isIncomeCategory) {
     // For income categories: sum all amounts (positive and negative income)
@@ -648,9 +659,18 @@ class ReportsService {
     transactionCount = categoryTransactions.length;
     averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
   } else {
-    // Fallback for other categories (old behavior)
+    // Fallback for other categories: use refund-aware calculation
+    totalAmount = categoryTransactions.reduce((sum, t) => {
+      if (t.amount < 0) {
+        // Expense: add absolute value to total spending
+        return sum + Math.abs(t.amount);
+      } else {
+        // Refund: subtract from total spending
+        return sum - t.amount;
+      }
+    }, 0);
+    
     const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
-    totalAmount = spendingTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     transactionCount = spendingTransactions.length;
     averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
   }
@@ -672,13 +692,28 @@ class ReportsService {
       if (!trendTotals[periodKey]) {
         trendTotals[periodKey] = { amount: 0, date: transaction.date };
       }
-      // Use the same calculation logic as the total amount
+      // Use the same calculation logic as the total amount to ensure consistency
       if (isExpenseCategory) {
-        trendTotals[periodKey].amount += (-transaction.amount);
+        // For expense categories: properly handle refunds by subtracting positive amounts
+        if (transaction.amount < 0) {
+          // Expense: add absolute value
+          trendTotals[periodKey].amount += Math.abs(transaction.amount);
+        } else {
+          // Refund: subtract amount
+          trendTotals[periodKey].amount -= transaction.amount;
+        }
       } else if (isIncomeCategory) {
+        // For income categories: sum all amounts
         trendTotals[periodKey].amount += transaction.amount;
       } else {
-        trendTotals[periodKey].amount += Math.abs(transaction.amount);
+        // Fallback for other categories: use refund-aware calculation
+        if (transaction.amount < 0) {
+          // Expense: add absolute value
+          trendTotals[periodKey].amount += Math.abs(transaction.amount);
+        } else {
+          // Refund: subtract amount
+          trendTotals[periodKey].amount -= transaction.amount;
+        }
       }
     });
     

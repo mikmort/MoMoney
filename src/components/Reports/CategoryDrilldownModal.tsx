@@ -233,7 +233,16 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
       if (!subcategoryTotals[subcategory]) {
         subcategoryTotals[subcategory] = { amount: 0, transactions: [] };
       }
-      subcategoryTotals[subcategory].amount += Math.abs(transaction.amount);
+      
+      // Calculate net spending for subcategories: expenses minus refunds
+      if (transaction.amount < 0) {
+        // Expense: add absolute value
+        subcategoryTotals[subcategory].amount += Math.abs(transaction.amount);
+      } else {
+        // Refund: subtract amount
+        subcategoryTotals[subcategory].amount -= transaction.amount;
+      }
+      
       subcategoryTotals[subcategory].transactions.push(transaction);
     });
 
@@ -283,7 +292,14 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
           label = transaction.date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         }
         
-        periodTotals[label] = (periodTotals[label] || 0) + Math.abs(transaction.amount);
+        // Calculate net spending for trend periods: expenses minus refunds
+        if (transaction.amount < 0) {
+          // Expense: add absolute value
+          periodTotals[label] = (periodTotals[label] || 0) + Math.abs(transaction.amount);
+        } else {
+          // Refund: subtract amount
+          periodTotals[label] = (periodTotals[label] || 0) - transaction.amount;
+        }
       });
 
       trendDataFiltered = Object.entries(periodTotals)
@@ -360,7 +376,14 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
                 });
                 return monthLabel === selectedMonth;
               })
-              .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+              .reduce((sum, t) => {
+                // Calculate net spending for subcategory: expenses minus refunds
+                if (t.amount < 0) {
+                  return sum + Math.abs(t.amount);
+                } else {
+                  return sum - t.amount;
+                }
+              }, 0);
           }
           return item.amount;
         }),
