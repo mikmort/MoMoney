@@ -83,10 +83,12 @@ describe('Internal Transfer Data Consistency Fix', () => {
     ];
 
     // Add the problematic transactions directly to the in-memory store
+    // Disable audit to test manual migration
+    dataService['internalTransferTypeAuditDone'] = true;
     dataService['transactions'] = [...problematicTransactions];
 
-    // Verify the problematic state exists
-    let allTransactions = await dataService.getAllTransactions();
+    // Verify the problematic state exists when audit is disabled
+    let allTransactions = [...dataService['transactions']]; // Direct access without audit
     expect(allTransactions).toHaveLength(3);
     
     const problemTx1 = allTransactions.find(t => t.id === 'tx-1');
@@ -215,5 +217,47 @@ describe('Internal Transfer Data Consistency Fix', () => {
     // Should not crash and should report no fixes needed
     expect(migrationResult.fixed).toBe(0);
     expect(migrationResult.errors).toHaveLength(0);
+  });
+
+  it('should automatically fix transactions through audit in getAllTransactions', async () => {
+    // Test that the automatic audit feature works correctly
+    await dataService['ensureInitialized']();
+    dataService['transactions'] = [];
+    
+    // Add problematic transactions and reset audit flag
+    const problematicTransactions: Transaction[] = [
+      {
+        id: 'audit-tx-1',
+        date: new Date('2024-04-01T10:00:00.000Z'),
+        description: 'Auto Transfer',
+        amount: -100.00,
+        notes: '',
+        category: 'Internal Transfer',
+        account: 'Test Account',
+        type: 'expense', // Wrong type - should trigger audit
+        isVerified: false,
+        originalText: 'Auto Transfer',
+        subcategory: 'Test',
+        confidence: 1,
+        reasoning: 'Test transaction',
+        addedDate: new Date(),
+        lastModifiedDate: new Date()
+      }
+    ];
+    
+    dataService['transactions'] = [...problematicTransactions];
+    dataService['internalTransferTypeAuditDone'] = false; // Enable audit
+    
+    // Call getAllTransactions which should trigger the audit
+    const allTransactions = await dataService.getAllTransactions();
+    
+    // Verify audit fixed the transaction
+    expect(allTransactions).toHaveLength(1);
+    const fixedTx = allTransactions.find(t => t.id === 'audit-tx-1');
+    expect(fixedTx?.category).toBe('Internal Transfer');
+    expect(fixedTx?.type).toBe('transfer'); // Should be fixed by audit
+    
+    // Verify audit flag was set
+    expect(dataService['internalTransferTypeAuditDone']).toBe(true);
   });
 });
