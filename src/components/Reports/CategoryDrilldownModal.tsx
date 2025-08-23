@@ -318,7 +318,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     );
   }
 
-  // Prepare chart data
+  // Prepare chart data (trend already computed for full provided date range in reportsService)
   const trendData = {
     labels: filteredTrendData.map(item => item.label),
     datasets: [
@@ -333,7 +333,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     ]
   };
 
-  // Prepare subcategory chart data
+  // Prepare subcategory chart data (use all transactions in date range; optionally filtered by month selection)
   const subcategoryChartData = {
     labels: subcategoryData.map(item => item.name),
     datasets: [
@@ -404,7 +404,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     <Modal 
       isOpen={true} 
       onClose={onClose} 
-      title={`${categoryName} - Category Drilldown`}
+  title={`${categoryName} - Category Drilldown${categoryData?.rangeStart && categoryData?.rangeEnd ? ` (${categoryData.rangeStart.toLocaleDateString()} - ${categoryData.rangeEnd.toLocaleDateString()})` : ''}`}
       maxWidth="1000px"
       maxHeight="90vh"
     >

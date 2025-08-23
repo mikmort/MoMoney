@@ -43,6 +43,8 @@ export interface CategoryDeepDive {
   trend: { label: string; amount: number }[];
   trendGranularity: TrendGranularity;
   trendTitle: string;
+  rangeStart?: Date;
+  rangeEnd?: Date;
 }
 
 export interface SpendingInsights {
@@ -588,8 +590,8 @@ class ReportsService {
     const largestTransaction = sortedByAmount[0];
     const smallestTransaction = sortedByAmount[sortedByAmount.length - 1];
     
-    // Get recent transactions (up to 100 most recent)
-    const recentTransactions = categoryTransactions.slice(0, 100);
+  // Use all transactions in the selected date range for drilldown (avoid arbitrary 100 limit so charts reflect full period)
+  const recentTransactions = categoryTransactions; // already sorted most recent first
     
     // Determine granularity and calculate trend
     const { granularity, title } = this.determineTrendGranularity(dateRange);
@@ -606,16 +608,23 @@ class ReportsService {
     const trend = Object.entries(trendTotals)
       .map(([periodKey, data]) => {
         let label: string;
+        let sortDate: Date;
         if (granularity === 'weekly') {
-          // For weekly, parse the period key to get the Monday date
           const weekStart = new Date(periodKey);
-          label = this.formatPeriodLabel(data.date, granularity, weekStart);
-        } else {
-          label = this.formatPeriodLabel(data.date, granularity);
+            label = this.formatPeriodLabel(data.date, granularity, weekStart);
+            sortDate = weekStart;
+        } else if (granularity === 'monthly') {
+            // periodKey YYYY-MM
+            sortDate = new Date(periodKey + '-01T00:00:00');
+            label = this.formatPeriodLabel(sortDate, granularity);
+        } else { // daily
+            sortDate = new Date(periodKey + 'T00:00:00');
+            label = this.formatPeriodLabel(sortDate, granularity);
         }
-        return { label, amount: data.amount };
+        return { label, amount: data.amount, sortDate };
       })
-      .sort((a, b) => a.label.localeCompare(b.label));
+      .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime())
+      .map(t => ({ label: t.label, amount: t.amount }));
 
     return {
       categoryName,
@@ -627,7 +636,9 @@ class ReportsService {
       recentTransactions,
       trend,
       trendGranularity: granularity,
-      trendTitle: title
+  trendTitle: title,
+  rangeStart: dateRange?.startDate,
+  rangeEnd: dateRange?.endDate
     };
   }
 
