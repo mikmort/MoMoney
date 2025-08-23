@@ -108,7 +108,14 @@ const TransactionsList = styled.div`
   .transaction-amount {
     text-align: right;
     font-weight: 600;
-    color: #f44336;
+    
+    &.positive {
+      color: #4caf50;
+    }
+    
+    &.negative {
+      color: #f44336;
+    }
     
     .currency-info {
       font-size: 0.75rem;
@@ -138,8 +145,11 @@ const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction
     formatAmount();
   }, [transaction]);
 
+  // Determine if amount is positive or negative for CSS class
+  const amountClass = transaction.amount >= 0 ? 'positive' : 'negative';
+
   return (
-    <div className="transaction-amount" title={displayData.tooltip}>
+    <div className={`transaction-amount ${amountClass}`} title={displayData.tooltip}>
       {displayData.displayAmount}
       {displayData.isConverted && displayData.approxConvertedDisplay && (
         <div className="currency-info">

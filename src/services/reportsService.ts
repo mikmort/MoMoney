@@ -2,6 +2,7 @@ import { Transaction } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
+import { defaultCategories } from '../data/defaultCategories';
 
 export interface SpendingByCategory {
   categoryName: string;
@@ -149,6 +150,19 @@ class ReportsService {
     return false;
   }
 
+  // Helper method to get category names by type from defaultCategories
+  private getCategoriesOfType(type: 'income' | 'expense'): string[] {
+    return defaultCategories
+      .filter(cat => cat.type === type)
+      .map(cat => cat.name);
+  }
+
+  // Helper method to filter transactions by category type (income/expense categories)
+  private filterTransactionsByCategoryType(transactions: Transaction[], type: 'income' | 'expense'): Transaction[] {
+    const categoryNames = this.getCategoriesOfType(type);
+    return transactions.filter(t => categoryNames.includes(t.category));
+  }
+
   // Helper method to filter transactions based on user preferences and selected types
   private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense', selectedTypes?: string[]): Promise<Transaction[]> {
     const preferences = await userPreferencesService.getPreferences();
@@ -255,7 +269,8 @@ class ReportsService {
   async getSpendingByCategory(dateRange?: DateRange, includeTransfers?: boolean): Promise<SpendingByCategory[]>;
   async getSpendingByCategory(filtersOrDateRange?: ReportsFilters | DateRange, selectedTypesOrIncludeTransfers?: string[] | boolean): Promise<SpendingByCategory[]> {
     let transactions: Transaction[];
-    let expenseTransactions: Transaction[];
+    let shouldIncludeTransfers = false;
+    let shouldIncludeAssetAllocation = false;
     
     // Handle the new ReportsFilters interface
     if (filtersOrDateRange && (
@@ -266,33 +281,58 @@ class ReportsService {
       const filters = filtersOrDateRange as ReportsFilters;
       transactions = await this.getFilteredTransactions(filters);
       const selectedTypes = filters.selectedTypes || ['expense'];
-      expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense', selectedTypes);
+      shouldIncludeTransfers = selectedTypes.includes('transfer');
+      shouldIncludeAssetAllocation = selectedTypes.includes('asset-allocation');
     } else {
       // Handle legacy calls
       const dateRange = filtersOrDateRange as DateRange | undefined;
       if (Array.isArray(selectedTypesOrIncludeTransfers)) {
         // New behavior with selectedTypes array
         transactions = await this.getTransactionsInRange(dateRange, true); // Get all transactions
-        expenseTransactions = await this.filterTransactionsForReports(transactions, 'expense', selectedTypesOrIncludeTransfers);
+        shouldIncludeTransfers = selectedTypesOrIncludeTransfers.includes('transfer');
+        shouldIncludeAssetAllocation = selectedTypesOrIncludeTransfers.includes('asset-allocation');
       } else {
         // Legacy behavior with includeTransfers boolean
-        const includeTransfers = selectedTypesOrIncludeTransfers || false;
-        transactions = await this.getTransactionsInRange(dateRange, includeTransfers);
-        expenseTransactions = await this.filterTransactionsForReportsLegacy(transactions, 'expense', includeTransfers);
+        shouldIncludeTransfers = selectedTypesOrIncludeTransfers || false;
+        transactions = await this.getTransactionsInRange(dateRange, shouldIncludeTransfers);
       }
     }
+    
+    // Filter transactions: expense categories by default, plus transfers/asset-allocation if requested
+    const expenseCategories = this.getCategoriesOfType('expense');
+    let expenseTransactions = transactions.filter(t => expenseCategories.includes(t.category));
+    
+    // Add transfers if explicitly requested
+    if (shouldIncludeTransfers) {
+      const transferTransactions = transactions.filter(t => 
+        (t.type === 'transfer' || t.category === 'Internal Transfer') && t.amount < 0 // Only negative transfers for spending
+      );
+      expenseTransactions = [...expenseTransactions, ...transferTransactions];
+    }
+    
+    // Add asset allocation if explicitly requested
+    if (shouldIncludeAssetAllocation) {
+      const assetTransactions = transactions.filter(t => 
+        (t.type === 'asset-allocation' || t.category === 'Asset Allocation') && t.amount < 0 // Only negative for spending
+      );
+      expenseTransactions = [...expenseTransactions, ...assetTransactions];
+    }
+    
+    // Remove duplicates (in case a transaction matches multiple criteria)
+    expenseTransactions = expenseTransactions.filter((transaction, index, self) =>
+      index === self.findIndex(t => t.id === transaction.id)
+    );
     
     if (expenseTransactions.length === 0) {
       return [];
     }
 
-  // Convert all expenses to default currency for aggregation
-  const convertedExpenses = await currencyDisplayService.convertTransactionsBatch(expenseTransactions);
-  const totalSpending = convertedExpenses.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    const categoryTotals: { [category: string]: Transaction[] } = {};
+    // Convert all transactions to default currency for aggregation
+    const convertedExpenses = await currencyDisplayService.convertTransactionsBatch(expenseTransactions);
     
     // Group transactions by category
-  convertedExpenses.forEach(transaction => {
+    const categoryTotals: { [category: string]: Transaction[] } = {};
+    convertedExpenses.forEach(transaction => {
       const category = transaction.category;
       if (!categoryTotals[category]) {
         categoryTotals[category] = [];
@@ -300,10 +340,15 @@ class ReportsService {
       categoryTotals[category].push(transaction);
     });
 
+    // Calculate total spending for percentage calculation
+    // Use the new logic: sum all amounts (positive expenses + negative expenses)
+    const totalSpending = convertedExpenses.reduce((sum, t) => sum + (-t.amount), 0); // Flip sign so negatives become positive
+
     // Calculate statistics for each category
     return Object.entries(categoryTotals)
       .map(([categoryName, categoryTransactions]) => {
-        const amount = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+        // Sum all amounts in category (positive and negative) and flip sign to make expenses positive
+        const amount = categoryTransactions.reduce((sum, t) => sum + (-t.amount), 0);
         const transactionCount = categoryTransactions.length;
         const averageAmount = amount / transactionCount;
         const percentage = totalSpending > 0 ? (amount / totalSpending) * 100 : 0;
@@ -359,14 +404,15 @@ class ReportsService {
     });
 
     // Calculate monthly statistics
-    const preferences = await userPreferencesService.getPreferences();
     
     return Object.entries(monthlyData)
       .map(([monthKey, monthTransactions]) => {
         let expenseTransactions: Transaction[];
         let incomeTransactions: Transaction[];
+        let shouldIncludeTransfers = false;
+        let shouldIncludeAssetAllocation = false;
         
-        // Handle the new ReportsFilters interface
+        // Determine what to include based on parameters
         if (filtersOrDateRange && (
           'selectedCategories' in filtersOrDateRange || 
           'selectedAccounts' in filtersOrDateRange || 
@@ -374,62 +420,55 @@ class ReportsService {
         )) {
           const filters = filtersOrDateRange as ReportsFilters;
           const selectedTypes = filters.selectedTypes || ['income', 'expense'];
-          
-          expenseTransactions = monthTransactions.filter(t => {
-            if (!selectedTypes.includes(t.type)) return false;
-            if (t.type === 'transfer' && this.isInternalTransfer(t)) {
-              return t.amount < 0;
-            }
-            return t.type === 'expense' || t.amount < 0;
-          });
-          
-          incomeTransactions = monthTransactions.filter(t => {
-            if (!selectedTypes.includes(t.type)) return false;
-            if (t.type === 'transfer' && this.isInternalTransfer(t)) {
-              return t.amount > 0;
-            }
-            return t.type === 'income' || t.amount > 0;
-          });
+          shouldIncludeTransfers = selectedTypes.includes('transfer');
+          shouldIncludeAssetAllocation = selectedTypes.includes('asset-allocation');
         } else if (Array.isArray(selectedTypesOrIncludeTransfers)) {
-          // New behavior with selectedTypes array
-          expenseTransactions = monthTransactions.filter(t => {
-            if (!selectedTypesOrIncludeTransfers.includes(t.type)) return false;
-            if (t.type === 'transfer' && this.isInternalTransfer(t)) {
-              return t.amount < 0;
-            }
-            return t.type === 'expense' || t.amount < 0;
-          });
-          
-          incomeTransactions = monthTransactions.filter(t => {
-            if (!selectedTypesOrIncludeTransfers.includes(t.type)) return false;
-            if (t.type === 'transfer' && this.isInternalTransfer(t)) {
-              return t.amount > 0;
-            }
-            return t.type === 'income' || t.amount > 0;
-          });
+          shouldIncludeTransfers = selectedTypesOrIncludeTransfers.includes('transfer');
+          shouldIncludeAssetAllocation = selectedTypesOrIncludeTransfers.includes('asset-allocation');
         } else {
-          // Legacy behavior with includeTransfers boolean
-          const includeTransfers = selectedTypesOrIncludeTransfers || false;
-          
-          expenseTransactions = monthTransactions.filter(t => {
-            if (this.isInternalTransfer(t)) {
-              return includeTransfers && t.amount < 0;
+          shouldIncludeTransfers = selectedTypesOrIncludeTransfers || false;
+        }
+        
+        // Filter by category type instead of transaction type for all cases
+        const expenseCategories = this.getCategoriesOfType('expense');
+        const incomeCategories = this.getCategoriesOfType('income');
+        
+        expenseTransactions = monthTransactions.filter(t => expenseCategories.includes(t.category));
+        incomeTransactions = monthTransactions.filter(t => incomeCategories.includes(t.category));
+        
+        // Add transfers if requested
+        if (shouldIncludeTransfers) {
+          const transferTransactions = monthTransactions.filter(t => 
+            t.type === 'transfer' || t.category === 'Internal Transfer'
+          );
+          // Add to expenses or income based on amount
+          transferTransactions.forEach(t => {
+            if (t.amount < 0) {
+              expenseTransactions.push(t);
+            } else {
+              incomeTransactions.push(t);
             }
-            if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
-            return t.type === 'expense' || t.amount < 0;
-          });
-          
-          incomeTransactions = monthTransactions.filter(t => {
-            if (this.isInternalTransfer(t)) {
-              return includeTransfers && t.amount > 0;
-            }
-            if (t.type === 'asset-allocation') return preferences.includeInvestmentsInReports;
-            return t.type === 'income' || t.amount > 0;
           });
         }
         
-        const totalSpending = expenseTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-        const totalIncome = incomeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+        // Add asset allocation if requested
+        if (shouldIncludeAssetAllocation) {
+          const assetTransactions = monthTransactions.filter(t => 
+            t.type === 'asset-allocation' || t.category === 'Asset Allocation'
+          );
+          // Add to expenses or income based on amount
+          assetTransactions.forEach(t => {
+            if (t.amount < 0) {
+              expenseTransactions.push(t);
+            } else {
+              incomeTransactions.push(t);
+            }
+          });
+        }
+        
+        // Calculate totals using new logic
+        const totalSpending = expenseTransactions.reduce((sum, t) => sum + (-t.amount), 0); // Flip sign for expenses
+        const totalIncome = incomeTransactions.reduce((sum, t) => sum + t.amount, 0);
 
         const date = new Date(monthKey + '-01');
         const month = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -585,27 +624,61 @@ class ReportsService {
       return null;
     }
 
-  // Calculate net spending: expenses (negative) minus refunds (positive)
+  // Calculate net spending: properly handle expenses and refunds based on category type
   // This handles cases like: Purchase1: -$400, Purchase2: -$200, Refund: $100 = 400 + 200 - 100 = $500
-  const totalAmount = categoryTransactions.reduce((sum, t) => {
-    if (t.amount < 0) {
-      // Expense: add absolute value to total spending
-      return sum + Math.abs(t.amount);
-    } else {
-      // Refund: subtract from total spending
-      return sum - t.amount;
-    }
-  }, 0);
   
-  // For transaction count, include only spending transactions to maintain compatibility
-  const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
-  const transactionCount = spendingTransactions.length;
-  const averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
+  // Determine if this is an expense or income category
+  const expenseCategories = this.getCategoriesOfType('expense');
+  const incomeCategories = this.getCategoriesOfType('income');
+  const isExpenseCategory = expenseCategories.includes(categoryName);
+  const isIncomeCategory = incomeCategories.includes(categoryName);
+
+  let totalAmount: number;
+  let transactionCount: number;
+  let averageTransaction: number;
+
+  if (isExpenseCategory) {
+    // For expense categories: properly handle refunds by subtracting positive amounts
+    totalAmount = categoryTransactions.reduce((sum, t) => {
+      if (t.amount < 0) {
+        // Expense: add absolute value to total spending
+        return sum + Math.abs(t.amount);
+      } else {
+        // Refund: subtract from total spending
+        return sum - t.amount;
+      }
+    }, 0);
+    
+    // Count only spending transactions for compatibility
+    const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
+    transactionCount = spendingTransactions.length;
+    averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
+  } else if (isIncomeCategory) {
+    // For income categories: sum all amounts (positive and negative income)
+    totalAmount = categoryTransactions.reduce((sum, t) => sum + t.amount, 0);
+    transactionCount = categoryTransactions.length;
+    averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
+  } else {
+    // Fallback for other categories: use refund-aware calculation
+    totalAmount = categoryTransactions.reduce((sum, t) => {
+      if (t.amount < 0) {
+        // Expense: add absolute value to total spending
+        return sum + Math.abs(t.amount);
+      } else {
+        // Refund: subtract from total spending
+        return sum - t.amount;
+      }
+    }, 0);
+    
+    const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
+    transactionCount = spendingTransactions.length;
+    averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
+  }
     
     // Find largest and smallest transactions
-  const sortedSpendingByAmount = [...spendingTransactions].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-  const largestTransaction = sortedSpendingByAmount[0] || categoryTransactions[0];
-  const smallestTransaction = sortedSpendingByAmount[sortedSpendingByAmount.length - 1] || categoryTransactions[categoryTransactions.length - 1];
+  const sortedByAmount = [...categoryTransactions].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  const largestTransaction = sortedByAmount[0] || categoryTransactions[0];
+  const smallestTransaction = sortedByAmount[sortedByAmount.length - 1] || categoryTransactions[categoryTransactions.length - 1];
     
   // Use all transactions in the selected date range for drilldown (avoid arbitrary 100 limit so charts reflect full period)
   const recentTransactions = categoryTransactions; // already sorted most recent first
@@ -619,14 +692,28 @@ class ReportsService {
       if (!trendTotals[periodKey]) {
         trendTotals[periodKey] = { amount: 0, date: transaction.date };
       }
-      
-      // Calculate net spending for trends: expenses minus refunds
-      if (transaction.amount < 0) {
-        // Expense: add absolute value
-        trendTotals[periodKey].amount += Math.abs(transaction.amount);
+      // Use the same calculation logic as the total amount to ensure consistency
+      if (isExpenseCategory) {
+        // For expense categories: properly handle refunds by subtracting positive amounts
+        if (transaction.amount < 0) {
+          // Expense: add absolute value
+          trendTotals[periodKey].amount += Math.abs(transaction.amount);
+        } else {
+          // Refund: subtract amount
+          trendTotals[periodKey].amount -= transaction.amount;
+        }
+      } else if (isIncomeCategory) {
+        // For income categories: sum all amounts
+        trendTotals[periodKey].amount += transaction.amount;
       } else {
-        // Refund: subtract amount
-        trendTotals[periodKey].amount -= transaction.amount;
+        // Fallback for other categories: use refund-aware calculation
+        if (transaction.amount < 0) {
+          // Expense: add absolute value
+          trendTotals[periodKey].amount += Math.abs(transaction.amount);
+        } else {
+          // Refund: subtract amount
+          trendTotals[periodKey].amount -= transaction.amount;
+        }
       }
     });
     
@@ -909,7 +996,8 @@ class ReportsService {
   async getIncomeByCategory(filtersOrDateRange?: ReportsFilters | DateRange, includeTransfersOrUndefined?: boolean): Promise<any[]> {
     try {
       let transactions: Transaction[];
-      let incomeTransactions: Transaction[];
+      let shouldIncludeTransfers = false;
+      let shouldIncludeAssetAllocation = false;
       
       // Handle the new ReportsFilters interface
       if (filtersOrDateRange && (
@@ -920,26 +1008,39 @@ class ReportsService {
         const filters = filtersOrDateRange as ReportsFilters;
         transactions = await this.getFilteredTransactions(filters);
         const selectedTypes = filters.selectedTypes || ['income'];
-        incomeTransactions = await this.filterTransactionsForReports(transactions, 'income', selectedTypes);
+        shouldIncludeTransfers = selectedTypes.includes('transfer');
+        shouldIncludeAssetAllocation = selectedTypes.includes('asset-allocation');
       } else {
         // Legacy behavior
         const dateRange = filtersOrDateRange as DateRange | undefined;
-        const includeTransfers = includeTransfersOrUndefined || false;
-        const allTransactions = await dataService.getAllTransactions();
-        
-        let filteredTransactions = allTransactions;
-        
-        // Apply date range filter
-        if (dateRange) {
-          filteredTransactions = filteredTransactions.filter(t => {
-            const transactionDate = new Date(t.date);
-            return transactionDate >= dateRange.startDate && transactionDate <= dateRange.endDate;
-          });
-        }
-        
-        // Filter for income transactions
-        incomeTransactions = await this.filterTransactionsForReportsLegacy(filteredTransactions, 'income', includeTransfers);
+        shouldIncludeTransfers = includeTransfersOrUndefined || false;
+        transactions = await this.getTransactionsInRange(dateRange, shouldIncludeTransfers);
       }
+      
+      // Filter transactions: income categories by default, plus transfers/asset-allocation if requested
+      const incomeCategories = this.getCategoriesOfType('income');
+      let incomeTransactions = transactions.filter(t => incomeCategories.includes(t.category));
+      
+      // Add transfers if explicitly requested
+      if (shouldIncludeTransfers) {
+        const transferTransactions = transactions.filter(t => 
+          (t.type === 'transfer' || t.category === 'Internal Transfer') && t.amount > 0 // Only positive transfers for income
+        );
+        incomeTransactions = [...incomeTransactions, ...transferTransactions];
+      }
+      
+      // Add asset allocation if explicitly requested
+      if (shouldIncludeAssetAllocation) {
+        const assetTransactions = transactions.filter(t => 
+          (t.type === 'asset-allocation' || t.category === 'Asset Allocation') && t.amount > 0 // Only positive for income
+        );
+        incomeTransactions = [...incomeTransactions, ...assetTransactions];
+      }
+      
+      // Remove duplicates (in case a transaction matches multiple criteria)
+      incomeTransactions = incomeTransactions.filter((transaction, index, self) =>
+        index === self.findIndex(t => t.id === transaction.id)
+      );
       
       // Convert to common currency
       const convertedIncomeTransactions = await currencyDisplayService.convertTransactionsBatch(incomeTransactions);
@@ -954,7 +1055,8 @@ class ReportsService {
             transactions: [] 
           };
         }
-        acc[category].amount += Math.abs(transaction.amount);
+        // Use new logic: sum all amounts (positive and negative income)
+        acc[category].amount += transaction.amount;
         acc[category].count += 1;
         acc[category].transactions.push(transaction);
         return acc;
