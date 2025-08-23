@@ -2487,7 +2487,20 @@ const Transactions: React.FC = () => {
       width: 180,
       cellRenderer: CategoryCellRenderer,
       editable: true,
-      cellEditor: CategoryCellEditor
+      cellEditor: CategoryCellEditor,
+      comparator: (a: any, b: any, nodeA, nodeB) => {
+        // Primary compare on category name (case-insensitive)
+        const catA = (a || '').toString().toLowerCase();
+        const catB = (b || '').toString().toLowerCase();
+        if (catA < catB) return -1;
+        if (catA > catB) return 1;
+        // If categories equal, compare subcategory (using row data)
+        const subA = (nodeA?.data?.subcategory || '').toString().toLowerCase();
+        const subB = (nodeB?.data?.subcategory || '').toString().toLowerCase();
+        if (subA < subB) return -1;
+        if (subA > subB) return 1;
+        return 0;
+      }
     },
     {
       headerName: 'Account',
