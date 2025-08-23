@@ -975,39 +975,45 @@ Return ONLY a clean JSON response:
   }
 
   /**
-   * Use AI to extract structured transaction data from PDF text
+   * Use AI to extract structured transaction data from PDF text with comprehensive schema mapping
    */
   private async extractTransactionsFromPDFWithAI(pdfText: string): Promise<any[]> {
-    console.log('🤖 Using AI to extract transactions from PDF text...');
+    console.log('🤖 Using AI to extract transactions from PDF text with schema mapping...');
     // 1. Condense the PDF text to keep within proxy limits (observed 4000 char cap for a single message)
-    const MAX_CHARS = 3500;
+    const MAX_CHARS = 3200; // Reduced to allow for larger prompt
     const condensed = this.condensePdfTextForAI(pdfText, MAX_CHARS);
 
-    const prompt = `Extract bank statement transactions as pure JSON array only. Fields: date (YYYY-MM-DD), description (trimmed), amount (negative for debits, positive for credits). Skip headers, balances, page markers.
-Statement snippet (may be truncated):\n${condensed}`;
+    // 2. Create comprehensive schema specification for Transaction objects
+    const schemaPrompt = this.buildTransactionSchemaPrompt();
+    const fullPrompt = `${schemaPrompt}
+
+BANK STATEMENT DATA (may be truncated):
+${condensed}
+
+Extract ALL transactions and return as pure JSON array following the exact schema above. No explanatory text before or after.`;
 
     try {
       // Skip AI entirely if clearly unavailable (development mode without deployment)
       const skipAI = (process.env.REACT_APP_DISABLE_AI === 'true');
       let responseContent: string | null = null;
       if (!skipAI) {
-        responseContent = await azureOpenAIService.makeRequest(prompt, 2000);
+        responseContent = await azureOpenAIService.makeRequest(fullPrompt, 3000); // Increased token limit for comprehensive responses
       }
       if (responseContent) {
-        let cleanedResponse = responseContent;
-        if (cleanedResponse.includes('```json')) cleanedResponse = cleanedResponse.split('```json')[1];
-        if (cleanedResponse.includes('```')) cleanedResponse = cleanedResponse.split('```')[0];
-        cleanedResponse = cleanedResponse.trim();
-        const transactions = JSON.parse(cleanedResponse);
-        if (Array.isArray(transactions)) {
+        const transactions = this.parseAndValidateAIResponse(responseContent);
+        if (transactions.length > 0) {
           console.log(`🤖 AI extracted ${transactions.length} transactions from PDF`);
-          if (transactions.length > 0) {
-            console.log('📊 Sample extracted transactions (first 3):');
-            transactions.slice(0, 3).forEach((txn, idx) => console.log(`  Transaction ${idx + 1}:`, txn));
-          }
+          console.log('📊 Sample extracted transactions (first 2):');
+          transactions.slice(0, 2).forEach((txn, idx) => console.log(`  Transaction ${idx + 1}:`, {
+            date: txn.date,
+            description: txn.description?.substring(0, 30) + '...',
+            amount: txn.amount,
+            category: txn.category,
+            confidence: txn.confidence
+          }));
           return transactions;
         }
-        throw new Error('AI response not array');
+        throw new Error('No valid transactions found in AI response');
       }
       throw new Error('AI skipped or empty response');
     } catch (error) {
@@ -1023,18 +1029,226 @@ Statement snippet (may be truncated):\n${condensed}`;
   }
 
   /**
-   * Convert already-extracted PDF rows (date, description, amount) directly into Transaction-like raw rows
-   * expected further down the pipeline, skipping the generic column-mapping logic.
+   * Build comprehensive Transaction schema prompt for AI
+   */
+  private buildTransactionSchemaPrompt(): string {
+    return `TRANSACTION EXTRACTION SCHEMA:
+Extract bank statement transactions as a JSON array. Each transaction object must follow this exact structure:
+
+REQUIRED FIELDS:
+- "date": string in YYYY-MM-DD format (convert from any date format found)
+- "description": string (merchant/payee name, cleaned and trimmed)
+- "amount": number (positive for credits/deposits, negative for debits/expenses)
+- "category": string (categorize as: "Food & Dining", "Gas & Fuel", "Groceries", "Shopping", "Travel", "Healthcare", "Entertainment", "Bills & Utilities", "Transfer", "Income", "Uncategorized")
+- "type": string ("income" for positive amounts, "expense" for negative amounts, "transfer" for account transfers)
+
+OPTIONAL FIELDS (include if determinable):
+- "vendor": string (clean merchant name if different from description)
+- "subcategory": string (if applicable, e.g., "Coffee" for Food & Dining)
+- "confidence": number 0-1 (confidence in categorization, default 0.8)
+- "reasoning": string (brief explanation of categorization choice)
+- "isVerified": false (always false for new imports)
+
+RULES:
+- Skip headers, page numbers, balances, fees descriptions
+- Convert all dates to YYYY-MM-DD format
+- Use negative amounts for debits/expenses, positive for credits/income
+- Categorize based on merchant/description keywords
+- If unsure about category, use "Uncategorized"
+- Clean up descriptions (remove extra spaces, bank codes)
+- Include ALL transaction rows found
+
+EXAMPLE OUTPUT FORMAT:
+[
+  {
+    "date": "2024-01-15",
+    "description": "STARBUCKS COFFEE #1234",
+    "amount": -5.47,
+    "category": "Food & Dining",
+    "subcategory": "Coffee",
+    "type": "expense",
+    "vendor": "Starbucks",
+    "confidence": 0.95,
+    "reasoning": "Coffee shop expense",
+    "isVerified": false
+  }
+]`;
+  }
+
+  /**
+   * Parse and validate AI response for transaction data
+   */
+  private parseAndValidateAIResponse(responseContent: string): any[] {
+    try {
+      // Clean up common formatting issues in AI responses
+      let cleanedResponse = responseContent.trim();
+      
+      // Remove markdown code blocks if present
+      if (cleanedResponse.includes('```json')) {
+        const parts = cleanedResponse.split('```json');
+        if (parts.length > 1) {
+          cleanedResponse = parts[1];
+        }
+      }
+      if (cleanedResponse.includes('```')) {
+        cleanedResponse = cleanedResponse.split('```')[0];
+      }
+      
+      // Remove any explanatory text before the JSON
+      const jsonMatch = cleanedResponse.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (jsonMatch) {
+        cleanedResponse = jsonMatch[0];
+      }
+      
+      cleanedResponse = cleanedResponse.trim();
+      
+      const transactions = JSON.parse(cleanedResponse);
+      
+      if (!Array.isArray(transactions)) {
+        throw new Error('Response is not an array');
+      }
+      
+      // Validate and normalize each transaction
+      const validatedTransactions = transactions
+        .filter(tx => this.isValidTransactionStructure(tx))
+        .map(tx => this.normalizeTransactionFields(tx));
+      
+      return validatedTransactions;
+    } catch (error) {
+      console.warn('Failed to parse AI response:', error);
+      console.warn('Raw response:', responseContent?.substring(0, 500));
+      return [];
+    }
+  }
+
+  /**
+   * Validate transaction structure has required fields
+   */
+  private isValidTransactionStructure(tx: any): boolean {
+    return (
+      tx &&
+      typeof tx === 'object' &&
+      typeof tx.date === 'string' &&
+      typeof tx.description === 'string' &&
+      typeof tx.amount === 'number' &&
+      tx.date.length > 0 &&
+      tx.description.trim().length > 0
+    );
+  }
+
+  /**
+   * Normalize and add defaults for transaction fields
+   */
+  private normalizeTransactionFields(tx: any): any {
+    const normalized = {
+      ...tx,
+      // Ensure required fields have proper defaults
+      category: tx.category || 'Uncategorized',
+      type: tx.type || (tx.amount >= 0 ? 'income' : 'expense'),
+      confidence: typeof tx.confidence === 'number' ? tx.confidence : 0.7,
+      isVerified: false,
+      // Clean up text fields
+      description: tx.description.trim(),
+      vendor: tx.vendor?.trim() || undefined,
+      subcategory: tx.subcategory?.trim() || undefined,
+      reasoning: tx.reasoning?.trim() || undefined
+    };
+    
+    // Validate and normalize date format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized.date)) {
+      // Try to parse and convert common date formats
+      const parsedDate = this.parseAndNormalizeDate(normalized.date);
+      if (parsedDate) {
+        normalized.date = parsedDate;
+      } else {
+        console.warn(`Invalid date format: ${normalized.date}`);
+        return null; // Invalid transaction
+      }
+    }
+    
+    return normalized;
+  }
+
+  /**
+   * Parse various date formats and normalize to YYYY-MM-DD
+   */
+  private parseAndNormalizeDate(dateStr: string): string | null {
+    try {
+      // Try common formats
+      const formats = [
+        /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/,  // MM/DD/YYYY
+        /^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/,  // YYYY/MM/DD
+        /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2})$/   // MM/DD/YY
+      ];
+      
+      for (const format of formats) {
+        const match = dateStr.match(format);
+        if (match) {
+          let year = parseInt(match[3]);
+          let month = parseInt(format === formats[1] ? match[2] : match[1]);
+          let day = parseInt(format === formats[1] ? match[3] : match[2]);
+          
+          // Handle 2-digit years
+          if (year < 100) {
+            year += year > 50 ? 1900 : 2000;
+          }
+          
+          // Swap month/day for YYYY/MM/DD format
+          if (format === formats[1]) {
+            [month, day] = [day, month];
+          }
+          
+          // Validate ranges
+          if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          }
+        }
+      }
+      
+      // Try built-in Date parsing as last resort
+      const parsed = new Date(dateStr);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().split('T')[0];
+      }
+      
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Convert already-extracted PDF rows into Transaction-like raw rows for further processing
+   * Now handles comprehensive transaction structure with AI-generated fields
    */
   private convertPDFRowsToTransactions(rawRows: any[]): any[] {
     if (!Array.isArray(rawRows)) return [];
+    
     return rawRows
       .filter(r => r && r.date && r.description && typeof r.amount !== 'undefined')
       .map(r => ({
+        // Core transaction fields (required)
         date: r.date,
         description: String(r.description).trim(),
         amount: r.amount,
-        notes: r.notes || ''
+        
+        // AI-enhanced fields (optional but valuable)
+        category: r.category || 'Uncategorized',
+        subcategory: r.subcategory || undefined,
+        type: r.type || (r.amount >= 0 ? 'income' : 'expense'),
+        vendor: r.vendor || undefined,
+        
+        // AI metadata fields
+        confidence: r.confidence || undefined,
+        reasoning: r.reasoning || undefined,
+        isVerified: false, // Always false for new imports
+        
+        // Preserve any other fields from AI response
+        notes: r.notes || '',
+        originalText: `${r.description} ${r.amount}`, // For reference
+        
+        // Fields that will be set later in processing pipeline
+        // account, id, addedDate, lastModifiedDate will be set by upstream processing
       }));
   }
 

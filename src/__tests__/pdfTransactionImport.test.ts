@@ -109,29 +109,38 @@ describe('PDF Transaction Import', () => {
     const transactions = await service.extractTransactionsFromPDFWithAI(mockPDFText);
     
     expect(azureOpenAIService.makeRequest).toHaveBeenCalledWith(
-      expect.stringContaining('Extract bank statement transactions as pure JSON array'),
-      2000
+      expect.stringContaining('TRANSACTION EXTRACTION SCHEMA'),
+      3000
     );
     
     expect(transactions).toHaveLength(3);
-    expect(transactions[0]).toEqual({
+    expect(transactions[0]).toEqual(expect.objectContaining({
       date: '2024-01-15',
       description: 'STARBUCKS STORE #123',
       amount: -4.85,
-      category: 'Food & Dining'
-    });
-    expect(transactions[1]).toEqual({
+      category: 'Food & Dining',
+      confidence: expect.any(Number),
+      type: 'expense',
+      isVerified: false
+    }));
+    expect(transactions[1]).toEqual(expect.objectContaining({
       date: '2024-01-16',
       description: 'GROCERY OUTLET', 
       amount: -25.40,
-      category: 'Groceries'
-    });
-    expect(transactions[2]).toEqual({
+      category: 'Groceries',
+      confidence: expect.any(Number),
+      type: 'expense',
+      isVerified: false
+    }));
+    expect(transactions[2]).toEqual(expect.objectContaining({
       date: '2024-01-17',
       description: 'DEPOSIT - PAYCHECK',
       amount: 2500.00,
-      category: 'Income'
-    });
+      category: 'Income',
+      confidence: expect.any(Number),
+      type: 'income',
+      isVerified: false
+    }));
   });
 
   test('should handle AI extraction failures gracefully', async () => {
@@ -272,12 +281,15 @@ describe('PDF Transaction Import', () => {
     const transactions = await service.extractTransactionsFromPDFWithAI(mockPDFText);
     
     expect(transactions).toHaveLength(1);
-    expect(transactions[0]).toEqual({
+    expect(transactions[0]).toEqual(expect.objectContaining({
       date: '2024-01-15',
       description: 'TEST TRANSACTION',
       amount: -10.00,
-      category: 'Test'
-    });
+      category: 'Test',
+      confidence: expect.any(Number),
+      type: 'expense',
+      isVerified: false
+    }));
     
     // Restore the mock
     mockMarkdownResponse.mockRestore();
