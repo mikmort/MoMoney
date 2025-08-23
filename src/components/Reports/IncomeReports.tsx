@@ -15,13 +15,6 @@ import TransactionDetailsModal, { TransactionFilter } from './TransactionDetails
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { dataService } from '../../services/dataService';
 import { Transaction } from '../../types';
-import { defaultCategories } from '../../data/defaultCategories';
-
-// Utility function to get category type from defaultCategories
-const getCategoryType = (categoryName: string): 'income' | 'expense' | 'transfer' | 'asset-allocation' | null => {
-  const category = defaultCategories.find(cat => cat.name === categoryName);
-  return category ? category.type : null;
-};
 
 const IncomeContainer = styled.div`
   .date-range-selector {
@@ -185,16 +178,6 @@ const IncomeReports: React.FC = () => {
       setDefaultCurrency(await currencyDisplayService.getDefaultCurrency());
     })();
   }, []);
-
-  // Auto-select income categories by default when uniqueCategories changes
-  useEffect(() => {
-    if (uniqueCategories.length > 0 && selectedCategories.length === 0) {
-      const incomeCategories = uniqueCategories.filter(category => 
-        getCategoryType(category) === 'income'
-      );
-      setSelectedCategories(incomeCategories);
-    }
-  }, [uniqueCategories, selectedCategories.length]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
