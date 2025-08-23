@@ -35,7 +35,7 @@
   },
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/static/**", "*.{css,scss,js,ts,tsx,png,gif,jpg,svg}"]
+    "exclude": ["/static/**", "*.css", "*.scss", "*.js", "*.ts", "*.tsx", "*.png", "*.gif", "*.jpg", "*.svg"]
   },
   "platformErrorOverrides": [
     {
