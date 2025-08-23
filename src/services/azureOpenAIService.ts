@@ -89,8 +89,14 @@ export class AzureOpenAIService {
       this.disabledReason = this.computeDisabledReason();
       console.info(`AzureOpenAIService disabled: ${this.disabledReason}`);
     } else {
-      // Kick off async validation (non-blocking). If primary deployment missing, swap to first available fallback.
-      this.validatePrimaryDeployment();
+      // In Jest/test environment skip network validation to avoid timeouts & CORS errors.
+      const isTestEnv = typeof process !== 'undefined' && !!(process as any).env?.JEST_WORKER_ID;
+      if (!isTestEnv) {
+        // Kick off async validation (non-blocking). If primary deployment missing, swap to first available fallback.
+        this.validatePrimaryDeployment();
+      } else {
+        // Test environment: skip network validation but keep AI enabled so mocks & fallback logic work
+      }
     }
   }
 
@@ -965,14 +971,12 @@ ${JSON.stringify(chunk, null, 2)}`;
     try {
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
+        messages: [ { role: 'user', content: prompt } ],
         max_tokens: maxTokens,
         temperature: 0.1
       };
 
-  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
+      const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
       
       if (!response.success || !response.data) {
         throw new Error(response.error || 'No response from OpenAI proxy');
@@ -986,6 +990,41 @@ ${JSON.stringify(chunk, null, 2)}`;
       return responseContent.trim();
     } catch (error) {
       console.error('Error making OpenAI proxy request:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Low-level multi-message chat request allowing larger overall context by splitting
+   * across multiple <4000 char messages (proxy enforces per-message limit) while still
+   * leveraging a 16k+ token model window.
+   */
+  async makeChatRequest(messages: { role: 'system' | 'user'; content: string }[], maxTokens: number = 1000, opts?: { attempts?: number; baseBackoffMs?: number }): Promise<string> {
+    if (this.disabledReason) return 'AI disabled';
+    if (!messages.length) throw new Error('No messages provided');
+    // Enforce per-message character safety margin (proxy limit 4000)
+    const HARD_LIMIT = 4000;
+    messages.forEach(m => {
+      if (m.content.length > HARD_LIMIT) {
+        throw new Error(`Message exceeds proxy character limit (${HARD_LIMIT})`);
+      }
+    });
+    try {
+      const proxyRequest: OpenAIProxyRequest = {
+        deployment: this.deploymentName,
+        messages,
+        max_tokens: maxTokens,
+        temperature: 0.1
+      };
+      const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: opts?.attempts ?? 4, baseBackoffMs: opts?.baseBackoffMs ?? 500 });
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'No response from OpenAI proxy');
+      }
+      const responseContent = response.data.choices[0]?.message?.content;
+      if (!responseContent) throw new Error('No response content from OpenAI proxy');
+      return responseContent.trim();
+    } catch (error) {
+      console.error('Error making multi-message OpenAI proxy request:', error);
       throw error;
     }
   }
