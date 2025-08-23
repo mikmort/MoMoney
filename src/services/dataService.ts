@@ -295,8 +295,8 @@ class DataService {
       {
         date: new Date('2025-07-31'),
         description: 'Payroll Deposit - ABC Corp',
-        category: 'Income',
-        subcategory: 'Salary',
+        category: 'Salary & Wages',
+        subcategory: 'Primary Job',
         amount: 2500.00,
         account: 'Chase Checking',
         type: 'income',
