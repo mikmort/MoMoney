@@ -285,7 +285,22 @@ In the Azure portal, add these application settings:
 - `REACT_APP_AZURE_OPENAI_DEPLOYMENT`
 - `REACT_APP_AZURE_AD_CLIENT_ID`
 
-### 3. Update Redirect URI
+### 3. Configure GitHub Repository Secrets
+
+For automated deployment via GitHub Actions, add these repository secrets in **Settings → Secrets and variables → Actions**:
+
+- `AZURE_STATIC_WEB_APPS_API_TOKEN` - The API token from your Azure Static Web App
+  - Find this in Azure Portal → Your Static Web App → Overview → "Manage deployment token"
+- `REACT_APP_AZURE_OPENAI_ENDPOINT` - Your Azure OpenAI endpoint URL
+- `REACT_APP_AZURE_OPENAI_API_KEY` - Your Azure OpenAI API key
+- `REACT_APP_AZURE_OPENAI_DEPLOYMENT` - Your OpenAI model deployment name (e.g., "gpt-4o")
+- `REACT_APP_AZURE_AD_CLIENT_ID` - Your Azure AD application client ID
+- `REACT_APP_AZURE_AD_AUTHORITY` - Azure AD authority (e.g., "https://login.microsoftonline.com/common")
+- `REACT_APP_REDIRECT_URI` - Your production app URL (e.g., "https://your-app-name.azurestaticapps.net")
+
+**Note**: If these secrets are not configured, the CI/CD pipeline will continue to run and build the application, but deployment will be skipped. This is useful for forks or development environments where deployment is not needed.
+
+### 4. Update Redirect URI
 
 Update your Azure AD app registration redirect URI to include your production URL:
 - `https://your-app-name.azurestaticapps.net`
