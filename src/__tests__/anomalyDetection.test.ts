@@ -6,6 +6,7 @@ global.fetch = jest.fn();
 
 describe('Anomaly Detection', () => {
   let service: AzureOpenAIService;
+  let originalEnv: any;
   
   const mockTransactions = [
     {
@@ -31,11 +32,24 @@ describe('Anomaly Detection', () => {
   ];
 
   beforeEach(() => {
+    // Store original environment
+    originalEnv = process.env.REACT_APP_OPENAI_PROXY_URL;
+    
+    // Set proxy URL to enable the service for most tests
+    process.env.REACT_APP_OPENAI_PROXY_URL = '/api/openai/chat/completions';
+    
     service = new AzureOpenAIService();
     jest.clearAllMocks();
   });
 
   afterEach(() => {
+    // Restore original environment
+    if (originalEnv !== undefined) {
+      process.env.REACT_APP_OPENAI_PROXY_URL = originalEnv;
+    } else {
+      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+    }
+    
     jest.resetAllMocks();
   });
 
@@ -48,12 +62,15 @@ describe('Anomaly Detection', () => {
       // Clear proxy URL to trigger dev mode fallback
       delete process.env.REACT_APP_OPENAI_PROXY_URL;
       delete process.env.REACT_APP_FUNCTION_BASE_URL;
+      
+      // Create a new service instance with disabled configuration
+      const devService = new AzureOpenAIService();
 
       const request: AnomalyDetectionRequest = {
         transactions: mockTransactions
       };
 
-      const result = await service.detectAnomalies(request);
+      const result = await devService.detectAnomalies(request);
 
       expect(result.anomalies).toHaveLength(1);
       expect(result.anomalies[0].transaction).toEqual(mockTransactions[0]);

@@ -6,6 +6,7 @@ global.fetch = jest.fn();
 
 describe('PII Sanitization in Azure OpenAI Service', () => {
   let service: AzureOpenAIService;
+  let originalEnv: any;
   const mockCategories = [
     {
       id: 'food-dining',
@@ -23,11 +24,24 @@ describe('PII Sanitization in Azure OpenAI Service', () => {
   ];
 
   beforeEach(() => {
+    // Store original environment
+    originalEnv = process.env.REACT_APP_OPENAI_PROXY_URL;
+    
+    // Set proxy URL to enable the service
+    process.env.REACT_APP_OPENAI_PROXY_URL = '/api/openai/chat/completions';
+    
     service = new AzureOpenAIService();
     jest.clearAllMocks();
   });
 
   afterEach(() => {
+    // Restore original environment
+    if (originalEnv !== undefined) {
+      process.env.REACT_APP_OPENAI_PROXY_URL = originalEnv;
+    } else {
+      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+    }
+    
     jest.resetAllMocks();
   });
 
