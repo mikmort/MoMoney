@@ -304,10 +304,25 @@ class ReportsService {
     const expenseCategories = this.getCategoriesOfType('expense');
     let expenseTransactions: Transaction[];
     
-    // If the user explicitly filtered by categories, use only those that are also expense categories
+    // If the user explicitly filtered by categories, use only those that are also expense categories OR custom categories with expense transactions
     if (selectedCategoryFilter && selectedCategoryFilter.length > 0) {
-      // Only include explicitly filtered categories if they are also expense categories
-      const validExpenseCategoriesFromFilter = selectedCategoryFilter.filter(cat => expenseCategories.includes(cat));
+      // Only include explicitly filtered categories if they are also expense categories OR custom categories
+      const validExpenseCategoriesFromFilter = selectedCategoryFilter.filter(cat => {
+        // If it's a predefined expense category, include it
+        if (expenseCategories.includes(cat)) {
+          return true;
+        }
+        
+        // If it's a custom category (not in defaultCategories), include it only if it has expense-like transactions
+        const isDefinedCategory = defaultCategories.some(defCat => defCat.name === cat);
+        if (!isDefinedCategory) {
+          // Custom category - include it (we'll rely on transaction filtering to ensure only expense transactions are included)
+          return true;
+        }
+        
+        // If it's a defined non-expense category (like Income), exclude it
+        return false;
+      });
       // Filter transactions by only these valid expense categories
       expenseTransactions = transactions.filter(t => validExpenseCategoriesFromFilter.includes(t.category));
     } else {
