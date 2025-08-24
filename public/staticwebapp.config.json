@@ -35,7 +35,18 @@
   },
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/static/*", "*.css", "*.scss", "*.js", "*.ts", "*.tsx", "*.png", "*.gif", "*.jpg", "*.svg"]
+    "exclude": [
+      "/static/*",
+      "*.css",
+      "*.scss",
+      "*.js",
+      "*.ts",
+      "*.tsx",
+      "*.png",
+      "*.gif",
+      "*.jpg",
+      "*.svg"
+    ]
   },
   "platformErrorOverrides": [
     {
@@ -43,11 +54,6 @@
       "serve": "/login.html"
     }
   ],
-  "forwardingGateway": {
-    "requiredHeaders": {
-      "x-azure-fdid": ""
-    }
-  },
   "trailingSlash": "auto",
   "responseOverriding": {
     "/index.html": {
