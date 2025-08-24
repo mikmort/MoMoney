@@ -1,4 +1,4 @@
-import { AttachedFile, ReceiptProcessingRequest, ReceiptProcessingResponse, Transaction, DuplicateTransaction } from '../types';
+import { AttachedFile, ReceiptProcessingRequest, ReceiptProcessingResponse, Transaction, DuplicateTransaction, Category } from '../types';
 import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
 import { accountManagementService } from './accountManagementService';
@@ -11,6 +11,22 @@ import { v4 as uuidv4 } from 'uuid';
  */
 class ReceiptProcessingService {
   private fileStorage = new Map<string, AttachedFile>(); // In-memory storage, will move to IndexedDB
+  private static readonly CATEGORIES_STORAGE_KEY = 'mo-money-categories';
+
+  /**
+   * Get all available categories (custom from localStorage or defaults)
+   */
+  private getAvailableCategories(): Category[] {
+    try {
+      const saved = localStorage.getItem(ReceiptProcessingService.CATEGORIES_STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (error) {
+      console.warn('Failed to load custom categories from localStorage, using defaults:', error);
+    }
+    return defaultCategories;
+  }
 
   /**
    * Process a receipt/invoice file and extract transaction data
@@ -219,8 +235,11 @@ Focus on finding:
     // Map category name to category ID with improved matching
     let categoryName = extractedData.category || 'Uncategorized';
     
+    // Get categories from database (localStorage) or defaults as fallback
+    const availableCategories = this.getAvailableCategories();
+    
     // First try exact match on category names
-    let matchedCategory = defaultCategories.find(cat => 
+    let matchedCategory = availableCategories.find(cat => 
       cat.name.toLowerCase() === categoryName.toLowerCase()
     );
     
@@ -231,7 +250,7 @@ Focus on finding:
       const lowerCategoryName = categoryName.toLowerCase();
       let matchedSubcategory = null;
       
-      for (const cat of defaultCategories) {
+      for (const cat of availableCategories) {
         const sub = cat.subcategories?.find(sub => 
           sub.name.toLowerCase() === lowerCategoryName ||
           // Handle common variations
@@ -252,7 +271,7 @@ Focus on finding:
         let bestMatch = null;
         let bestScore = 0;
         
-        for (const cat of defaultCategories) {
+        for (const cat of availableCategories) {
           for (const sub of cat.subcategories || []) {
             if (sub.keywords) {
               const matchCount = sub.keywords.filter(keyword => 

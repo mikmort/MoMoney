@@ -547,7 +547,7 @@ class ReportsService {
       expenseTransactions = await this.filterTransactionsForReportsLegacy(converted, 'expense', includeTransfers);
     }
     
-    const totalIncome = incomeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const totalIncome = incomeTransactions.reduce((sum, t) => sum + t.amount, 0);
     const totalExpenses = expenseTransactions.reduce((sum, t) => sum + (-t.amount), 0);
 
     const netIncome = totalIncome - totalExpenses;

@@ -3,9 +3,9 @@ import styled from 'styled-components';
 import { CategoryRule, RuleCondition } from '../../types';
 import { dataService } from '../../services/dataService';
 import { rulesService } from '../../services/rulesService';
-import { defaultCategories } from '../../data/defaultCategories';
 import { Button, Card, PageHeader, FlexBox } from '../../styles/globalStyles';
 import { useNotification } from '../../contexts/NotificationContext';
+import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 import { DeleteRulesDialog } from './DeleteRulesDialog';
 
 const RulesContainer = styled.div`
@@ -212,6 +212,7 @@ const StatsCard = styled(Card)`
 
 const Rules: React.FC = () => {
   const { showAlert, showConfirmation } = useNotification();
+  const { categories } = useCategoriesManager();
   const [rules, setRules] = useState<CategoryRule[]>([]);
   const [isAddingRule, setIsAddingRule] = useState(false);
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
@@ -577,7 +578,7 @@ const Rules: React.FC = () => {
                   onChange={(e) => setNewRule({ ...newRule, categoryName: e.target.value, subcategoryName: '' })}
                 >
                   <option value="">Select Category</option>
-                  {defaultCategories.map(cat => (
+                  {categories.map(cat => (
                     <option key={cat.id} value={cat.name}>{cat.name}</option>
                   ))}
                 </Select>
@@ -592,7 +593,7 @@ const Rules: React.FC = () => {
                 >
                   <option value="">Select Subcategory (Optional)</option>
                   {newRule.categoryName && 
-                    defaultCategories
+                    categories
                       .find(cat => cat.name === newRule.categoryName)
                       ?.subcategories.map(sub => (
                         <option key={sub.id} value={sub.name}>{sub.name}</option>

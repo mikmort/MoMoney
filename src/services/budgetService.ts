@@ -1,5 +1,6 @@
 import { Budget, Transaction, Category, BudgetViewPeriod } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { isExpenseCategory } from '../utils/categoryTypeUtils';
 
 class BudgetService {
   private budgets: Budget[] = [];
@@ -244,12 +245,12 @@ class BudgetService {
       const isSubcategory = transactionCategory && transactionCategory.startsWith(categoryName + ' →');
       
       return (isMainCategory || isSubcategory) &&
-             t.type === 'expense' &&
+             isExpenseCategory(t.category) &&
              t.date >= startDate &&
              t.date <= endDate;
     });
 
-    const actualSpent = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    const actualSpent = categoryTransactions.reduce((sum, t) => sum + (-t.amount), 0); // Flip sign to make expenses positive
     const percentage = (actualSpent / budget.amount) * 100;
     const remaining = budget.amount - actualSpent;
 

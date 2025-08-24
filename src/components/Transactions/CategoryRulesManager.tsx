@@ -3,8 +3,8 @@ import styled from 'styled-components';
 import { CategoryRule, RuleCondition } from '../../types';
 import { dataService } from '../../services/dataService';
 import { rulesService } from '../../services/rulesService';
-import { defaultCategories } from '../../data/defaultCategories';
 import { Button, Card } from '../../styles/globalStyles';
+import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 
 const RulesContainer = styled.div`
   margin-top: 20px;
@@ -178,6 +178,7 @@ export const CategoryRulesManager: React.FC<CategoryRulesManagerProps> = ({
   isVisible,
   onClose,
 }) => {
+  const { categories } = useCategoriesManager();
   const [rules, setRules] = useState<CategoryRule[]>([]);
   const [isAddingRule, setIsAddingRule] = useState(false);
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
@@ -410,7 +411,7 @@ export const CategoryRulesManager: React.FC<CategoryRulesManagerProps> = ({
                 onChange={(e) => setNewRule({ ...newRule, categoryName: e.target.value, subcategoryName: '' })}
               >
                 <option value="">Select Category</option>
-                {defaultCategories.map(cat => (
+                {categories.map(cat => (
                   <option key={cat.id} value={cat.name}>{cat.name}</option>
                 ))}
               </Select>
@@ -425,7 +426,7 @@ export const CategoryRulesManager: React.FC<CategoryRulesManagerProps> = ({
               >
                 <option value="">Select Subcategory (Optional)</option>
                 {newRule.categoryName && 
-                  defaultCategories
+                  categories
                     .find(cat => cat.name === newRule.categoryName)
                     ?.subcategories.map(sub => (
                       <option key={sub.id} value={sub.name}>{sub.name}</option>

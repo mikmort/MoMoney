@@ -4,6 +4,7 @@ import { db, initializeDB, performPostInitHealthCheck, TransactionHistoryEntry, 
 import { rulesService } from './rulesService';
 import { transferMatchingService } from './transferMatchingService';
 import { notificationService } from './notificationService';
+import { isIncomeCategory, isExpenseCategory } from '../utils/categoryTypeUtils';
 
 // Global flag to prevent multiple simultaneous initializations
 let isInitializationInProgress = false;
@@ -1479,13 +1480,14 @@ class DataService {
     };
 
     this.transactions.forEach(transaction => {
-      if (transaction.type === 'income' || transaction.amount > 0) {
-        stats.totalIncome += Math.abs(transaction.amount);
-      } else {
-        stats.totalExpenses += Math.abs(transaction.amount);
+      if (isIncomeCategory(transaction.category)) {
+        stats.totalIncome += transaction.amount;
+      } else if (isExpenseCategory(transaction.category)) {
+        stats.totalExpenses += (-transaction.amount); // Flip sign to make expenses positive
       }
 
       const category = transaction.category;
+      // For category totals, use absolute value to show total activity regardless of type
       stats.categories[category] = (stats.categories[category] || 0) + Math.abs(transaction.amount);
     });
 
