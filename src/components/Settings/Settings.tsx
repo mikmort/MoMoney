@@ -7,6 +7,7 @@ import { simplifiedImportExportService, ExportData, ImportOptions } from '../../
 import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { currencyExchangeService } from '../../services/currencyExchangeService';
 import { backupService } from '../../services/backupService';
+import { azureBlobService } from '../../services/azureBlobService';
 import { useNotification } from '../../contexts/NotificationContext';
 import { UserPreferences, CurrencyExchangeRate } from '../../types';
 import { BackupMetadata } from '../../types/backup';
@@ -443,6 +444,12 @@ const Settings: React.FC = () => {
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
   const [isDeletingBackup, setIsDeletingBackup] = useState(false);
   
+  // Cloud sync state
+  const [isUploadingToCloud, setIsUploadingToCloud] = useState(false);
+  const [isDownloadingFromCloud, setIsDownloadingFromCloud] = useState(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<string>('');
+  const [isAutoSyncActive, setIsAutoSyncActive] = useState(false);
+  
   // Import selection dialog state
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [pendingImportData, setPendingImportData] = useState<ExportData | null>(null);
@@ -800,6 +807,87 @@ const Settings: React.FC = () => {
     }
   };
 
+  // Cloud sync functions
+  const handleUploadToCloud = async () => {
+    setIsUploadingToCloud(true);
+    setCloudSyncStatus('Uploading data to cloud...');
+    
+    try {
+      const result = await azureBlobService.forceUpload();
+      if (result.success) {
+        setCloudSyncStatus('');
+        showAlert('success', result.message, 'Cloud Upload Complete');
+      } else {
+        setCloudSyncStatus('');
+        showAlert('error', result.message, 'Cloud Upload Failed');
+      }
+    } catch (error) {
+      console.error('Cloud upload error:', error);
+      setCloudSyncStatus('');
+      showAlert('error', 'Failed to upload data to cloud. Please check your connection and try again.');
+    } finally {
+      setIsUploadingToCloud(false);
+    }
+  };
+
+  const handleDownloadFromCloud = async () => {
+    const shouldDownload = await showConfirmation(
+      'Download data from cloud?\n\n' +
+      'This will replace your current local data with the data stored in Azure Blob Storage.\n' +
+      'Make sure you have a backup of your current data before proceeding.\n\n' +
+      'Continue?',
+      { 
+        title: 'Download from Cloud',
+        confirmText: 'Download & Replace',
+        cancelText: 'Cancel'
+      }
+    );
+    
+    if (!shouldDownload) return;
+    
+    setIsDownloadingFromCloud(true);
+    setCloudSyncStatus('Downloading data from cloud...');
+    
+    try {
+      const result = await azureBlobService.forceDownload();
+      if (result.success) {
+        setCloudSyncStatus('');
+        showAlert('success', result.message + '\n\nThe page will refresh to load the restored data.', 'Cloud Download Complete', { autoClose: false });
+        setTimeout(() => window.location.reload(), 3000);
+      } else {
+        setCloudSyncStatus('');
+        showAlert('error', result.message, 'Cloud Download Failed');
+      }
+    } catch (error) {
+      console.error('Cloud download error:', error);
+      setCloudSyncStatus('');
+      showAlert('error', 'Failed to download data from cloud. Please check your connection and try again.');
+    } finally {
+      setIsDownloadingFromCloud(false);
+    }
+  };
+
+  // Cloud sync control functions
+  const handleStartAutoSync = async () => {
+    try {
+      setCloudSyncStatus('Starting automatic sync...');
+      await azureBlobService.startSync();
+      setIsAutoSyncActive(true);
+      setCloudSyncStatus('');
+      showAlert('success', 'Automatic cloud sync started successfully!');
+    } catch (error) {
+      console.error('Start sync error:', error);
+      setCloudSyncStatus('');
+      showAlert('error', 'Failed to start automatic sync. Please check CORS configuration.');
+    }
+  };
+
+  const handleStopAutoSync = () => {
+    azureBlobService.stopSync();
+    setIsAutoSyncActive(false);
+    showAlert('success', 'Automatic cloud sync stopped.');
+  };
+
   // Backup management functions
   const loadBackupList = async () => {
     setIsLoadingBackups(true);
@@ -1081,6 +1169,74 @@ const Settings: React.FC = () => {
         <p>Manage your transaction data and application state.</p>
         
         <div style={{ marginBottom: '20px' }}>
+          <h4>☁️ Cloud Storage</h4>
+          <p>Automatically sync your data to Azure Blob Storage every 30 seconds when changes are detected.</p>
+          
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
+            <Button 
+              onClick={handleUploadToCloud}
+              disabled={isUploadingToCloud}
+              style={{ background: '#0078D4', borderColor: '#0078D4', color: 'white', minWidth: '140px' }}
+            >
+              {isUploadingToCloud ? 'Uploading...' : '☁️ Upload to Cloud'}
+            </Button>
+
+            <Button 
+              onClick={handleDownloadFromCloud}
+              disabled={isDownloadingFromCloud}
+              style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white', minWidth: '140px' }}
+            >
+              {isDownloadingFromCloud ? 'Downloading...' : '📥 Download from Cloud'}
+            </Button>
+
+            {!isAutoSyncActive ? (
+              <Button 
+                onClick={handleStartAutoSync}
+                style={{ background: '#FF9800', borderColor: '#FF9800', color: 'white', minWidth: '140px' }}
+              >
+                🔄 Start Auto Sync
+              </Button>
+            ) : (
+              <Button 
+                onClick={handleStopAutoSync}
+                style={{ background: '#F44336', borderColor: '#F44336', color: 'white', minWidth: '140px' }}
+              >
+                ⏹️ Stop Auto Sync
+              </Button>
+            )}
+          </div>
+          
+          {cloudSyncStatus && (
+            <div style={{ marginTop: '12px', padding: '8px 12px', background: '#e3f2fd', borderRadius: '4px', fontSize: '14px', color: '#1976d2' }}>
+              {cloudSyncStatus}
+            </div>
+          )}
+
+          <div style={{ marginTop: '12px', fontSize: '14px', color: isAutoSyncActive ? '#4CAF50' : '#666' }}>
+            {isAutoSyncActive ? '🔄 Auto sync active - syncing every 30 seconds' : '⏸️ Auto sync disabled - use manual buttons to sync'}
+          </div>
+          
+          <div style={{ marginTop: '12px', padding: '12px', background: '#f3e5f5', borderRadius: '6px', fontSize: '14px', color: '#7b1fa2' }}>
+            <div style={{ marginBottom: '8px' }}>
+              <strong>🔗 Cloud Storage URL:</strong>
+            </div>
+            <div style={{ fontFamily: 'monospace', fontSize: '12px', background: 'white', padding: '6px 8px', borderRadius: '4px', wordBreak: 'break-all', border: '1px solid #e0e0e0' }}>
+              <a 
+                href={azureBlobService.getBlobUrl()} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ color: '#7b1fa2', textDecoration: 'none' }}
+              >
+                {azureBlobService.getBlobUrl()}
+              </a>
+            </div>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+              💡 Your data is automatically synced to this location every 30 seconds when changes are detected. Manual sync buttons above for immediate upload/download.
+            </div>
+          </div>
+        </div>
+        
+        <div style={{ marginBottom: '20px' }}>
           <h4>📦 Backup & Restore</h4>
           <p>Export all your data to a structured backup file, or restore from a previous backup.</p>
           
@@ -1202,7 +1358,8 @@ const Settings: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ marginBottom: '20px' }}>
+        {/* Data Cleanup section - temporarily hidden */}
+        <div style={{ marginBottom: '20px', display: 'none' }}>
           <h4>🧹 Data Cleanup</h4>
           <p>Scan and remove exact duplicate transactions saved in your local database.</p>
           <Button onClick={handleScanAndRemoveDuplicates} disabled={isDeduping}>

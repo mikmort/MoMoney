@@ -237,54 +237,92 @@ const IncomeReports: React.FC = () => {
     try {
       const currentRange = getCurrentDateRange();
       
-      // Combine selected income and expense categories for filtering
+      // Create separate filter objects for different purposes
+      
+      // 1. Income-only filters for Income Sources and main Income calculation
+      const incomeFilters: ReportsFilters = {
+        dateRange: currentRange,
+        selectedTypes: selectedIncomeTypes,
+        selectedCategories: selectedIncomeCategories.length > 0 ? selectedIncomeCategories : undefined,
+        selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
+      };
+      
+      // 2. Combined filters for Income vs Expenses chart (needs both income and expense filters)
       const allSelectedCategories = [
         ...selectedIncomeCategories,
         ...selectedExpenseCategories
       ];
-      
-      // Create comprehensive filters object
-      const filters: ReportsFilters = {
+      const combinedFilters: ReportsFilters = {
         dateRange: currentRange,
         selectedTypes: selectedIncomeTypes,
         selectedCategories: allSelectedCategories.length > 0 ? allSelectedCategories : undefined,
         selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
       };
       
-      // Get the raw data first
-      const [trendsData, analysisData, incomeSourcesData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(filters),
-        reportsService.getIncomeExpenseAnalysis(filters),
-        reportsService.getIncomeByCategory(filters)
+      // Get the data with appropriate filters
+      const [trendsData, incomeOnlyAnalysis, combinedAnalysis, incomeSourcesData] = await Promise.all([
+        reportsService.getMonthlySpendingTrends(combinedFilters), // Use combined for Income vs Expenses chart
+        reportsService.getIncomeExpenseAnalysis(incomeFilters),   // Use income-only for main Income value
+        reportsService.getIncomeExpenseAnalysis(combinedFilters), // Use combined for filtered Savings calculation
+        reportsService.getIncomeByCategory(incomeFilters)         // Use income-only for Income Sources
       ]);
       
+      // Create custom analysis that uses income-only for income and combined for expenses/savings
+      const customAnalysis: IncomeExpenseAnalysis = {
+        totalIncome: incomeOnlyAnalysis.totalIncome,              // Only based on income category filters
+        totalExpenses: combinedAnalysis.totalExpenses,           // Based on expense category filters
+        netIncome: incomeOnlyAnalysis.totalIncome - combinedAnalysis.totalExpenses, // Savings calculation
+        incomeToExpenseRatio: combinedAnalysis.totalExpenses > 0 ? incomeOnlyAnalysis.totalIncome / combinedAnalysis.totalExpenses : 0,
+        expenseToIncomeRatio: incomeOnlyAnalysis.totalIncome > 0 ? combinedAnalysis.totalExpenses / incomeOnlyAnalysis.totalIncome : 0,
+        savingsRate: incomeOnlyAnalysis.totalIncome > 0 ? ((incomeOnlyAnalysis.totalIncome - combinedAnalysis.totalExpenses) / incomeOnlyAnalysis.totalIncome) * 100 : 0
+      };
+      
       setMonthlyTrends(trendsData);
-      setIncomeExpenseAnalysis(analysisData);
+      setIncomeExpenseAnalysis(customAnalysis);
       setIncomeSources(incomeSourcesData);
     } catch (error) {
       console.error('Error loading income data:', error);
       // Fallback to basic data if income-specific methods don't exist
       const currentRange = getCurrentDateRange();
       
-      // Combine selected categories for fallback too
+      // Create the same separate filters for fallback
+      const incomeFilters: ReportsFilters = {
+        dateRange: currentRange,
+        selectedTypes: selectedIncomeTypes,
+        selectedCategories: selectedIncomeCategories.length > 0 ? selectedIncomeCategories : undefined,
+        selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
+      };
+
       const allSelectedCategories = [
         ...selectedIncomeCategories,
         ...selectedExpenseCategories
       ];
       
-      const filters: ReportsFilters = {
+      const combinedFilters: ReportsFilters = {
         dateRange: currentRange,
         selectedTypes: selectedIncomeTypes,
         selectedCategories: allSelectedCategories.length > 0 ? allSelectedCategories : undefined,
         selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
       };
-      const [trendsData, analysisData] = await Promise.all([
-        reportsService.getMonthlySpendingTrends(filters),
-        reportsService.getIncomeExpenseAnalysis(filters)
+
+      const [trendsData, incomeOnlyAnalysis, combinedAnalysis] = await Promise.all([
+        reportsService.getMonthlySpendingTrends(combinedFilters),
+        reportsService.getIncomeExpenseAnalysis(incomeFilters),
+        reportsService.getIncomeExpenseAnalysis(combinedFilters)
       ]);
+
+      // Create custom analysis combining income-only data with combined data
+      const customAnalysis = {
+        totalIncome: incomeOnlyAnalysis.totalIncome,
+        totalExpenses: combinedAnalysis.totalExpenses,
+        netIncome: incomeOnlyAnalysis.totalIncome - combinedAnalysis.totalExpenses,
+        incomeToExpenseRatio: combinedAnalysis.totalExpenses > 0 ? incomeOnlyAnalysis.totalIncome / combinedAnalysis.totalExpenses : 0,
+        expenseToIncomeRatio: incomeOnlyAnalysis.totalIncome > 0 ? combinedAnalysis.totalExpenses / incomeOnlyAnalysis.totalIncome : 0,
+        savingsRate: incomeOnlyAnalysis.totalIncome > 0 ? ((incomeOnlyAnalysis.totalIncome - combinedAnalysis.totalExpenses) / incomeOnlyAnalysis.totalIncome) * 100 : 0
+      };
       
       setMonthlyTrends(trendsData);
-      setIncomeExpenseAnalysis(analysisData);
+      setIncomeExpenseAnalysis(customAnalysis);
       setIncomeSources([]);
     }
   }, [getCurrentDateRange, selectedIncomeTypes, selectedIncomeCategories, selectedExpenseCategories, selectedAccounts]);
