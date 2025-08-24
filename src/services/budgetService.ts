@@ -1,6 +1,7 @@
 import { Budget, Transaction, Category, BudgetViewPeriod } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { isExpenseCategory } from '../utils/categoryTypeUtils';
+import { currencyDisplayService } from './currencyDisplayService';
 
 class BudgetService {
   private budgets: Budget[] = [];
@@ -216,7 +217,7 @@ class BudgetService {
   /**
    * Calculate budget progress for a specific budget
    */
-  calculateBudgetProgress(budget: Budget, transactions: Transaction[], categories: Category[], forMonth?: { year: number; month: number }): {
+  async calculateBudgetProgress(budget: Budget, transactions: Transaction[], categories: Category[], forMonth?: { year: number; month: number }): Promise<{
     budgetId: string;
     categoryName: string;
     budgetAmount: number;
@@ -227,7 +228,7 @@ class BudgetService {
     daysInPeriod: number;
     daysRemaining: number;
     transactions: Transaction[];
-  } {
+  }> {
     const category = categories.find(c => c.id === budget.categoryId);
     const categoryName = category?.name || 'Unknown Category';
 
@@ -250,7 +251,10 @@ class BudgetService {
              t.date <= endDate;
     });
 
-    const actualSpent = categoryTransactions.reduce((sum, t) => sum + (-t.amount), 0); // Flip sign to make expenses positive
+    // Convert transactions to default currency for accurate budget calculations
+    const convertedCategoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactions);
+
+    const actualSpent = convertedCategoryTransactions.reduce((sum, t) => sum + (-t.amount), 0); // Flip sign to make expenses positive
     const percentage = (actualSpent / budget.amount) * 100;
     const remaining = budget.amount - actualSpent;
 
@@ -281,7 +285,7 @@ class BudgetService {
       status,
       daysInPeriod,
       daysRemaining,
-      transactions: categoryTransactions,
+      transactions: convertedCategoryTransactions,
     };
   }
 
@@ -363,38 +367,33 @@ class BudgetService {
   /**
    * Get budget progress for all active budgets
    */
-  getBudgetProgressForAll(transactions: Transaction[], categories: Category[], forMonth?: { year: number; month: number }) {
+  async getBudgetProgressForAll(transactions: Transaction[], categories: Category[], forMonth?: { year: number; month: number }): Promise<{
+    budgetId: string;
+    categoryName: string;
+    budgetAmount: number;
+    actualSpent: number;
+    percentage: number;
+    remaining: number;
+    status: 'safe' | 'warning' | 'danger' | 'exceeded';
+    daysInPeriod: number;
+    daysRemaining: number;
+    transactions: Transaction[];
+  }[]> {
     const activeBudgets = this.getActiveBudgets();
-    return activeBudgets.map(budget => 
+    return Promise.all(activeBudgets.map(budget => 
       this.calculateBudgetProgress(budget, transactions, categories, forMonth)
-    );
+    ));
   }
 
   /**
    * Get budget progress for all active budgets with view period support
    */
-  getBudgetProgressForAllWithViewPeriod(
+  async getBudgetProgressForAllWithViewPeriod(
     transactions: Transaction[], 
     categories: Category[], 
     referenceDate: { year: number; month: number },
     viewPeriod: BudgetViewPeriod = 'monthly'
-  ) {
-    const activeBudgets = this.getActiveBudgets();
-    return activeBudgets.map(budget => 
-      this.calculateBudgetProgressWithViewPeriod(budget, transactions, categories, referenceDate, viewPeriod)
-    );
-  }
-
-  /**
-   * Calculate budget progress for a specific budget with view period support
-   */
-  calculateBudgetProgressWithViewPeriod(
-    budget: Budget, 
-    transactions: Transaction[], 
-    categories: Category[], 
-    referenceDate: { year: number; month: number },
-    viewPeriod: BudgetViewPeriod = 'monthly'
-  ): {
+  ): Promise<{
     budgetId: string;
     categoryName: string;
     budgetAmount: number;
@@ -406,7 +405,35 @@ class BudgetService {
     daysRemaining: number;
     transactions: Transaction[];
     viewPeriod: BudgetViewPeriod;
-  } {
+  }[]> {
+    const activeBudgets = this.getActiveBudgets();
+    return Promise.all(activeBudgets.map(budget => 
+      this.calculateBudgetProgressWithViewPeriod(budget, transactions, categories, referenceDate, viewPeriod)
+    ));
+  }
+
+  /**
+   * Calculate budget progress for a specific budget with view period support
+   */
+  async calculateBudgetProgressWithViewPeriod(
+    budget: Budget, 
+    transactions: Transaction[], 
+    categories: Category[], 
+    referenceDate: { year: number; month: number },
+    viewPeriod: BudgetViewPeriod = 'monthly'
+  ): Promise<{
+    budgetId: string;
+    categoryName: string;
+    budgetAmount: number;
+    actualSpent: number;
+    percentage: number;
+    remaining: number;
+    status: 'safe' | 'warning' | 'danger' | 'exceeded';
+    daysInPeriod: number;
+    daysRemaining: number;
+    transactions: Transaction[];
+    viewPeriod: BudgetViewPeriod;
+  }> {
     const category = categories.find(c => c.id === budget.categoryId);
     const categoryName = category?.name || 'Unknown Category';
 
@@ -428,7 +455,10 @@ class BudgetService {
              t.date <= endDate;
     });
 
-    const actualSpent = categoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    // Convert transactions to default currency for accurate budget calculations
+    const convertedCategoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactions);
+
+    const actualSpent = convertedCategoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const percentage = budgetAmount > 0 ? (actualSpent / budgetAmount) * 100 : 0;
     const remaining = budgetAmount - actualSpent;
 
@@ -457,7 +487,7 @@ class BudgetService {
       status,
       daysInPeriod,
       daysRemaining,
-      transactions: categoryTransactions,
+      transactions: convertedCategoryTransactions,
       viewPeriod,
     };
   }
@@ -465,13 +495,13 @@ class BudgetService {
   /**
    * Get budget recommendations based on spending patterns
    */
-  getBudgetRecommendations(transactions: Transaction[], categories: Category[]): {
+  async getBudgetRecommendations(transactions: Transaction[], categories: Category[]): Promise<{
     categoryId: string;
     categoryName: string;
     averageMonthlySpend: number;
     recommendedBudget: number;
     reasoning: string;
-  }[] {
+  }[]> {
     // Calculate average monthly spending per category
     const categorySpending: { [categoryId: string]: number[] } = {};
     
@@ -483,8 +513,11 @@ class BudgetService {
       t.type === 'expense' && t.date >= sixMonthsAgo
     );
 
+    // Convert transactions to default currency for accurate calculations
+    const convertedRecentTransactions = await currencyDisplayService.convertTransactionsBatch(recentTransactions);
+
     // Group by category and month
-    recentTransactions.forEach(t => {
+    convertedRecentTransactions.forEach(t => {
       if (!categorySpending[t.category]) {
         categorySpending[t.category] = [];
       }

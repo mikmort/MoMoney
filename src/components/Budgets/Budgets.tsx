@@ -8,9 +8,52 @@ import { budgetService } from '../../services/budgetService';
 import { dataService } from '../../services/dataService';
 import { defaultCategories } from '../../data/defaultCategories';
 import { useNotification } from '../../contexts/NotificationContext';
+import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
+
+// Reusable component for displaying transaction amounts with currency conversion
+const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
+  const [displayData, setDisplayData] = useState<{
+    displayAmount: string;
+    tooltip?: string;
+    isConverted: boolean;
+    approxConvertedDisplay?: string;
+  }>({
+    displayAmount: '$0.00',
+    isConverted: false
+  });
+
+  useEffect(() => {
+    const formatAmount = async () => {
+      const data = await currencyDisplayService.formatTransactionAmount(transaction);
+      setDisplayData(data);
+    };
+    formatAmount();
+  }, [transaction]);
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'income': return 'income';
+      case 'expense': return 'expense';
+      default: return '';
+    }
+  };
+
+  return (
+    <div className="transaction-amount-container">
+      <div className={`transaction-amount primary ${getTypeColor(transaction.type)}`}>
+        {displayData.displayAmount}
+      </div>
+      {displayData.isConverted && displayData.approxConvertedDisplay && (
+        <div className="transaction-amount secondary">
+          {displayData.approxConvertedDisplay}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const BudgetsContainer = styled.div`
   .ag-theme-alpine {
@@ -187,10 +230,34 @@ const TransactionPopupContent = styled.div`
       }
     }
     
-    .transaction-amount {
-      font-weight: 600;
-      color: #d32f2f;
-      font-size: 1rem;
+    .transaction-amount-container {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      
+      .transaction-amount {
+        font-weight: 600;
+        font-size: 1rem;
+        
+        &.primary {
+          color: #d32f2f;
+        }
+        
+        &.secondary {
+          font-size: 0.85rem;
+          color: #666;
+          font-style: italic;
+        }
+        
+        &.income {
+          color: #2e7d32;
+        }
+        
+        &.expense {
+          color: #d32f2f;
+        }
+      }
     }
   }
   
@@ -361,6 +428,21 @@ const Budgets: React.FC = () => {
   const [popupTransactions, setPopupTransactions] = useState<Transaction[]>([]);
   const [popupCategoryName, setPopupCategoryName] = useState('');
 
+  // Currency state
+  const [defaultCurrency, setDefaultCurrency] = useState<string>('USD');
+  useEffect(() => {
+    (async () => {
+      setDefaultCurrency(await currencyDisplayService.getDefaultCurrency());
+    })();
+  }, []);
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: defaultCurrency
+    }).format(amount);
+  };
+
   // Load data on component mount and when month or view period changes
   useEffect(() => {
     const loadData = async () => {
@@ -383,7 +465,7 @@ const Budgets: React.FC = () => {
         setCategories(categoriesData);
 
         // Calculate budget progress for the selected period and view
-        const progress = budgetService.getBudgetProgressForAllWithViewPeriod(
+        const progress = await budgetService.getBudgetProgressForAllWithViewPeriod(
           transactionData, 
           categoriesData, 
           selectedMonth,
@@ -418,7 +500,7 @@ const Budgets: React.FC = () => {
       setCategories(categoriesData);
 
       // Calculate budget progress for the selected period and view
-      const progress = budgetService.getBudgetProgressForAllWithViewPeriod(
+      const progress = await budgetService.getBudgetProgressForAllWithViewPeriod(
         transactionData, 
         categoriesData, 
         selectedMonth,
@@ -473,12 +555,7 @@ const Budgets: React.FC = () => {
       flex: 1,
       minWidth: 120,
       valueFormatter: (params) => {
-        // Use a simple formatting since formatAmount is async
-        const formatter = new Intl.NumberFormat('en-US', {
-          style: 'currency',
-          currency: 'USD',
-        });
-        return formatter.format(params.value);
+        return formatCurrency(params.value);
       },
     },
     {
@@ -763,8 +840,8 @@ const Budgets: React.FC = () => {
               <BudgetProgressCard key={progress.budgetId}>
                 <div className="category-name">{progress.categoryName}</div>
                 <div className="amounts">
-                  <span>Spent: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(progress.actualSpent)}</span>
-                  <span>Budget: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(progress.budgetAmount)}</span>
+                  <span>Spent: {formatCurrency(progress.actualSpent)}</span>
+                  <span>Budget: {formatCurrency(progress.budgetAmount)}</span>
                 </div>
                 {renderProgressBar(progress)}
                 <div className="progress-info">
@@ -787,7 +864,7 @@ const Budgets: React.FC = () => {
                 </div>
                 {progress.remaining >= 0 && (
                   <div className="progress-info">
-                    <span>Remaining: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(progress.remaining)}</span>
+                    <span>Remaining: {formatCurrency(progress.remaining)}</span>
                     <span>{progress.daysRemaining} days left</span>
                   </div>
                 )}
@@ -943,12 +1020,7 @@ const Budgets: React.FC = () => {
                         {transaction.account && ` • ${transaction.account}`}
                       </div>
                     </div>
-                    <div className="transaction-amount">
-                      {new Intl.NumberFormat('en-US', { 
-                        style: 'currency', 
-                        currency: 'USD' 
-                      }).format(Math.abs(transaction.amount))}
-                    </div>
+                    <TransactionAmount transaction={transaction} />
                   </div>
                 ))}
               </div>
