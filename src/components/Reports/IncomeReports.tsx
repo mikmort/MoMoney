@@ -31,12 +31,6 @@ const IncomeContainer = styled.div`
       border-radius: 4px;
       background: white;
     }
-    
-    .custom-range {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
 
     .filter-group {
       display: flex;
@@ -132,7 +126,8 @@ const IncomeReports: React.FC = () => {
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [selectedIncomeTypes, setSelectedIncomeTypes] = useState<string[]>(['income']);
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedIncomeCategories, setSelectedIncomeCategories] = useState<string[]>([]);
+  const [selectedExpenseCategories, setSelectedExpenseCategories] = useState<string[]>([]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlySpendingTrend[]>([]);
@@ -167,6 +162,15 @@ const IncomeReports: React.FC = () => {
   const incomeCategories = useMemo(() => 
     categories
       .filter(cat => cat.type === 'income')
+      .map(cat => cat.name)
+      .sort((a, b) => a.localeCompare(b)), 
+    [categories]
+  );
+  
+  // Get expense categories from the active category set
+  const expenseCategories = useMemo(() => 
+    categories
+      .filter(cat => cat.type === 'expense')
       .map(cat => cat.name)
       .sort((a, b) => a.localeCompare(b)), 
     [categories]
@@ -233,11 +237,17 @@ const IncomeReports: React.FC = () => {
     try {
       const currentRange = getCurrentDateRange();
       
+      // Combine selected income and expense categories for filtering
+      const allSelectedCategories = [
+        ...selectedIncomeCategories,
+        ...selectedExpenseCategories
+      ];
+      
       // Create comprehensive filters object
       const filters: ReportsFilters = {
         dateRange: currentRange,
         selectedTypes: selectedIncomeTypes,
-        selectedCategories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        selectedCategories: allSelectedCategories.length > 0 ? allSelectedCategories : undefined,
         selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
       };
       
@@ -255,10 +265,17 @@ const IncomeReports: React.FC = () => {
       console.error('Error loading income data:', error);
       // Fallback to basic data if income-specific methods don't exist
       const currentRange = getCurrentDateRange();
+      
+      // Combine selected categories for fallback too
+      const allSelectedCategories = [
+        ...selectedIncomeCategories,
+        ...selectedExpenseCategories
+      ];
+      
       const filters: ReportsFilters = {
         dateRange: currentRange,
         selectedTypes: selectedIncomeTypes,
-        selectedCategories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        selectedCategories: allSelectedCategories.length > 0 ? allSelectedCategories : undefined,
         selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined
       };
       const [trendsData, analysisData] = await Promise.all([
@@ -270,7 +287,7 @@ const IncomeReports: React.FC = () => {
       setIncomeExpenseAnalysis(analysisData);
       setIncomeSources([]);
     }
-  }, [getCurrentDateRange, selectedIncomeTypes, selectedCategories, selectedAccounts]);
+  }, [getCurrentDateRange, selectedIncomeTypes, selectedIncomeCategories, selectedExpenseCategories, selectedAccounts]);
 
   useEffect(() => {
     loadIncomeData();
@@ -317,14 +334,9 @@ const IncomeReports: React.FC = () => {
     return ((recent[1].totalIncome - recent[0].totalIncome) / recent[0].totalIncome) * 100;
   };
 
-  const getConsistencyScore = () => {
-    if (monthlyTrends.length < 3) return 100;
-    const incomes = monthlyTrends.map(t => t.totalIncome);
-    const average = incomes.reduce((sum, income) => sum + income, 0) / incomes.length;
-    const variance = incomes.reduce((sum, income) => sum + Math.pow(income - average, 2), 0) / incomes.length;
-    const standardDeviation = Math.sqrt(variance);
-    const coefficient = average > 0 ? (standardDeviation / average) * 100 : 0;
-    return Math.max(0, 100 - coefficient);
+  const getSavings = () => {
+    if (!incomeExpenseAnalysis) return 0;
+    return incomeExpenseAnalysis.totalIncome - incomeExpenseAnalysis.totalExpenses;
   };
 
   return (
@@ -347,20 +359,26 @@ const IncomeReports: React.FC = () => {
           </div>
 
           {dateRange === 'Custom Range' && (
-            <div className="custom-range">
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                placeholder="Start Date"
-              />
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                placeholder="End Date"
-              />
-            </div>
+            <>
+              <div className="filter-group">
+                <label>Start Date</label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  placeholder="Start Date"
+                />
+              </div>
+              <div className="filter-group">
+                <label>End Date</label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  placeholder="End Date"
+                />
+              </div>
+            </>
           )}
           
           <div className="filter-group">
@@ -375,13 +393,24 @@ const IncomeReports: React.FC = () => {
           </div>
 
           <div className="filter-group">
-            <label>Categories</label>
+            <label>Income Categories</label>
             <MultiSelectFilter
-              label="Categories"
+              label="Income Categories"
               options={incomeCategories}
-              selectedValues={selectedCategories}
-              onChange={setSelectedCategories}
-              placeholder="All Categories"
+              selectedValues={selectedIncomeCategories}
+              onChange={setSelectedIncomeCategories}
+              placeholder="All Income Categories"
+            />
+          </div>
+
+          <div className="filter-group">
+            <label>Expense Categories</label>
+            <MultiSelectFilter
+              label="Expense Categories"
+              options={expenseCategories}
+              selectedValues={selectedExpenseCategories}
+              onChange={setSelectedExpenseCategories}
+              placeholder="All Expense Categories"
             />
           </div>
           
@@ -424,9 +453,9 @@ const IncomeReports: React.FC = () => {
           </StatsCard>
           
           <StatsCard>
-            <div className="label">Income Consistency</div>
-            <div className="amount neutral">
-              {getConsistencyScore() >= 80 ? '🟢' : getConsistencyScore() >= 60 ? '🟡' : '🔴'} {getConsistencyScore().toFixed(0)}%
+            <div className="label">Savings</div>
+            <div className={`amount ${getSavings() >= 0 ? 'positive' : 'negative'}`}>
+              {formatCurrency(getSavings())}
             </div>
           </StatsCard>
         </Grid>
@@ -584,9 +613,15 @@ const IncomeReports: React.FC = () => {
               </div>
             )}
             
-            {getConsistencyScore() >= 80 && (
-              <div style={{ padding: '10px', backgroundColor: '#d1ecf1', borderRadius: '4px', color: '#0c5460' }}>
-                <strong>Consistent Income:</strong> Your income shows good stability with {getConsistencyScore().toFixed(0)}% consistency.
+            {getSavings() > 0 && (
+              <div style={{ padding: '10px', backgroundColor: '#d4edda', borderRadius: '4px', color: '#155724' }}>
+                <strong>Positive Savings:</strong> You saved {formatCurrency(getSavings())} during this period - excellent financial management!
+              </div>
+            )}
+            
+            {getSavings() < 0 && (
+              <div style={{ padding: '10px', backgroundColor: '#f8d7da', borderRadius: '4px', color: '#721c24' }}>
+                <strong>Negative Savings:</strong> You spent {formatCurrency(Math.abs(getSavings()))} more than you earned - consider budget adjustments.
               </div>
             )}
             

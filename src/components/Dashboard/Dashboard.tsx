@@ -149,6 +149,25 @@ const EmptyStateCard = styled(Card)`
   }
 `;
 
+// Helper function to get CSS class based on category type
+const getCategoryTypeClass = (categoryName: string): string => {
+  // Simple classification based on common category patterns
+  // This is just for CSS styling, not for calculations
+  const lowerName = categoryName.toLowerCase();
+  
+  if (lowerName.includes('salary') || lowerName.includes('income') || lowerName.includes('bonus') || lowerName.includes('dividend')) {
+    return 'income';
+  }
+  if (lowerName.includes('transfer') || lowerName === 'internal transfer') {
+    return 'transfer';
+  }
+  if (lowerName.includes('investment') || lowerName.includes('allocation')) {
+    return 'asset-allocation';
+  }
+  
+  return 'expense'; // default fallback for most transactions
+};
+
 // Reusable component for displaying transaction amounts with currency conversion
 const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
   const [displayData, setDisplayData] = useState<{
@@ -170,7 +189,7 @@ const TransactionAmount: React.FC<{ transaction: Transaction }> = ({ transaction
   }, [transaction]);
 
   return (
-    <div className={`amount ${transaction.type}`} title={displayData.tooltip}>
+    <div className={`amount ${getCategoryTypeClass(transaction.category)}`} title={displayData.tooltip}>
       {displayData.displayAmount}
       {displayData.isConverted && displayData.approxConvertedDisplay && (
         <div className="currency-info">

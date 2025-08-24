@@ -1,17 +1,72 @@
-import { Transaction, DashboardStats } from '../types';
+import { Transaction, DashboardStats, Category } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
-import { isIncomeCategory, isExpenseCategory, isTransferCategory, isAssetAllocationCategory } from '../utils/categoryTypeUtils';
 
 class DashboardService {
-  // Helper method to identify transfers (preserving original transfer detection logic)
-  private isTransfer(transaction: Transaction): boolean {
-    return transaction.type === 'transfer' || isTransferCategory(transaction.category);
+  // Cache for category types to improve performance
+  private categoryTypeCache: Map<string, 'income' | 'expense' | 'transfer' | 'asset-allocation'> = new Map();
+
+  /**
+   * Gets all available categories and builds a type cache for fast lookups
+   */
+  private getCategoryTypeCache(): Map<string, 'income' | 'expense' | 'transfer' | 'asset-allocation'> {
+    if (this.categoryTypeCache.size === 0) {
+      // Load categories from localStorage or use defaults
+      let categories: Category[];
+      try {
+        const saved = localStorage.getItem('mo-money-categories');
+        categories = saved ? JSON.parse(saved) : [];
+      } catch (error) {
+        console.warn('Failed to load custom categories from localStorage:', error);
+        categories = [];
+      }
+
+      // If no custom categories, use defaults
+      if (categories.length === 0) {
+        const { defaultCategories } = require('../data/defaultCategories');
+        categories = defaultCategories;
+      }
+
+      // Build the cache
+      categories.forEach(cat => {
+        this.categoryTypeCache.set(cat.name, cat.type);
+      });
+    }
+    return this.categoryTypeCache;
   }
 
-  // Helper method to identify asset allocations  
+  /**
+   * Fast category type lookup using cached data
+   */
+  private getCategoryType(categoryName: string): 'income' | 'expense' | 'transfer' | 'asset-allocation' | undefined {
+    return this.getCategoryTypeCache().get(categoryName);
+  }
+
+  // Helper method to identify transfers (category-based only)
+  private isTransfer(transaction: Transaction): boolean {
+    return this.getCategoryType(transaction.category) === 'transfer';
+  }
+
+  // Helper method to identify asset allocations (category-based only) 
   private isAssetAllocation(transaction: Transaction): boolean {
-    return transaction.type === 'asset-allocation' || isAssetAllocationCategory(transaction.category);
+    return this.getCategoryType(transaction.category) === 'asset-allocation';
+  }
+
+  // Helper method to identify income transactions (category-based only)
+  private isIncome(transaction: Transaction): boolean {
+    return this.getCategoryType(transaction.category) === 'income';
+  }
+
+  // Helper method to identify expense transactions (category-based only)
+  private isExpense(transaction: Transaction): boolean {
+    return this.getCategoryType(transaction.category) === 'expense';
+  }
+
+  /**
+   * Clears the category type cache - should be called when categories are updated
+   */
+  public invalidateCategoryCache(): void {
+    this.categoryTypeCache.clear();
   }
 
   async getDashboardStats(): Promise<DashboardStats> {
@@ -49,14 +104,14 @@ class DashboardService {
       const amount = Math.abs(transaction.amount);
       
       // Calculate income vs expenses based on category type
-      if (isIncomeCategory(transaction.category)) {
+      if (this.isIncome(transaction)) {
         totalIncome += amount;
-      } else if (isExpenseCategory(transaction.category)) {
+      } else if (this.isExpense(transaction)) {
         totalExpenses += amount;
       }
       
       // Calculate category totals (only for expense categories)
-      if (isExpenseCategory(transaction.category)) {
+      if (this.isExpense(transaction)) {
         categoryTotals[transaction.category] = (categoryTotals[transaction.category] || 0) + amount;
       }
       
@@ -69,9 +124,9 @@ class DashboardService {
         monthlyData[monthKey] = { income: 0, expenses: 0 };
       }
       
-      if (isIncomeCategory(transaction.category)) {
+      if (this.isIncome(transaction)) {
         monthlyData[monthKey].income += amount;
-      } else if (isExpenseCategory(transaction.category)) {
+      } else if (this.isExpense(transaction)) {
         monthlyData[monthKey].expenses += amount;
       }
     });

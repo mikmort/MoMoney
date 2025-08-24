@@ -1,9 +1,29 @@
 import { defaultCategories } from '../data/defaultCategories';
+import { Category } from '../types';
 
 /**
  * Utility functions for determining transaction types based on category information
  * instead of relying on the transaction's type field.
  */
+
+const CATEGORIES_STORAGE_KEY = 'mo-money-categories';
+
+/**
+ * Gets all available categories (custom categories from localStorage if available, otherwise defaults)
+ * @returns Array of all categories
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function getAllCategories(): Category[] {
+  try {
+    const saved = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (error) {
+    console.warn('Failed to load custom categories from localStorage:', error);
+  }
+  return defaultCategories;
+}
 
 /**
  * Gets the type of a category by its name
@@ -11,7 +31,8 @@ import { defaultCategories } from '../data/defaultCategories';
  * @returns The category type or undefined if not found
  */
 export function getCategoryType(categoryName: string): 'income' | 'expense' | 'transfer' | 'asset-allocation' | undefined {
-  const category = defaultCategories.find(cat => cat.name === categoryName);
+  const categories = getAllCategories();
+  const category = categories.find(cat => cat.name === categoryName);
   return category?.type;
 }
 
@@ -21,7 +42,8 @@ export function getCategoryType(categoryName: string): 'income' | 'expense' | 't
  * @returns Array of category names matching the type
  */
 export function getCategoryNamesOfType(type: 'income' | 'expense' | 'transfer' | 'asset-allocation'): string[] {
-  return defaultCategories
+  const categories = getAllCategories();
+  return categories
     .filter(cat => cat.type === type)
     .map(cat => cat.name);
 }

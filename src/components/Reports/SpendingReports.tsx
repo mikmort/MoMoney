@@ -34,12 +34,6 @@ const SpendingContainer = styled.div`
       border-radius: 4px;
       background: white;
     }
-    
-    .custom-range {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
 
     .filter-group {
       display: flex;
@@ -335,20 +329,26 @@ const SpendingReports: React.FC = () => {
           </div>
 
           {dateRange === 'Custom Range' && (
-            <div className="custom-range">
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                placeholder="Start Date"
-              />
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                placeholder="End Date"
-              />
-            </div>
+            <>
+              <div className="filter-group">
+                <label>Start Date</label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  placeholder="Start Date"
+                />
+              </div>
+              <div className="filter-group">
+                <label>End Date</label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  placeholder="End Date"
+                />
+              </div>
+            </>
           )}
           
           <div className="filter-group">

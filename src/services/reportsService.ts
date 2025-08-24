@@ -2,7 +2,7 @@ import { Transaction, Category } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
-import { isAssetAllocationCategory } from '../utils/categoryTypeUtils';
+import { isAssetAllocationCategory, isTransferCategory } from '../utils/categoryTypeUtils';
 import { defaultCategories } from '../data/defaultCategories';
 
 export interface SpendingByCategory {
@@ -82,10 +82,10 @@ export interface ReportsFilters {
 }
 
 class ReportsService {
-  // Helper method to comprehensively identify internal transfers
+  // Helper method to comprehensively identify internal transfers (category-based only)
   private isInternalTransfer(transaction: Transaction): boolean {
-    // Check by transaction type first (most reliable)
-    if (transaction.type === 'transfer') {
+    // Check by category type (most reliable)
+    if (isTransferCategory(transaction.category)) {
       return true;
     }
     
