@@ -101,18 +101,16 @@ class DashboardService {
         return;
       }
       
-      const amount = Math.abs(transaction.amount);
-      
-      // Calculate income vs expenses based on category type
+      // Calculate income vs expenses based on category type - use consistent logic with reports
       if (this.isIncome(transaction)) {
-        totalIncome += amount;
+        totalIncome += transaction.amount; // Direct sum for income
       } else if (this.isExpense(transaction)) {
-        totalExpenses += amount;
+        totalExpenses += (-transaction.amount); // Flip sign to make expenses positive
       }
       
       // Calculate category totals (only for expense categories)
       if (this.isExpense(transaction)) {
-        categoryTotals[transaction.category] = (categoryTotals[transaction.category] || 0) + amount;
+        categoryTotals[transaction.category] = (categoryTotals[transaction.category] || 0) + (-transaction.amount);
       }
       
       // Calculate monthly trends
@@ -125,9 +123,9 @@ class DashboardService {
       }
       
       if (this.isIncome(transaction)) {
-        monthlyData[monthKey].income += amount;
+        monthlyData[monthKey].income += transaction.amount; // Direct sum for income
       } else if (this.isExpense(transaction)) {
-        monthlyData[monthKey].expenses += amount;
+        monthlyData[monthKey].expenses += (-transaction.amount); // Flip sign for expenses
       }
     });
     
