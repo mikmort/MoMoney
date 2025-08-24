@@ -7,6 +7,7 @@ import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { Transaction } from '../../types';
 import { Modal } from '../shared/Modal';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, PointElement, LineElement } from 'chart.js';
+import { isExpenseCategory, isIncomeCategory } from '../../utils/categoryTypeUtils';
 
 ChartJS.register(
   CategoryScale,
@@ -234,13 +235,19 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
         subcategoryTotals[subcategory] = { amount: 0, transactions: [] };
       }
       
-      // Calculate net spending for subcategories: expenses minus refunds
-      if (transaction.amount < 0) {
-        // Expense: add absolute value
+      // Calculate net spending for subcategories based on category type
+      if (isExpenseCategory(transaction.category)) {
+        // For expense categories: positive amounts are refunds (subtract), negative amounts are expenses (add absolute value)
+        if (transaction.amount < 0) {
+          // Expense: add absolute value
+          subcategoryTotals[subcategory].amount += Math.abs(transaction.amount);
+        } else {
+          // Refund: subtract amount
+          subcategoryTotals[subcategory].amount -= transaction.amount;
+        }
+      } else if (isIncomeCategory(transaction.category)) {
+        // For income categories: all amounts contribute positively to the total
         subcategoryTotals[subcategory].amount += Math.abs(transaction.amount);
-      } else {
-        // Refund: subtract amount
-        subcategoryTotals[subcategory].amount -= transaction.amount;
       }
       
       subcategoryTotals[subcategory].transactions.push(transaction);
@@ -292,13 +299,19 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
           label = transaction.date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         }
         
-        // Calculate net spending for trend periods: expenses minus refunds
-        if (transaction.amount < 0) {
-          // Expense: add absolute value
+        // Calculate net spending for trend periods based on category type
+        if (isExpenseCategory(transaction.category)) {
+          // For expense categories: positive amounts are refunds (subtract), negative amounts are expenses (add absolute value)
+          if (transaction.amount < 0) {
+            // Expense: add absolute value
+            periodTotals[label] = (periodTotals[label] || 0) + Math.abs(transaction.amount);
+          } else {
+            // Refund: subtract amount
+            periodTotals[label] = (periodTotals[label] || 0) - transaction.amount;
+          }
+        } else if (isIncomeCategory(transaction.category)) {
+          // For income categories: all amounts contribute positively to the total
           periodTotals[label] = (periodTotals[label] || 0) + Math.abs(transaction.amount);
-        } else {
-          // Refund: subtract amount
-          periodTotals[label] = (periodTotals[label] || 0) - transaction.amount;
         }
       });
 
@@ -377,12 +390,19 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
                 return monthLabel === selectedMonth;
               })
               .reduce((sum, t) => {
-                // Calculate net spending for subcategory: expenses minus refunds
-                if (t.amount < 0) {
+                // Calculate net spending for subcategory based on category type
+                if (isExpenseCategory(t.category)) {
+                  // For expense categories: positive amounts are refunds (subtract), negative amounts are expenses (add absolute value)
+                  if (t.amount < 0) {
+                    return sum + Math.abs(t.amount);
+                  } else {
+                    return sum - t.amount;
+                  }
+                } else if (isIncomeCategory(t.category)) {
+                  // For income categories: all amounts contribute positively to the total
                   return sum + Math.abs(t.amount);
-                } else {
-                  return sum - t.amount;
                 }
+                return sum;
               }, 0);
           }
           return item.amount;
