@@ -1247,7 +1247,7 @@ EXAMPLE OUTPUT FORMAT:
       ...tx,
       // Ensure required fields have proper defaults
       category: tx.category || 'Uncategorized',
-      type: tx.type || 'expense', // Default to expense, but category determines income/expense classification
+      type: tx.type || (tx.amount >= 0 ? 'income' : 'expense'),
       confidence: typeof tx.confidence === 'number' ? tx.confidence : 0.7,
       isVerified: false,
       // Clean up text fields
@@ -1338,7 +1338,7 @@ EXAMPLE OUTPUT FORMAT:
         // AI-enhanced fields (optional but valuable)
         category: r.category || 'Uncategorized',
         subcategory: r.subcategory || undefined,
-        type: r.type || 'expense', // Default to expense, but category determines income/expense classification
+        type: r.type || (r.amount >= 0 ? 'income' : 'expense'),
         vendor: r.vendor || undefined,
         
         // AI metadata fields
@@ -1529,7 +1529,7 @@ EXAMPLE OUTPUT FORMAT:
       notes: p.notes,
       category: 'Uncategorized', // Will be overridden by rules or AI
       account: accountManagementService.getAccount(accountId)?.name || 'Unknown Account',
-      type: 'expense' as const, // Default to expense, but category determines income/expense classification
+      type: (p.amount! >= 0) ? 'income' : 'expense' as const,
       isVerified: false,
       originalText: p.description
     })));
@@ -2055,7 +2055,7 @@ EXAMPLE OUTPUT FORMAT:
         amount,
         category: 'Uncategorized', // Temporary, will be set by rules or AI
         account: account?.name || 'Unknown Account',
-        type: 'expense' as const, // Default to expense, but category determines income/expense classification
+        type: amount >= 0 ? 'income' as const : 'expense' as const,
         isVerified: false,
         originalText: description,
         // Set original currency based on account currency
