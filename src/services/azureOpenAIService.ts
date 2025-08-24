@@ -745,9 +745,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
 
   async detectAnomalies(request: AnomalyDetectionRequest): Promise<AnomalyDetectionResponse> {
     const startTime = Date.now();
-    if (this.disabledReason) {
-      return { anomalies: [], totalAnalyzed: request.transactions?.length || 0, processingTime: 0 };
-    }
+    
     if (!request.transactions || request.transactions.length === 0) {
       return {
         anomalies: [],
@@ -756,7 +754,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
       };
     }
 
-    // Development mode fallback - return mock anomalies for testing
+    // Development mode fallback - return mock anomalies for testing even if service is disabled
     if (process.env.NODE_ENV === 'development' && (!process.env.REACT_APP_OPENAI_PROXY_URL && !process.env.REACT_APP_FUNCTION_BASE_URL)) {
       console.log('🔧 Development mode: Using mock anomaly detection');
       // Return mock anomaly for demonstration
@@ -774,6 +772,11 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
         totalAnalyzed: request.transactions.length,
         processingTime: Date.now() - startTime
       };
+    }
+    
+    // If service is disabled and not in development mode, return empty results
+    if (this.disabledReason) {
+      return { anomalies: [], totalAnalyzed: request.transactions?.length || 0, processingTime: 0 };
     }
 
     try {
