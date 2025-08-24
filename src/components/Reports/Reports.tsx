@@ -19,6 +19,7 @@ import CategoryDrilldownModal from './CategoryDrilldownModal';
 import TransactionDetailsModal, { TransactionFilter } from './TransactionDetailsModal';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { dataService } from '../../services/dataService';
+import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 
 const ReportsContainer = styled.div`
   .date-range-selector {
@@ -232,6 +233,9 @@ const Reports: React.FC = () => {
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
   
+  // Get access to all categories with their types
+  const { categories } = useCategoriesManager();
+  
   // Transaction type mappings for display names
   const transactionTypeOptions = [
     { value: 'income', label: 'income' },
@@ -297,23 +301,50 @@ const Reports: React.FC = () => {
     }
   }, [dateRangeType, customDateRange]);
 
-  // Load available categories and accounts
+  // Load available categories and accounts, filtering categories by selected transaction types
   useEffect(() => {
     const loadFiltersData = async () => {
       try {
-        const [categories, accounts] = await Promise.all([
-          dataService.getUniqueCategories(),
-          dataService.getUniqueAccounts()
-        ]);
-        setAvailableCategories(categories);
+        // Get all accounts (unchanged)
+        const accounts = await dataService.getUniqueAccounts();
         setAvailableAccounts(accounts);
+        
+        // Filter categories based on selected transaction types
+        let filteredCategoryNames: string[] = [];
+        if (selectedTransactionTypes.includes('expense') && selectedTransactionTypes.includes('income')) {
+          // Both expense and income selected - show both types
+          const filtered = categories.filter(cat => cat.type === 'expense' || cat.type === 'income');
+          filteredCategoryNames = filtered.map(cat => cat.name);
+        } else if (selectedTransactionTypes.includes('expense')) {
+          // Only expense selected - show only expense categories
+          const filtered = categories.filter(cat => cat.type === 'expense');
+          filteredCategoryNames = filtered.map(cat => cat.name);
+        } else if (selectedTransactionTypes.includes('income')) {
+          // Only income selected - show only income categories
+          const filtered = categories.filter(cat => cat.type === 'income');
+          filteredCategoryNames = filtered.map(cat => cat.name);
+        } else {
+          // Other types selected (transfer, asset-allocation) - show all categories
+          filteredCategoryNames = categories.map(cat => cat.name);
+        }
+        
+        // Sort categories alphabetically for better UX
+        filteredCategoryNames.sort((a, b) => a.localeCompare(b));
+        setAvailableCategories(filteredCategoryNames);
+        
+        // Clear any selected categories that are no longer available
+        setSelectedCategories(prevSelected => {
+          const newSelected = prevSelected.filter(categoryName => filteredCategoryNames.includes(categoryName));
+          return newSelected;
+        });
+        
       } catch (error) {
         console.error('Failed to load filter options:', error);
       }
     };
 
     loadFiltersData();
-  }, []);
+  }, [categories, selectedTransactionTypes]); // Re-run when categories or selected transaction types change
 
   useEffect(() => {
     const loadReportsData = async () => {

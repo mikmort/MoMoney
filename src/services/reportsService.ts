@@ -1,8 +1,9 @@
-import { Transaction } from '../types';
+import { Transaction, Category } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
-import { isAssetAllocationCategory, getCategoryNamesOfType } from '../utils/categoryTypeUtils';
+import { isAssetAllocationCategory } from '../utils/categoryTypeUtils';
+import { defaultCategories } from '../data/defaultCategories';
 
 export interface SpendingByCategory {
   categoryName: string;
@@ -150,9 +151,29 @@ class ReportsService {
     return false;
   }
 
-  // Helper method to get category names by type from defaultCategories
+  // Helper method to get category names by type from both default and custom categories
   private getCategoriesOfType(type: 'income' | 'expense'): string[] {
-    return getCategoryNamesOfType(type);
+    // Get custom categories from localStorage (same as useCategoriesManager)
+    const CATEGORIES_STORAGE_KEY = 'mo-money-categories';
+    let allCategories: Category[] = [];
+    
+    try {
+      const saved = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+      if (saved) {
+        allCategories = JSON.parse(saved);
+      } else {
+        // Fall back to default categories if no custom categories are stored
+        allCategories = defaultCategories;
+      }
+    } catch (error) {
+      console.error('Failed to load categories from localStorage:', error);
+      allCategories = defaultCategories;
+    }
+    
+    // Filter by type and return category names
+    return allCategories
+      .filter(cat => cat.type === type)
+      .map(cat => cat.name);
   }
 
   // Helper method to filter transactions by category type (income/expense categories)
@@ -162,67 +183,58 @@ class ReportsService {
   }
 
   // Helper method to filter transactions based on user preferences and selected types
-  private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense', selectedTypes?: string[]): Promise<Transaction[]> {
+  private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense', selectedTypes?: string[], selectedCategories?: string[]): Promise<Transaction[]> {
     const preferences = await userPreferencesService.getPreferences();
     
-    return transactions.filter(t => {
-      // If selectedTypes is provided, filter by those types first
+    // DEBUG: Log filtering process for single category filters
+    
+    const filteredTransactions = transactions.filter(t => {
+      let filterReason = '';
+      
+      // If selectedTypes is provided, check if we should use category-based filtering
       if (selectedTypes && selectedTypes.length > 0) {
-        // Check if transaction type is in selected types
-        if (!selectedTypes.includes(t.type)) {
-          return false;
-        }
-        
-        // For transfers, still apply income/expense filtering based on amount
-        if (t.type === 'transfer' && this.isInternalTransfer(t)) {
-          if (type === 'expense') {
-            return t.amount < 0;
-          } else if (type === 'income') {
-            return t.amount > 0;
+        // For expense/income filtering, ALWAYS use category-based logic, ignore transaction type completely
+        if (selectedTypes.includes('expense') || selectedTypes.includes('income')) {
+          // Skip to category-based filtering logic below - no transaction type checks at all
+        } else {
+          // For other explicitly selected types (not expense/income), still filter by transaction type
+          if (!selectedTypes.includes(t.type)) {
+            return false;
           }
-          return false;
+        }
+      }
+      
+      // When selectedTypes includes expense/income, skip all legacy transaction type checks
+      // and go straight to pure category-based filtering
+      const usingCategoryBasedFiltering = selectedTypes && selectedTypes.length > 0 && 
+                                          (selectedTypes.includes('expense') || selectedTypes.includes('income'));
+      
+      if (!usingCategoryBasedFiltering) {
+        // Legacy behavior: Check if this is an internal transfer using comprehensive detection
+        if (this.isInternalTransfer(t)) {
+          return false; // Exclude transfers by default when no selectedTypes specified
         }
         
-        // For asset-allocation transactions, apply income/expense filtering based on amount
+        // Check if this is an asset allocation transaction
         if (isAssetAllocationCategory(t.category)) {
-          if (type === 'expense') {
-            return t.amount < 0;
-          } else if (type === 'income') {
-            return t.amount > 0;
-          }
-          return false;
+          // Only include asset allocation transactions if user has enabled it
+          return preferences.includeInvestmentsInReports;
         }
-        
-        // For other selected types, apply income/expense filtering based on category type
-        if (type === 'expense') {
-          return this.filterTransactionsByCategoryType([t], 'expense').length > 0;
-        } else if (type === 'income') {
-          return this.filterTransactionsByCategoryType([t], 'income').length > 0;
-        }
-        
-        return true;
       }
       
-      // Legacy behavior: Check if this is an internal transfer using comprehensive detection
-      if (this.isInternalTransfer(t)) {
-        return false; // Exclude transfers by default when no selectedTypes specified
-      }
-      
-      // Check if this is an asset allocation transaction
-      if (isAssetAllocationCategory(t.category)) {
-        // Only include asset allocation transactions if user has enabled it
-        return preferences.includeInvestmentsInReports;
-      }
-      
-      // For regular income/expense filtering based on category type
+      // For ALL income/expense filtering (with or without selectedTypes), use pure category-based logic
       if (type === 'expense') {
-        return this.filterTransactionsByCategoryType([t], 'expense').length > 0;
+        const isExpenseCategory = this.filterTransactionsByCategoryType([t], 'expense').length > 0;
+        return isExpenseCategory;
       } else if (type === 'income') {
-        return this.filterTransactionsByCategoryType([t], 'income').length > 0;
+        const isIncomeCategory = this.filterTransactionsByCategoryType([t], 'income').length > 0;
+        return isIncomeCategory;
       }
       
       return false;
     });
+    
+    return filteredTransactions;
   }
 
   // Legacy method for backward compatibility
@@ -307,9 +319,8 @@ class ReportsService {
       const explicitCategoryTransactions = transactions.filter(t => 
         selectedCategoryFilter!.includes(t.category) && !expenseTransactions.some(e => e.id === t.id)
       );
-      if (explicitCategoryTransactions.length > 0) {
-        expenseTransactions = [...expenseTransactions, ...explicitCategoryTransactions];
-      }
+      
+      expenseTransactions = [...expenseTransactions, ...explicitCategoryTransactions];
     }
     
     // Add transfers if explicitly requested
@@ -515,15 +526,17 @@ class ReportsService {
       transactions = await this.getFilteredTransactions(filters);
       const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
       const selectedTypes = filters.selectedTypes || ['income', 'expense'];
-      incomeTransactions = await this.filterTransactionsForReports(converted, 'income', selectedTypes);
-      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypes);
+      
+      
+      incomeTransactions = await this.filterTransactionsForReports(converted, 'income', selectedTypes, filters.selectedCategories);
+      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypes, filters.selectedCategories);
     } else if (Array.isArray(selectedTypesOrIncludeTransfers)) {
       // New behavior with selectedTypes array
       const dateRange = filtersOrDateRange as DateRange | undefined;
       transactions = await this.getTransactionsInRange(dateRange, true);
       const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
-      incomeTransactions = await this.filterTransactionsForReports(converted, 'income', selectedTypesOrIncludeTransfers);
-      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypesOrIncludeTransfers);
+      incomeTransactions = await this.filterTransactionsForReports(converted, 'income', selectedTypesOrIncludeTransfers, undefined);
+      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypesOrIncludeTransfers, undefined);
     } else {
       // Legacy behavior with includeTransfers boolean
       const dateRange = filtersOrDateRange as DateRange | undefined;
@@ -780,7 +793,7 @@ class ReportsService {
       transactions = await this.getFilteredTransactions(filters);
       const converted = await currencyDisplayService.convertTransactionsBatch(transactions);
       const selectedTypes = filters.selectedTypes || ['expense'];
-      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypes);
+      expenseTransactions = await this.filterTransactionsForReports(converted, 'expense', selectedTypes, filters.selectedCategories);
     } else {
       // Legacy behavior
       const dateRange = filtersOrDateRange as DateRange | undefined;
