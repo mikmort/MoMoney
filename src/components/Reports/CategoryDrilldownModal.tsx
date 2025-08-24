@@ -285,7 +285,7 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
     let trendDataFiltered = categoryData.trend;
     if (selectedSubcategory) {
       // Group trend by periods and filter by subcategory
-      const periodTotals: { [label: string]: number } = {};
+      const periodTotals: { [label: string]: { amount: number; date: Date } } = {};
       
       filtered.forEach(transaction => {
         let label: string;
@@ -299,25 +299,31 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
           label = transaction.date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         }
         
+        // Initialize period total with date for sorting
+        if (!periodTotals[label]) {
+          periodTotals[label] = { amount: 0, date: transaction.date };
+        }
+        
         // Calculate net spending for trend periods based on category type
         if (isExpenseCategory(transaction.category)) {
           // For expense categories: positive amounts are refunds (subtract), negative amounts are expenses (add absolute value)
           if (transaction.amount < 0) {
             // Expense: add absolute value
-            periodTotals[label] = (periodTotals[label] || 0) + Math.abs(transaction.amount);
+            periodTotals[label].amount += Math.abs(transaction.amount);
           } else {
             // Refund: subtract amount
-            periodTotals[label] = (periodTotals[label] || 0) - transaction.amount;
+            periodTotals[label].amount -= transaction.amount;
           }
         } else if (isIncomeCategory(transaction.category)) {
           // For income categories: all amounts contribute positively to the total
-          periodTotals[label] = (periodTotals[label] || 0) + Math.abs(transaction.amount);
+          periodTotals[label].amount += Math.abs(transaction.amount);
         }
       });
 
       trendDataFiltered = Object.entries(periodTotals)
-        .map(([label, amount]) => ({ label, amount }))
-        .sort((a, b) => a.label.localeCompare(b.label));
+        .map(([label, data]) => ({ label, amount: data.amount, sortDate: data.date }))
+        .sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime()) // Sort by actual date, not label
+        .map(item => ({ label: item.label, amount: item.amount })); // Remove sortDate from final result
     }
 
     return {
@@ -326,6 +332,58 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
       filteredTrendData: trendDataFiltered
     };
   }, [categoryData, selectedMonth, selectedSubcategory]);
+
+  // Calculate dynamic stats based on filtered transactions
+  const filteredStats = useMemo(() => {
+    if (!categoryData || filteredTransactions.length === 0) {
+      return {
+        totalAmount: 0,
+        transactionCount: 0,
+        averageTransaction: 0,
+        largestTransaction: categoryData?.largestTransaction || undefined
+      };
+    }
+
+    // Calculate total amount using the same logic as reportsService
+    const expenseCategories = categoryData.recentTransactions.some(t => isExpenseCategory(t.category));
+    const incomeCategories = categoryData.recentTransactions.some(t => isIncomeCategory(t.category));
+    
+    let totalAmount: number;
+    
+    if (expenseCategories) {
+      // For expense categories: sum absolute values, subtract refunds
+      totalAmount = filteredTransactions.reduce((sum, t) => {
+        if (t.amount < 0) {
+          return sum + Math.abs(t.amount); // Expense
+        } else {
+          return sum - t.amount; // Refund
+        }
+      }, 0);
+    } else if (incomeCategories) {
+      // For income categories: sum all absolute values
+      totalAmount = filteredTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    } else {
+      // Fallback: sum absolute values
+      totalAmount = filteredTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    }
+
+    const transactionCount = filteredTransactions.length;
+    const averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
+    
+    // Find largest transaction in filtered set
+    const largestTransaction = filteredTransactions.length > 0 
+      ? filteredTransactions.reduce((largest, current) => 
+          Math.abs(current.amount) > Math.abs(largest.amount) ? current : largest
+        )
+      : categoryData.largestTransaction;
+
+    return {
+      totalAmount,
+      transactionCount,
+      averageTransaction,
+      largestTransaction
+    };
+  }, [filteredTransactions, categoryData]);
 
   if (loading) {
     return (
@@ -465,29 +523,40 @@ const CategoryDrilldownModal: React.FC<CategoryDrilldownModalProps> = ({
       <StatsGrid>
             <StatCard>
               <div className="stat-label">Total Spent</div>
-              <div className="stat-value">{formatCurrency(categoryData.totalAmount)}</div>
+              <div className="stat-value">{formatCurrency(filteredStats.totalAmount)}</div>
             </StatCard>
             
             <StatCard>
               <div className="stat-label">Transactions</div>
               <div className="stat-value">
-                {categoryData.recentTransactions.length}
-                {categoryData.recentTransactions.length !== categoryData.transactionCount && (
+                {filteredStats.transactionCount}
+                {selectedMonth || selectedSubcategory ? (
                   <span style={{ display: 'block', fontSize: '0.65rem', color: '#888', marginTop: '4px' }}>
-                    {categoryData.transactionCount} spending
+                    of {categoryData.recentTransactions.length} total
                   </span>
+                ) : (
+                  categoryData.recentTransactions.length !== categoryData.transactionCount && (
+                    <span style={{ display: 'block', fontSize: '0.65rem', color: '#888', marginTop: '4px' }}>
+                      {categoryData.transactionCount} spending
+                    </span>
+                  )
                 )}
               </div>
             </StatCard>
             
             <StatCard>
               <div className="stat-label">Average Transaction</div>
-              <div className="stat-value">{formatCurrency(categoryData.averageTransaction)}</div>
+              <div className="stat-value">{formatCurrency(filteredStats.averageTransaction)}</div>
             </StatCard>
             
             <StatCard>
               <div className="stat-label">Largest Transaction</div>
-              <div className="stat-value">{formatCurrency(Math.abs(categoryData.largestTransaction.amount))}</div>
+              <div className="stat-value">
+                {filteredStats.largestTransaction 
+                  ? formatCurrency(Math.abs(filteredStats.largestTransaction.amount))
+                  : formatCurrency(0)
+                }
+              </div>
             </StatCard>
           </StatsGrid>
 
