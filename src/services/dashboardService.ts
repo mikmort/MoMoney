@@ -61,7 +61,10 @@ class DashboardService {
       }
       
       // Calculate monthly trends
-      const monthKey = transaction.date.toISOString().slice(0, 7); // YYYY-MM format
+      // Use local date to avoid UTC timezone issues
+      const year = transaction.date.getFullYear();
+      const month = (transaction.date.getMonth() + 1).toString().padStart(2, '0');
+      const monthKey = `${year}-${month}`;
       if (!monthlyData[monthKey]) {
         monthlyData[monthKey] = { income: 0, expenses: 0 };
       }

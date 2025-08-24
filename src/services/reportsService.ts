@@ -186,10 +186,7 @@ class ReportsService {
   private async filterTransactionsForReports(transactions: Transaction[], type: 'income' | 'expense', selectedTypes?: string[], selectedCategories?: string[]): Promise<Transaction[]> {
     const preferences = await userPreferencesService.getPreferences();
     
-    // DEBUG: Log filtering process for single category filters
-    
     const filteredTransactions = transactions.filter(t => {
-      let filterReason = '';
       
       // If selectedTypes is provided, check if we should use category-based filtering
       if (selectedTypes && selectedTypes.length > 0) {
@@ -417,7 +414,10 @@ class ReportsService {
 
     // Group transactions by month
     converted.forEach(transaction => {
-      const monthKey = transaction.date.toISOString().slice(0, 7); // YYYY-MM
+      // Use local date to avoid UTC timezone issues
+      const year = transaction.date.getFullYear();
+      const month = (transaction.date.getMonth() + 1).toString().padStart(2, '0');
+      const monthKey = `${year}-${month}`;
       if (!monthlyData[monthKey]) {
         monthlyData[monthKey] = [];
       }
@@ -616,7 +616,10 @@ class ReportsService {
         return weekStart.toISOString().slice(0, 10); // Monday of the week
       case 'monthly':
       default:
-        return date.toISOString().slice(0, 7); // YYYY-MM
+        // Use local date to avoid UTC timezone issues
+        const year = date.getFullYear();
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        return `${year}-${month}`;
     }
   }
 
@@ -852,7 +855,10 @@ class ReportsService {
     // Group by month for trend analysis
     const monthlySpending: { [month: string]: number } = {};
     last3MonthsExpenses.forEach(t => {
-      const monthKey = t.date.toISOString().slice(0, 7);
+      // Use local date to avoid UTC timezone issues
+      const year = t.date.getFullYear();
+      const month = (t.date.getMonth() + 1).toString().padStart(2, '0');
+      const monthKey = `${year}-${month}`;
       monthlySpending[monthKey] = (monthlySpending[monthKey] || 0) + (-t.amount);
     });
 
