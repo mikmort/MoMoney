@@ -1,8 +1,19 @@
 import { Transaction, DashboardStats } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
+import { isIncomeCategory, isExpenseCategory, isTransferCategory, isAssetAllocationCategory } from '../utils/categoryTypeUtils';
 
 class DashboardService {
+  // Helper method to identify transfers (preserving original transfer detection logic)
+  private isTransfer(transaction: Transaction): boolean {
+    return transaction.type === 'transfer' || isTransferCategory(transaction.category);
+  }
+
+  // Helper method to identify asset allocations  
+  private isAssetAllocation(transaction: Transaction): boolean {
+    return transaction.type === 'asset-allocation' || isAssetAllocationCategory(transaction.category);
+  }
+
   async getDashboardStats(): Promise<DashboardStats> {
   const transactions = await dataService.getAllTransactions();
   // Convert all transactions to user's default currency for aggregations
@@ -31,21 +42,21 @@ class DashboardService {
     
   converted.forEach(transaction => {
       // Skip transfer and asset-allocation transactions in financial calculations
-      if (transaction.type === 'transfer' || transaction.type === 'asset-allocation') {
+      if (this.isTransfer(transaction) || this.isAssetAllocation(transaction)) {
         return;
       }
       
       const amount = Math.abs(transaction.amount);
       
-      // Calculate income vs expenses
-      if (transaction.type === 'income' || transaction.amount > 0) {
+      // Calculate income vs expenses based on category type
+      if (isIncomeCategory(transaction.category)) {
         totalIncome += amount;
-      } else {
+      } else if (isExpenseCategory(transaction.category)) {
         totalExpenses += amount;
       }
       
-      // Calculate category totals (only for expenses)
-      if (transaction.type === 'expense' || transaction.amount < 0) {
+      // Calculate category totals (only for expense categories)
+      if (isExpenseCategory(transaction.category)) {
         categoryTotals[transaction.category] = (categoryTotals[transaction.category] || 0) + amount;
       }
       
@@ -55,9 +66,9 @@ class DashboardService {
         monthlyData[monthKey] = { income: 0, expenses: 0 };
       }
       
-      if (transaction.type === 'income' || transaction.amount > 0) {
+      if (isIncomeCategory(transaction.category)) {
         monthlyData[monthKey].income += amount;
-      } else {
+      } else if (isExpenseCategory(transaction.category)) {
         monthlyData[monthKey].expenses += amount;
       }
     });
@@ -93,7 +104,7 @@ class DashboardService {
       totalIncome,
       totalExpenses,
       netIncome: totalIncome - totalExpenses,
-      transactionCount: converted.filter(t => t.type !== 'transfer' && t.type !== 'asset-allocation').length, // Exclude transfers and investments from count
+      transactionCount: converted.filter(t => !this.isTransfer(t) && !this.isAssetAllocation(t)).length, // Exclude transfers and investments from count
       topCategories,
       monthlyTrend
     };
@@ -103,7 +114,7 @@ class DashboardService {
     const transactions = await dataService.getAllTransactions();
     
     return transactions
-      .filter(t => t.type !== 'transfer') // Exclude Internal Transfers from recent transactions
+      .filter(t => !this.isTransfer(t)) // Exclude Internal Transfers from recent transactions
       .sort((a, b) => b.date.getTime() - a.date.getTime())
       .slice(0, limit);
   }

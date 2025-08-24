@@ -2,7 +2,7 @@ import { Transaction } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
-import { defaultCategories } from '../data/defaultCategories';
+import { isAssetAllocationCategory, getCategoryNamesOfType } from '../utils/categoryTypeUtils';
 
 export interface SpendingByCategory {
   categoryName: string;
@@ -88,7 +88,7 @@ class ReportsService {
       return true;
     }
     
-    // Check by category (catch misclassified transfers)
+    // Check by category name (catch misclassified transfers)
     const category = transaction.category.toLowerCase();
     const transferCategories = [
       'internal transfer',
@@ -152,9 +152,7 @@ class ReportsService {
 
   // Helper method to get category names by type from defaultCategories
   private getCategoriesOfType(type: 'income' | 'expense'): string[] {
-    return defaultCategories
-      .filter(cat => cat.type === type)
-      .map(cat => cat.name);
+    return getCategoryNamesOfType(type);
   }
 
   // Helper method to filter transactions by category type (income/expense categories)
@@ -186,7 +184,7 @@ class ReportsService {
         }
         
         // For asset-allocation transactions, apply income/expense filtering based on amount
-        if (t.type === 'asset-allocation') {
+        if (isAssetAllocationCategory(t.category)) {
           if (type === 'expense') {
             return t.amount < 0;
           } else if (type === 'income') {
@@ -195,11 +193,11 @@ class ReportsService {
           return false;
         }
         
-        // For other selected types, apply income/expense filtering
+        // For other selected types, apply income/expense filtering based on category type
         if (type === 'expense') {
-          return t.type === 'expense' || t.amount < 0;
+          return this.filterTransactionsByCategoryType([t], 'expense').length > 0;
         } else if (type === 'income') {
-          return t.type === 'income' || t.amount > 0;
+          return this.filterTransactionsByCategoryType([t], 'income').length > 0;
         }
         
         return true;
@@ -211,16 +209,16 @@ class ReportsService {
       }
       
       // Check if this is an asset allocation transaction
-      if (t.type === 'asset-allocation') {
+      if (isAssetAllocationCategory(t.category)) {
         // Only include asset allocation transactions if user has enabled it
         return preferences.includeInvestmentsInReports;
       }
       
-      // For regular income/expense filtering
+      // For regular income/expense filtering based on category type
       if (type === 'expense') {
-        return t.type === 'expense' || t.amount < 0;
+        return this.filterTransactionsByCategoryType([t], 'expense').length > 0;
       } else if (type === 'income') {
-        return t.type === 'income' || t.amount > 0;
+        return this.filterTransactionsByCategoryType([t], 'income').length > 0;
       }
       
       return false;
@@ -247,16 +245,16 @@ class ReportsService {
       }
       
       // Check if this is an asset allocation transaction
-      if (t.type === 'asset-allocation') {
+      if (isAssetAllocationCategory(t.category)) {
         // Only include asset allocation transactions if user has enabled it
         return preferences.includeInvestmentsInReports;
       }
       
-      // For regular income/expense filtering
+      // For regular income/expense filtering based on category type
       if (type === 'expense') {
-        return t.type === 'expense' || t.amount < 0;
+        return this.filterTransactionsByCategoryType([t], 'expense').length > 0;
       } else if (type === 'income') {
-        return t.type === 'income' || t.amount > 0;
+        return this.filterTransactionsByCategoryType([t], 'income').length > 0;
       }
       
       return false;
@@ -325,7 +323,7 @@ class ReportsService {
     // Add asset allocation if explicitly requested
     if (shouldIncludeAssetAllocation) {
       const assetTransactions = transactions.filter(t => 
-        (t.type === 'asset-allocation' || t.category === 'Asset Allocation') && t.amount < 0 // Only negative for spending
+        isAssetAllocationCategory(t.category) && t.amount < 0 // Only negative for spending
       );
       expenseTransactions = [...expenseTransactions, ...assetTransactions];
     }
@@ -466,7 +464,7 @@ class ReportsService {
         // Add asset allocation if requested
         if (shouldIncludeAssetAllocation) {
           const assetTransactions = monthTransactions.filter(t => 
-            t.type === 'asset-allocation' || t.category === 'Asset Allocation'
+            isAssetAllocationCategory(t.category)
           );
           // Add to expenses or income based on amount
           assetTransactions.forEach(t => {
@@ -626,7 +624,7 @@ class ReportsService {
       .filter(t => {
         if (t.category !== categoryName) return false;
         // Do NOT exclude internal transfers for the category itself; we want full parity with pie chart selection
-        if (t.type === 'asset-allocation' && !preferences.includeInvestmentsInReports) return false;
+        if (isAssetAllocationCategory(t.category) && !preferences.includeInvestmentsInReports) return false;
         return true;
       })
       .sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -1044,7 +1042,7 @@ class ReportsService {
       // Add asset allocation if explicitly requested
       if (shouldIncludeAssetAllocation) {
         const assetTransactions = transactions.filter(t => 
-          (t.type === 'asset-allocation' || t.category === 'Asset Allocation') && t.amount > 0 // Only positive for income
+          isAssetAllocationCategory(t.category) && t.amount > 0 // Only positive for income
         );
         incomeTransactions = [...incomeTransactions, ...assetTransactions];
       }
