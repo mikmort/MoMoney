@@ -809,12 +809,12 @@ ${userPrompt}`;
       }
 
       const firstTransactionDate = accountTransactions[0].date;
-      const today = new Date();
+      const lastTransactionDate = accountTransactions[accountTransactions.length - 1].date;
       const history: Array<{ date: Date; formattedDate: string; balance: number }> = [];
 
-      // Start from the first transaction month and go to current month
+      // Start from the first transaction month and go to the last transaction date
       let currentDate = new Date(firstTransactionDate.getFullYear(), firstTransactionDate.getMonth(), 1);
-      const endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0); // Last day of current month
+      const endDate = lastTransactionDate; // Use the exact date of the last transaction
 
       // Calculate starting balance (historical balance or 0)
       let runningBalance = account.historicalBalance || 0;
@@ -847,10 +847,16 @@ ${userPrompt}`;
         const monthlyChange = monthTransactions.reduce((sum: number, t: any) => sum + t.amount, 0);
         runningBalance += monthlyChange;
 
-        // Add entry for end of month
+        // For the final month (containing the last transaction), use the last transaction date
+        // For all other months, use the month end
+        const isLastMonth = currentDate.getFullYear() === lastTransactionDate.getFullYear() && 
+                           currentDate.getMonth() === lastTransactionDate.getMonth();
+        const displayDate = isLastMonth ? lastTransactionDate : monthEnd;
+
+        // Add entry for this month
         history.push({
-          date: monthEnd,
-          formattedDate: this.formatDateLong(monthEnd),
+          date: displayDate,
+          formattedDate: this.formatDateLong(displayDate),
           balance: runningBalance
         });
 
