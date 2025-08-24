@@ -18,6 +18,7 @@ import TransactionDetailsModal, { TransactionFilter } from './TransactionDetails
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { dataService } from '../../services/dataService';
 import { Transaction } from '../../types';
+import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 
 const SpendingContainer = styled.div`
   .date-range-selector {
@@ -121,6 +122,7 @@ const CategoryTable = styled.div`
 `;
 
 const SpendingReports: React.FC = () => {
+  const { categories } = useCategoriesManager();
   const [dateRange, setDateRange] = useState<string>('Last 12 Months');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -168,7 +170,7 @@ const SpendingReports: React.FC = () => {
     title: ''
   });
 
-  // Load transactions and compute unique values
+  // Load transactions and compute unique accounts
   useEffect(() => {
     const loadTransactions = async () => {
       try {
@@ -181,11 +183,13 @@ const SpendingReports: React.FC = () => {
     loadTransactions();
   }, []);
 
-  // Compute unique categories and accounts from transactions
-  const uniqueCategories = useMemo(() => 
-    Array.from(new Set(transactions.map((t: Transaction) => t.category)))
+  // Get expense categories from the active category set (custom categories from localStorage or default categories)
+  const expenseCategories = useMemo(() => 
+    categories
+      .filter(cat => cat.type === 'expense')
+      .map(cat => cat.name)
       .sort((a, b) => a.localeCompare(b)), 
-    [transactions]
+    [categories]
   );
   
   const uniqueAccounts = useMemo(() => 
@@ -362,7 +366,7 @@ const SpendingReports: React.FC = () => {
             <label>Categories</label>
             <MultiSelectFilter
               label="Categories"
-              options={uniqueCategories}
+              options={expenseCategories}
               selectedValues={selectedCategories}
               onChange={setSelectedCategories}
               placeholder="All Categories"

@@ -15,6 +15,7 @@ import TransactionDetailsModal, { TransactionFilter } from './TransactionDetails
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { dataService } from '../../services/dataService';
 import { Transaction } from '../../types';
+import { useCategoriesManager } from '../../hooks/useCategoriesManager';
 
 const IncomeContainer = styled.div`
   .date-range-selector {
@@ -126,6 +127,7 @@ interface IncomeSource {
 }
 
 const IncomeReports: React.FC = () => {
+  const { categories } = useCategoriesManager();
   const [dateRange, setDateRange] = useState<string>('Last 12 Months');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -148,7 +150,7 @@ const IncomeReports: React.FC = () => {
     title: ''
   });
 
-  // Load transactions and compute unique values
+  // Load transactions and compute unique accounts
   useEffect(() => {
     const loadTransactions = async () => {
       try {
@@ -161,11 +163,13 @@ const IncomeReports: React.FC = () => {
     loadTransactions();
   }, []);
 
-  // Compute unique categories and accounts from transactions
-  const uniqueCategories = useMemo(() => 
-    Array.from(new Set(transactions.map((t: Transaction) => t.category)))
+  // Get income categories from the active category set (custom categories from localStorage or default categories)
+  const incomeCategories = useMemo(() => 
+    categories
+      .filter(cat => cat.type === 'income')
+      .map(cat => cat.name)
       .sort((a, b) => a.localeCompare(b)), 
-    [transactions]
+    [categories]
   );
   
   const uniqueAccounts = useMemo(() => 
@@ -374,7 +378,7 @@ const IncomeReports: React.FC = () => {
             <label>Categories</label>
             <MultiSelectFilter
               label="Categories"
-              options={uniqueCategories}
+              options={incomeCategories}
               selectedValues={selectedCategories}
               onChange={setSelectedCategories}
               placeholder="All Categories"
