@@ -302,16 +302,17 @@ class ReportsService {
     
     // Filter transactions: expense categories by default, plus transfers/asset-allocation if requested
     const expenseCategories = this.getCategoriesOfType('expense');
-    let expenseTransactions = transactions.filter(t => expenseCategories.includes(t.category));
-
-    // If the user explicitly filtered by categories, include those even if not in default expense list.
+    let expenseTransactions: Transaction[];
+    
+    // If the user explicitly filtered by categories, use only those that are also expense categories
     if (selectedCategoryFilter && selectedCategoryFilter.length > 0) {
-      const explicitCategoryTransactions = transactions.filter(t => 
-        selectedCategoryFilter!.includes(t.category) && !expenseTransactions.some(e => e.id === t.id)
-      );
-      if (explicitCategoryTransactions.length > 0) {
-        expenseTransactions = [...expenseTransactions, ...explicitCategoryTransactions];
-      }
+      // Only include explicitly filtered categories if they are also expense categories
+      const validExpenseCategoriesFromFilter = selectedCategoryFilter.filter(cat => expenseCategories.includes(cat));
+      // Filter transactions by only these valid expense categories
+      expenseTransactions = transactions.filter(t => validExpenseCategoriesFromFilter.includes(t.category));
+    } else {
+      // No explicit filter: use all expense categories
+      expenseTransactions = transactions.filter(t => expenseCategories.includes(t.category));
     }
     
     // Add transfers if explicitly requested
