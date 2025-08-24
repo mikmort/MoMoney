@@ -195,14 +195,8 @@ class ReportsService {
           return false;
         }
         
-        // For other selected types, apply income/expense filtering
-        if (type === 'expense') {
-          return t.type === 'expense' || t.amount < 0;
-        } else if (type === 'income') {
-          return t.type === 'income' || t.amount > 0;
-        }
-        
-        return true;
+        // For other selected types, apply category-based filtering
+        return this.filterTransactionsByCategoryType([t], type).length > 0;
       }
       
       // Legacy behavior: Check if this is an internal transfer using comprehensive detection
@@ -216,14 +210,8 @@ class ReportsService {
         return preferences.includeInvestmentsInReports;
       }
       
-      // For regular income/expense filtering
-      if (type === 'expense') {
-        return t.type === 'expense' || t.amount < 0;
-      } else if (type === 'income') {
-        return t.type === 'income' || t.amount > 0;
-      }
-      
-      return false;
+      // For regular income/expense filtering, use category-based logic
+      return this.filterTransactionsByCategoryType([t], type).length > 0;
     });
   }
 
@@ -252,14 +240,8 @@ class ReportsService {
         return preferences.includeInvestmentsInReports;
       }
       
-      // For regular income/expense filtering
-      if (type === 'expense') {
-        return t.type === 'expense' || t.amount < 0;
-      } else if (type === 'income') {
-        return t.type === 'income' || t.amount > 0;
-      }
-      
-      return false;
+      // For regular income/expense filtering, use category-based logic
+      return this.filterTransactionsByCategoryType([t], type).length > 0;
     });
   }
 
