@@ -4,7 +4,7 @@ A modern React TypeScript application for tracking expenses, managing budgets, a
 
 ## � Quick Start
 
-### Development Mode (No Authentication Required) 
+### Development Mode (No Authentication Required)
 
 For immediate testing without setting up Azure services:
 
