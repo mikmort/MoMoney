@@ -1,28 +1,8 @@
 import { Transaction, DashboardStats } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
-import { defaultCategories } from '../data/defaultCategories';
 
 class DashboardService {
-  // Helper method to get category names by type from defaultCategories
-  private getCategoriesOfType(type: 'income' | 'expense'): string[] {
-    return defaultCategories
-      .filter(cat => cat.type === type)
-      .map(cat => cat.name);
-  }
-
-  // Helper method to check if a transaction is in an income category
-  private isIncomeTransaction(transaction: Transaction): boolean {
-    const incomeCategories = this.getCategoriesOfType('income');
-    return incomeCategories.includes(transaction.category);
-  }
-
-  // Helper method to check if a transaction is in an expense category
-  private isExpenseTransaction(transaction: Transaction): boolean {
-    const expenseCategories = this.getCategoriesOfType('expense');
-    return expenseCategories.includes(transaction.category);
-  }
-
   async getDashboardStats(): Promise<DashboardStats> {
   const transactions = await dataService.getAllTransactions();
   // Convert all transactions to user's default currency for aggregations
@@ -57,15 +37,15 @@ class DashboardService {
       
       const amount = Math.abs(transaction.amount);
       
-      // Calculate income vs expenses based on category type, not transaction type
-      if (this.isIncomeTransaction(transaction)) {
+      // Calculate income vs expenses
+      if (transaction.type === 'income' || transaction.amount > 0) {
         totalIncome += amount;
-      } else if (this.isExpenseTransaction(transaction)) {
+      } else {
         totalExpenses += amount;
       }
       
-      // Calculate category totals (only for expense categories)
-      if (this.isExpenseTransaction(transaction)) {
+      // Calculate category totals (only for expenses)
+      if (transaction.type === 'expense' || transaction.amount < 0) {
         categoryTotals[transaction.category] = (categoryTotals[transaction.category] || 0) + amount;
       }
       
@@ -75,9 +55,9 @@ class DashboardService {
         monthlyData[monthKey] = { income: 0, expenses: 0 };
       }
       
-      if (this.isIncomeTransaction(transaction)) {
+      if (transaction.type === 'income' || transaction.amount > 0) {
         monthlyData[monthKey].income += amount;
-      } else if (this.isExpenseTransaction(transaction)) {
+      } else {
         monthlyData[monthKey].expenses += amount;
       }
     });
