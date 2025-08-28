@@ -31,7 +31,7 @@ export const defaultConfig: AppConfig = {
     },
     msal: {
       clientId: process.env.REACT_APP_AZURE_AD_CLIENT_ID || 'YOUR_AZURE_AD_CLIENT_ID',
-      authority: process.env.REACT_APP_AZURE_AD_AUTHORITY || 'https://login.microsoftonline.com/consumers',
+      authority: process.env.REACT_APP_AZURE_AD_AUTHORITY || 'https://login.microsoftonline.com/common',
       redirectUri: process.env.REACT_APP_REDIRECT_URI || 'http://localhost:3000'
     }
   },
