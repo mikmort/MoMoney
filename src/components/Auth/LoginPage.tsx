@@ -1,6 +1,5 @@
 import React from 'react';
-import { useMsal } from '@azure/msal-react';
-import { loginRequest } from '../../config/authConfig';
+import { staticWebAppAuthService } from '../../services/staticWebAppAuthService';
 import styled from 'styled-components';
 
 const LoginContainer = styled.div`
@@ -79,11 +78,10 @@ const FeatureList = styled.ul`
 `;
 
 const LoginPage: React.FC = () => {
-  const { instance } = useMsal();
-
   const handleLogin = async () => {
     try {
-      await instance.loginPopup(loginRequest);
+      // Redirect to Azure Static Web Apps auth endpoint
+      staticWebAppAuthService.login('/');
     } catch (error) {
       console.error('Login failed:', error);
     }

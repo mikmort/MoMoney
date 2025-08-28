@@ -1,8 +1,5 @@
 import React, { Suspense } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
-import { MsalProvider, AuthenticatedTemplate, UnauthenticatedTemplate } from '@azure/msal-react';
-import { PublicClientApplication } from '@azure/msal-browser';
-import { msalConfig } from './config/authConfig';
 import { ThemeProvider } from 'styled-components';
 import { skipAuthentication } from './config/devConfig';
 import { ImportStateProvider } from './contexts/ImportStateContext';
@@ -10,7 +7,7 @@ import { NotificationProvider } from './contexts/NotificationContext';
 import { NavigationBlocker } from './components/shared/NavigationBlocker';
 // Lazy-loaded Components for code splitting
 import Navigation from './components/Layout/Navigation';
-import LoginPage from './components/Auth/LoginPage';
+import { AuthWrapper } from './components/Auth/AuthWrapper';
 import DatabaseEventHandler from './components/shared/DatabaseEventHandler';
 import ExchangeRateNotifications from './components/shared/ExchangeRateNotifications';
 import { GlobalStyles, lightTheme } from './styles/globalStyles';
@@ -30,9 +27,6 @@ const Settings = lazyWithRetry(() => import('./components/Settings/Settings'));
 const CategoriesManagement = lazyWithRetry(() => import('./components/Categories/CategoriesManagement'));
 const TransferMatchesPage = lazyWithRetry(() => import('./components/Transactions/TransferMatchesPage').then(module => ({ default: module.TransferMatchesPage })));
 const Accounts = lazyWithRetry(() => import('./components/Accounts/Accounts'));
-
-// Initialize MSAL instance
-const msalInstance = new PublicClientApplication(msalConfig);
 
 // Loading component for Suspense fallback
 const LoadingFallback: React.FC = () => (
@@ -100,15 +94,10 @@ const App: React.FC = () => {
             // Development mode - bypass authentication
             <RouterProvider router={router} future={{ v7_startTransition: true }} />
           ) : (
-            // Production mode - use MSAL
-            <MsalProvider instance={msalInstance}>
-              <AuthenticatedTemplate>
-                <RouterProvider router={router} future={{ v7_startTransition: true }} />
-              </AuthenticatedTemplate>
-              <UnauthenticatedTemplate>
-                <LoginPage />
-              </UnauthenticatedTemplate>
-            </MsalProvider>
+            // Production mode - use Azure Static Web Apps auth
+            <AuthWrapper>
+              <RouterProvider router={router} future={{ v7_startTransition: true }} />
+            </AuthWrapper>
           )}
         </NotificationProvider>
       </ImportStateProvider>

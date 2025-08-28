@@ -1,6 +1,6 @@
 // Development mode configuration
 export const isDevelopmentMode = process.env.NODE_ENV === 'development';
-export const skipAuthentication = process.env.REACT_APP_SKIP_AUTH === 'true' || isDevelopmentMode;
+export const skipAuthentication = process.env.REACT_APP_SKIP_AUTH === 'true';
 
 // Mock user data for development
 export const mockUser = {
