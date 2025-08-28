@@ -7,6 +7,10 @@ export interface AppConfig {
       deploymentName: string;
       apiVersion: string;
     };
+    /**
+     * @deprecated - MSAL configuration no longer used
+     * Azure Static Web Apps handles authentication automatically
+     */
     msal: {
       clientId: string;
       authority: string;
@@ -29,6 +33,10 @@ export const defaultConfig: AppConfig = {
   deploymentName: process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
       apiVersion: process.env.REACT_APP_AZURE_OPENAI_API_VERSION || '2024-02-15-preview'
     },
+    /**
+     * @deprecated - MSAL configuration no longer used
+     * Azure Static Web Apps handles authentication automatically
+     */
     msal: {
       clientId: process.env.REACT_APP_AZURE_AD_CLIENT_ID || 'YOUR_AZURE_AD_CLIENT_ID',
       authority: process.env.REACT_APP_AZURE_AD_AUTHORITY || 'https://login.microsoftonline.com/common',
