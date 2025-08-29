@@ -59,7 +59,12 @@ class StaticWebAppAuthServiceImpl implements StaticWebAppAuthService {
       // Check if response is actually JSON (only if headers are available)
       const contentType = response.headers?.get('content-type');
       if (contentType && !contentType.includes('application/json')) {
-        console.warn('/.auth/me endpoint returned non-JSON response - likely not deployed as Azure Static Web App');
+        // Check if we're in a development environment
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('/.auth/me endpoint returned non-JSON response - running in local development mode. Azure Static Web Apps authentication is not available locally. Consider setting REACT_APP_SKIP_AUTH=true for development.');
+        } else {
+          console.warn('/.auth/me endpoint returned non-JSON response - likely not deployed as Azure Static Web App');
+        }
         return null;
       }
       
@@ -75,7 +80,12 @@ class StaticWebAppAuthServiceImpl implements StaticWebAppAuthService {
     } catch (error) {
       // More specific error handling for common development scenarios
       if (error instanceof SyntaxError && error.message.includes('Unexpected token')) {
-        console.warn('/.auth/me endpoint returned HTML instead of JSON - application not running in Azure Static Web Apps context');
+        // Check if we're in a development environment
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('/.auth/me endpoint returned HTML instead of JSON - running in local development mode. Azure Static Web Apps authentication is not available locally. Consider setting REACT_APP_SKIP_AUTH=true for development.');
+        } else {
+          console.warn('/.auth/me endpoint returned HTML instead of JSON - application not running in Azure Static Web Apps context');
+        }
       } else {
         console.error('Error fetching user info:', error);
       }
@@ -84,6 +94,11 @@ class StaticWebAppAuthServiceImpl implements StaticWebAppAuthService {
   }
   
   login(redirectUrl = '/welcome'): void {
+    // Check if we're in development mode and provide helpful guidance
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Azure Static Web Apps authentication is not available in local development mode. To test authentication locally, set REACT_APP_SKIP_AUTH=true in your .env file to use development mode authentication.');
+    }
+    
     // Use Azure Static Web Apps built-in auth endpoint
     const loginUrl = redirectUrl 
       ? `/.auth/login/aad?post_login_redirect_uri=${encodeURIComponent(redirectUrl)}`
