@@ -56,6 +56,13 @@ class StaticWebAppAuthServiceImpl implements StaticWebAppAuthService {
         return null;
       }
       
+      // Check if response is actually JSON (only if headers are available)
+      const contentType = response.headers?.get('content-type');
+      if (contentType && !contentType.includes('application/json')) {
+        console.warn('/.auth/me endpoint returned non-JSON response - likely not deployed as Azure Static Web App');
+        return null;
+      }
+      
       const data = await response.json();
       
       // Azure Static Web Apps returns user info in clientPrincipal
@@ -66,7 +73,12 @@ class StaticWebAppAuthServiceImpl implements StaticWebAppAuthService {
       
       return null;
     } catch (error) {
-      console.error('Error fetching user info:', error);
+      // More specific error handling for common development scenarios
+      if (error instanceof SyntaxError && error.message.includes('Unexpected token')) {
+        console.warn('/.auth/me endpoint returned HTML instead of JSON - application not running in Azure Static Web Apps context');
+      } else {
+        console.error('Error fetching user info:', error);
+      }
       return null;
     }
   }

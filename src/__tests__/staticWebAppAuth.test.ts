@@ -34,6 +34,9 @@ describe('Azure Static Web Apps Auth Service', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
+        headers: {
+          get: jest.fn().mockReturnValue('application/json')
+        },
         json: async () => mockUserData
       });
 
@@ -57,6 +60,9 @@ describe('Azure Static Web Apps Auth Service', () => {
     it('should return null when no clientPrincipal', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
+        headers: {
+          get: jest.fn().mockReturnValue('application/json')
+        },
         json: async () => ({})
       });
 
@@ -70,6 +76,9 @@ describe('Azure Static Web Apps Auth Service', () => {
     it('should return true when user exists', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
+        headers: {
+          get: jest.fn().mockReturnValue('application/json')
+        },
         json: async () => ({
           clientPrincipal: {
             identityProvider: 'aad',
