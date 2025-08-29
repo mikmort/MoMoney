@@ -70,6 +70,61 @@ describe('Azure Static Web Apps Auth Service', () => {
 
       expect(user).toBeNull();
     });
+
+    it('should log helpful development mode message for non-JSON response when NODE_ENV is development', async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      try {
+        process.env.NODE_ENV = 'development';
+        
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          headers: {
+            get: jest.fn().mockReturnValue('text/html')
+          }
+        });
+
+        const user = await staticWebAppAuthService.getUser();
+
+        expect(user).toBeNull();
+        expect(consoleSpy).toHaveBeenCalledWith(
+          '/.auth/me endpoint returned non-JSON response - running in local development mode. Azure Static Web Apps authentication is not available locally. Consider setting REACT_APP_SKIP_AUTH=true for development.'
+        );
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+        consoleSpy.mockRestore();
+      }
+    });
+
+    it('should log helpful development mode message for JSON parse error when NODE_ENV is development', async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      try {
+        process.env.NODE_ENV = 'development';
+        
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          headers: {
+            get: jest.fn().mockReturnValue('application/json') // Mock as JSON to bypass content-type check
+          },
+          json: async () => {
+            throw new SyntaxError('Unexpected token < in JSON at position 0');
+          }
+        });
+
+        const user = await staticWebAppAuthService.getUser();
+
+        expect(user).toBeNull();
+        expect(consoleSpy).toHaveBeenCalledWith(
+          '/.auth/me endpoint returned HTML instead of JSON - running in local development mode. Azure Static Web Apps authentication is not available locally. Consider setting REACT_APP_SKIP_AUTH=true for development.'
+        );
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+        consoleSpy.mockRestore();
+      }
+    });
   });
 
   describe('isAuthenticated', () => {
@@ -115,6 +170,23 @@ describe('Azure Static Web Apps Auth Service', () => {
       staticWebAppAuthService.login('/dashboard');
 
       expect(window.location.href).toBe('/.auth/login/aad?post_login_redirect_uri=%2Fdashboard');
+    });
+
+    it('should log helpful development mode message when NODE_ENV is development', () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      try {
+        process.env.NODE_ENV = 'development';
+        staticWebAppAuthService.login();
+
+        expect(consoleSpy).toHaveBeenCalledWith(
+          'Azure Static Web Apps authentication is not available in local development mode. To test authentication locally, set REACT_APP_SKIP_AUTH=true in your .env file to use development mode authentication.'
+        );
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+        consoleSpy.mockRestore();
+      }
     });
   });
 
