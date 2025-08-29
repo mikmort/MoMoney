@@ -130,11 +130,13 @@ class AzureBlobService {
     const headers = {
       'Content-Type': contentType,
       'x-metadata-source': 'momoney-app',
-      'x-metadata-timestamp': new Date().toISOString()
+      'x-metadata-timestamp': new Date().toISOString(),
+      'Origin': window.location.origin
     };
 
     console.log(`[Azure Sync] Starting upload for blob: ${blobName}`);
     console.log(`[Azure Sync] Content length: ${body.length} bytes`);
+    console.log(`[Azure Sync] Request origin: ${window.location.origin}`);
 
     // Try the /upload endpoint first
     try {
@@ -142,7 +144,8 @@ class AzureBlobService {
       const response = await fetch(`${this.baseUrl}/upload/${blobName}`, {
         method: 'POST',
         headers,
-        body
+        body,
+        mode: 'cors'
       });
 
       console.log(`[Azure Sync] Upload response status: ${response.status}`);
@@ -152,6 +155,16 @@ class AzureBlobService {
         return { 
           success: true, 
           url: `${this.baseUrl}/${blobName}` 
+        };
+      } else if (response.status === 403) {
+        const errorText = await response.text();
+        console.error(`[Azure Sync] ❌ CORS Error - Access Denied (403 Forbidden)`);
+        console.error(`[Azure Sync] This usually means CORS is not properly configured on the Azure Functions app.`);
+        console.error(`[Azure Sync] Error details: ${errorText}`);
+        console.error(`[Azure Sync] To fix: Add '${window.location.origin}' to CORS allowed origins in Azure Functions app 'storageproxy-c6g8bvbcdqc7duam'`);
+        return { 
+          success: false, 
+          error: `CORS Error: Azure Functions app needs CORS configuration. Add '${window.location.origin}' to allowed origins.` 
         };
       } else if (response.status === 404) {
         console.log(`[Azure Sync] /upload endpoint returned 404, trying alternative endpoint...`);
