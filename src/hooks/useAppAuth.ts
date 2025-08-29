@@ -23,19 +23,19 @@ export const useAppAuth = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      if (skipAuthentication) {
-        // In development mode, return mock data
-        setIsAuthenticated(true);
-        setUser({
-          displayName: 'Development User',
-          email: 'dev@momoney.app'
-        });
-        setAccount(null);
-        setIsLoading(false);
-        return;
-      }
-
       try {
+        if (skipAuthentication) {
+          // In development mode, return mock data
+          setIsAuthenticated(true);
+          setUser({
+            displayName: 'Development User',
+            email: 'dev@momoney.app'
+          });
+          setAccount(null);
+          setIsLoading(false);
+          return;
+        }
+
         // Production mode with Azure Static Web Apps auth
         const authenticated = await staticWebAppAuthService.isAuthenticated();
         const currentUser = authenticated ? await staticWebAppAuthService.getUser() : null;
