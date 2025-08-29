@@ -84,6 +84,11 @@ export interface ReportsFilters {
 class ReportsService {
   // Helper method to comprehensively identify internal transfers (category-based only)
   private isInternalTransfer(transaction: Transaction): boolean {
+    // Check by transaction type (most direct)
+    if (transaction.type === 'transfer') {
+      return true;
+    }
+    
     // Check by category type (most reliable)
     if (isTransferCategory(transaction.category)) {
       return true;
@@ -222,7 +227,9 @@ class ReportsService {
       // For ALL income/expense filtering (with or without selectedTypes), use pure category-based logic
       if (type === 'expense') {
         const isExpenseCategory = this.filterTransactionsByCategoryType([t], 'expense').length > 0;
-        return isExpenseCategory;
+        // Also include asset-allocation transactions if explicitly requested
+        const isAssetAllocationRequested = selectedTypes && selectedTypes.includes('asset-allocation') && isAssetAllocationCategory(t.category);
+        return isExpenseCategory || isAssetAllocationRequested;
       } else if (type === 'income') {
         const isIncomeCategory = this.filterTransactionsByCategoryType([t], 'income').length > 0;
         return isIncomeCategory;

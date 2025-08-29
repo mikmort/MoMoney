@@ -55,7 +55,7 @@ describe('Reports Comprehensive Filtering Tests', () => {
         date: new Date('2024-01-18'),
         amount: 3000.00,
         description: 'Salary',
-        category: 'Income',
+        category: 'Salary & Wages',
         account: 'Chase Checking',
         type: 'income' as const,
         addedDate: new Date(),
@@ -201,7 +201,7 @@ describe('Reports Comprehensive Filtering Tests', () => {
     // Verify all expected categories and accounts are found
     expect(categories).toContain('Food & Dining');
     expect(categories).toContain('Transportation');
-    expect(categories).toContain('Income');
+    expect(categories).toContain('Salary & Wages');
     
     expect(accounts).toContain('Chase Checking');
     expect(accounts).toContain('Chase Credit');
