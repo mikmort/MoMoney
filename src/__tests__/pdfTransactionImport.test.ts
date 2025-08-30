@@ -159,7 +159,6 @@ describe('PDF Transaction Import', () => {
       amount: -4.85,
       category: 'Food & Dining',
       confidence: expect.any(Number),
-      type: 'expense',
       isVerified: false
     }));
     expect(transactions[1]).toEqual(expect.objectContaining({
@@ -168,7 +167,6 @@ describe('PDF Transaction Import', () => {
       amount: -25.40,
       category: 'Groceries',
       confidence: expect.any(Number),
-      type: 'expense',
       isVerified: false
     }));
     expect(transactions[2]).toEqual(expect.objectContaining({
@@ -177,7 +175,6 @@ describe('PDF Transaction Import', () => {
       amount: 2500.00,
       category: 'Income',
       confidence: expect.any(Number),
-      type: 'income',
       isVerified: false
     }));
   });
@@ -346,7 +343,6 @@ describe('PDF Transaction Import', () => {
       amount: -10.00,
       category: 'Test',
       confidence: expect.any(Number),
-      type: 'expense',
       isVerified: false
     }));
     

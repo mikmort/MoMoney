@@ -147,9 +147,9 @@ describe('Internal Transfer Data Consistency Fix', () => {
       type: 'expense' // This should be overridden
     });
 
-    // The dataService should have corrected the type
+    // The dataService should have corrected the category (type is determined by category now)
     expect(transaction.category).toBe('Internal Transfer');
-    expect(transaction.type).toBe('transfer'); // Should be corrected automatically
+    // Transaction type is now determined by category, not stored as property
   });
 
   it('should fix transactions when rules with Internal Transfer are applied to existing data', async () => {
@@ -198,12 +198,12 @@ describe('Internal Transfer Data Consistency Fix', () => {
     const reclassifiedCount = await rulesService.reclassifyExistingTransactions(transferRule);
     expect(reclassifiedCount).toBe(1);
 
-    // Verify the transaction was properly updated with both category and type
+    // Verify the transaction was properly updated with category
     const allTransactions = await dataService.getAllTransactions();
     const updatedTransaction = allTransactions.find(t => t.id === transaction.id);
     
     expect(updatedTransaction?.category).toBe('Internal Transfer');
-    expect(updatedTransaction?.type).toBe('transfer'); // Should be set by the rule or sync logic
+    // Transaction type is now determined by category, not stored as property
     expect(updatedTransaction?.subcategory).toBe('Between Accounts');
   });
 
@@ -255,9 +255,8 @@ describe('Internal Transfer Data Consistency Fix', () => {
     expect(allTransactions).toHaveLength(1);
     const fixedTx = allTransactions.find(t => t.id === 'audit-tx-1');
     expect(fixedTx?.category).toBe('Internal Transfer');
-    expect(fixedTx?.type).toBe('transfer'); // Should be fixed by audit
+    // Transaction type is now determined by category, not stored as property
     
-    // Verify audit flag was set
-    expect(dataService['internalTransferTypeAuditDone']).toBe(true);
+    // Note: Audit functionality was part of transaction.type system which we've removed
   });
 });

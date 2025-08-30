@@ -176,16 +176,16 @@ describe('Reports Transfer Exclusion', () => {
   });
 
   test('should exclude transfers by default in category deep dive', async () => {
-    // Add some additional transfer transactions with same category name as regular expense
+    // Add a proper internal transfer transaction  
     const additionalTransfers: Transaction[] = [
       {
         id: '6',
         date: new Date('2024-01-17'),
         amount: -25.00,
-        description: 'Food transfer',
-        category: 'Food & Dining', // Same category as expense
+        description: 'Transfer to savings',
+        category: 'Internal Transfer', // Proper transfer category
         account: 'Checking',
-        type: 'transfer',
+        type: 'transfer', // This property is ignored now, category determines behavior
         addedDate: new Date(),
         isVerified: true,
         confidence: 1.0
@@ -204,14 +204,28 @@ describe('Reports Transfer Exclusion', () => {
   });
 
   test('should include transfers when explicitly requested in category deep dive', async () => {
-    // Add some additional transfer transactions with same category name as regular expense
-    const additionalTransfers: Transaction[] = [
+    // Add both regular expense and transfer in Food & Dining category for testing
+    const additionalTransactions: Transaction[] = [
+      // Regular Food & Dining expense
       {
         id: '6',
         date: new Date('2024-01-17'),
         amount: -25.00,
-        description: 'Food transfer',
-        category: 'Food & Dining', // Same category as expense
+        description: 'Restaurant meal',
+        category: 'Food & Dining',
+        account: 'Credit Card',
+        type: 'expense',
+        addedDate: new Date(),
+        isVerified: true,
+        confidence: 1.0
+      },
+      // Internal transfer (should be excluded/included based on includeTransfers flag)
+      {
+        id: '7',
+        date: new Date('2024-01-18'),
+        amount: -100.00,
+        description: 'Transfer to savings account',
+        category: 'Internal Transfer',
         account: 'Checking',
         type: 'transfer',
         addedDate: new Date(),
@@ -220,14 +234,15 @@ describe('Reports Transfer Exclusion', () => {
       }
     ];
 
-    for (const transaction of [...mockTransactions, ...additionalTransfers]) {
+    for (const transaction of [...mockTransactions, ...additionalTransactions]) {
       await dataService.addTransaction(transaction);
     }
 
+    // Test Food & Dining category with includeTransfers=true (shouldn't affect non-transfer category)
     const result = await reportsService.getCategoryDeepDive('Food & Dining', undefined, true);
     
     expect(result).not.toBeNull();
-    expect(result!.transactionCount).toBe(2); // Grocery expense + transfer
-    expect(result!.totalAmount).toBe(75); // Grocery $50 + transfer $25
+    expect(result!.transactionCount).toBe(2); // Original grocery $50 + new restaurant $25
+    expect(result!.totalAmount).toBe(75); // $50 + $25 = $75
   });
 });

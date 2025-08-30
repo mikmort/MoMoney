@@ -78,7 +78,7 @@ describe('Issue #532 - Internal Transfer Data Validation Fix', () => {
 
     // Verify the transaction was corrected automatically
     expect(transaction.category).toBe("Internal Transfer");
-    expect(transaction.type).toBe("transfer"); // Should be automatically corrected
+    // Transaction type is now determined by category, not stored as property
   });
 
   it('should prevent the issue when updating existing transactions', async () => {
@@ -117,7 +117,7 @@ describe('Issue #532 - Internal Transfer Data Validation Fix', () => {
     });
 
     expect(transaction.category).toBe("Asset Allocation");
-    expect(transaction.type).toBe("asset-allocation"); // Should be automatically corrected
+    // Transaction type is now determined by category, not stored as property
   });
 
   it('should work correctly in bulk operations', async () => {

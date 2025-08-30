@@ -84,11 +84,6 @@ export interface ReportsFilters {
 class ReportsService {
   // Helper method to comprehensively identify internal transfers (category-based only)
   private isInternalTransfer(transaction: Transaction): boolean {
-    // Check by transaction type (most direct)
-    if (transaction.type === 'transfer') {
-      return true;
-    }
-    
     // Check by category type (most reliable)
     if (isTransferCategory(transaction.category)) {
       return true;
@@ -255,10 +250,13 @@ class ReportsService {
         return preferences.includeInvestmentsInReports;
       }
       
-      // Check if this is an asset allocation transaction
-      if (isAssetAllocationCategory(t.category)) {
-        // Only include asset allocation transactions if user has enabled it
-        return preferences.includeInvestmentsInReports;
+      // Handle transfers if explicitly requested
+      if (includeTransfers && this.isInternalTransfer(t)) {
+        if (type === 'income') {
+          return t.amount > 0; // Positive transfers count as income
+        } else if (type === 'expense') {
+          return t.amount < 0; // Negative transfers count as expenses
+        }
       }
       
       // For regular income/expense filtering based on category type
@@ -637,7 +635,9 @@ class ReportsService {
     const categoryTransactionsRaw = transactions
       .filter(t => {
         if (t.category !== categoryName) return false;
-        // Do NOT exclude internal transfers for the category itself; we want full parity with pie chart selection
+        // If includeTransfers is false (default), exclude internal transfers
+        if (!includeTransfers && this.isInternalTransfer(t)) return false;
+        // Asset allocation filtering based on preferences
         if (isAssetAllocationCategory(t.category) && !preferences.includeInvestmentsInReports) return false;
         return true;
       })
