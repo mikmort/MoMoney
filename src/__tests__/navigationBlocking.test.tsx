@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, renderHook } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { ImportStateProvider, useImportState } from '../contexts/ImportStateContext';
@@ -246,89 +246,31 @@ describe('ImportStateContext', () => {
     expect(screen.getByTestId('import-status')).toHaveTextContent('Not importing');
   });
 
-  it.skip('should throw error when used outside provider', () => {
-    // Suppress noisy React error logs for this intentional error
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-    // Simple error boundary to capture render-time errors in React 18
-    interface ErrorBoundaryProps {
-      onError: (e: Error) => void;
-      children?: React.ReactNode;
-    }
-
-    class ErrorBoundary extends React.Component<ErrorBoundaryProps, { hasError: boolean }> {
-      constructor(props: any) {
-        super(props);
-        this.state = { hasError: false };
+  it('should throw error when used outside provider', () => {
+    // Test the hook behavior directly using renderHook
+    const { result } = renderHook(() => {
+      try {
+        return useImportState();
+      } catch (error) {
+        return error;
       }
-      static getDerivedStateFromError() {
-        return { hasError: true };
-      }
-      componentDidCatch(error: Error) {
-        this.props.onError(error);
-      }
-      render() {
-        return this.state.hasError ? <div data-testid="error-caught">Error</div> : (this.props.children as any);
-      }
-    }
+    });
 
-    // Component that uses the hook outside provider
-    const ComponentOutsideProvider = () => {
-      useImportState();
-      return <div>Should not render</div>;
-    };
-
-    let capturedError: Error | null = null;
-    render(
-      <BrowserRouter>
-        <ErrorBoundary onError={(e) => (capturedError = e)}>
-          <ComponentOutsideProvider />
-        </ErrorBoundary>
-      </BrowserRouter>
-    );
-
-    expect(capturedError).toBeTruthy();
-    if (capturedError && (capturedError as any).message) {
-      expect((capturedError as any).message).toContain('useImportState must be used within an ImportStateProvider');
-    } else {
-      // Fallback: at least ensure error boundary tripped
-      expect(screen.getByTestId('error-caught')).toBeInTheDocument();
-    }
-
-    consoleSpy.mockRestore();
+    expect(result.current).toBeInstanceOf(Error);
+    expect((result.current as Error).message).toContain('useImportState must be used within an ImportStateProvider');
   });
 
-  it.skip('should log an error when used outside provider (React 18 safe)', () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-    const ComponentOutsideProvider = () => {
-      useImportState();
-      return <div>Should not render</div>;
-    };
-
-    // Error boundary to prevent the thrown error from failing the test
-    interface ErrorBoundaryProps { children?: React.ReactNode }
-    class ErrorBoundary extends React.Component<ErrorBoundaryProps, { hasError: boolean }> {
-      constructor(props: any) { super(props); this.state = { hasError: false }; }
-      static getDerivedStateFromError() { return { hasError: true }; }
-      componentDidCatch() {}
-      render() { return this.state.hasError ? <div data-testid="error-caught">Error</div> : (this.props.children as any); }
-    }
-
-    // Rendering should trigger an error due to missing provider, caught by boundary
-    render(
-      <BrowserRouter>
-        <ErrorBoundary>
-          <ComponentOutsideProvider />
-        </ErrorBoundary>
-      </BrowserRouter>
+  it('should work correctly when used inside provider', () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <ImportStateProvider>{children}</ImportStateProvider>
     );
 
-    const logged = consoleSpy.mock.calls.some(([msg]) =>
-      typeof msg === 'string' && msg.includes('useImportState must be used within an ImportStateProvider')
-    );
-    expect(logged).toBe(true);
+    const { result } = renderHook(() => useImportState(), { wrapper });
 
-    consoleSpy.mockRestore();
+    expect(result.current).toHaveProperty('isImporting', false);
+    expect(result.current).toHaveProperty('importingFileName', null);
+    expect(result.current).toHaveProperty('setIsImporting');
+    expect(typeof result.current.setIsImporting).toBe('function');
   });
+
 });

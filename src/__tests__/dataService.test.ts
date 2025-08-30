@@ -9,7 +9,7 @@ describe('Enhanced Duplicate Detection', () => {
     (dataService as any).isInitialized = true;
   });
 
-  it.skip('should detect exact duplicates (TODO: Fix singleton test issue)', async () => {
+  it('should detect exact duplicates (TODO: Fix singleton test issue)', async () => {
     // Add a base transaction
     const addedTransaction = await dataService.addTransaction({
       date: new Date('2025-01-01'),
