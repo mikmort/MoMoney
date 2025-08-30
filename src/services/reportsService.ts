@@ -2,7 +2,7 @@ import { Transaction, Category } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
-import { isAssetAllocationCategory, isTransferCategory } from '../utils/categoryTypeUtils';
+import { isAssetAllocationCategory } from '../utils/categoryTypeUtils';
 import { defaultCategories } from '../data/defaultCategories';
 
 export interface SpendingByCategory {
@@ -82,78 +82,10 @@ export interface ReportsFilters {
 }
 
 class ReportsService {
-  // Helper method to comprehensively identify internal transfers (category-based only)
+  // Helper method to identify internal transfers (category-based only)
   private isInternalTransfer(transaction: Transaction): boolean {
-    // Check by category type (most reliable)
-    if (isTransferCategory(transaction.category)) {
-      return true;
-    }
-    
-    // Specifically check for 'Internal Transfer' category
-    if (transaction.category === 'Internal Transfer') {
-      return true;
-    }
-    
-    // Check by category name (catch misclassified transfers)
-    const category = transaction.category.toLowerCase();
-    const transferCategories = [
-      'internal transfer',
-      'transfer',
-      'transfers',
-      'between accounts',
-      'account transfer',
-      'bank transfer'
-    ];
-    
-    if (transferCategories.some(cat => category.includes(cat))) {
-      return true;
-    }
-    
-    // Check by description (catch transactions with transfer keywords)
-    const description = transaction.description.toLowerCase();
-    const transferKeywords = [
-      'transfer to',
-      'transfer from',
-      'transfer - ',
-      'online transfer',
-      'mobile transfer',
-      'atm withdrawal',
-      'atm deposit',
-      'cash withdrawal',
-      'cash deposit',
-      'withdrawal - atm',
-      'deposit - atm',
-      'zelle transfer',
-      'venmo transfer',
-      'paypal transfer',
-      'wire transfer',
-      'ach transfer',
-      'electronic transfer',
-      'internal transfer',
-      'between accounts',
-      'move money',
-      'fund transfer',
-      'account transfer',
-      'savings transfer',
-      'checking transfer'
-    ];
-    
-    if (transferKeywords.some(keyword => description.includes(keyword))) {
-      return true;
-    }
-    
-    // Check for common ATM patterns
-    if (/atm\s*(withdrawal|deposit|cash|#)/i.test(description)) {
-      return true;
-    }
-    
-    // Check for transfer patterns with account names
-    if (/transfer.*(?:saving|checking|account)/i.test(description) || 
-        /(?:saving|checking|account).*transfer/i.test(description)) {
-      return true;
-    }
-    
-    return false;
+    // ONLY check if the category is exactly 'Internal Transfer'
+    return transaction.category === 'Internal Transfer';
   }
 
   // Helper method to get category names by type from both default and custom categories
