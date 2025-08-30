@@ -62,17 +62,17 @@ describe('Category Type Logic Tests', () => {
     console.log('✅ Dashboard uses category type instead of transaction type');
   });
 
-  test('should detect transfers by transaction type even if category type is different', async () => {
-    // Create a transaction that has expense category but transfer type
+  test('should categorize transactions by category, not by type property', async () => {
+    // Create a transaction that has transfer type but expense category
     const testTransactions: Transaction[] = [
       {
         id: 'test-1',
         date: new Date('2024-01-15'),
         amount: -100.00,
         description: 'Food transfer', 
-        category: 'Food & Dining', // Expense category
+        category: 'Food & Dining', // Expense category - this should determine behavior
         account: 'Checking',
-        type: 'transfer', // Transfer type - should override category
+        type: 'transfer', // Transfer type - should be ignored
         addedDate: new Date(),
         isVerified: true,
         confidence: 0.9
@@ -95,12 +95,12 @@ describe('Category Type Logic Tests', () => {
     
     const result = await reportsService.getCategoryDeepDive('Food & Dining');
     
-    // Should exclude the transfer even though it has Food & Dining category
+    // Should include both transactions since the first one has Food & Dining category despite transfer type
     expect(result).not.toBeNull();
-    expect(result!.transactionCount).toBe(1); // Only the regular grocery, not the transfer
-    expect(result!.totalAmount).toBe(50.00); // Only the regular grocery amount
+    expect(result!.transactionCount).toBe(2); // Both the "transfer" with Food category and the regular grocery
+    expect(result!.totalAmount).toBe(150.00); // 100 + 50 for both Food & Dining transactions
 
-    console.log('✅ Transfers are excluded even if they have expense categories');
+    console.log('✅ Category determines behavior, not transaction type');
   });
 
   test('should handle mixed scenarios correctly', async () => {

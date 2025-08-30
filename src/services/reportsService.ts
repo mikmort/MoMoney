@@ -94,6 +94,11 @@ class ReportsService {
       return true;
     }
     
+    // Specifically check for 'Internal Transfer' category
+    if (transaction.category === 'Internal Transfer') {
+      return true;
+    }
+    
     // Check by category name (catch misclassified transfers)
     const category = transaction.category.toLowerCase();
     const transferCategories = [
@@ -199,8 +204,11 @@ class ReportsService {
         if (selectedTypes.includes('expense') || selectedTypes.includes('income')) {
           // Skip to category-based filtering logic below - no transaction type checks at all
         } else {
-          // For other explicitly selected types (not expense/income), still filter by transaction type
-          if (!selectedTypes.includes(t.type)) {
+          // For other explicitly selected types (transfers, etc), use category-based detection
+          if (selectedTypes.includes('transfer') && !this.isInternalTransfer(t)) {
+            return false;
+          }
+          if (selectedTypes.includes('asset-allocation') && !isAssetAllocationCategory(t.category)) {
             return false;
           }
         }
@@ -212,11 +220,6 @@ class ReportsService {
                                           (selectedTypes.includes('expense') || selectedTypes.includes('income'));
       
       if (!usingCategoryBasedFiltering) {
-        // Legacy behavior: Check if this is an internal transfer using comprehensive detection
-        if (this.isInternalTransfer(t)) {
-          return false; // Exclude transfers by default when no selectedTypes specified
-        }
-        
         // Check if this is an asset allocation transaction
         if (isAssetAllocationCategory(t.category)) {
           // Only include asset allocation transactions if user has enabled it
@@ -246,18 +249,10 @@ class ReportsService {
     const preferences = await userPreferencesService.getPreferences();
     
     return transactions.filter(t => {
-      // Check if this is an internal transfer using comprehensive detection
-      if (this.isInternalTransfer(t)) {
-        if (!includeTransfers) {
-          return false; // Exclude all types of internal transfers when not requested
-        }
-        // If including transfers, still apply income/expense filtering based on amount
-        if (type === 'expense') {
-          return t.amount < 0;
-        } else if (type === 'income') {
-          return t.amount > 0;
-        }
-        return false;
+      // Check if this is an asset allocation transaction
+      if (isAssetAllocationCategory(t.category)) {
+        // Only include asset allocation transactions if user has enabled it
+        return preferences.includeInvestmentsInReports;
       }
       
       // Check if this is an asset allocation transaction
@@ -330,7 +325,7 @@ class ReportsService {
     // Add transfers if explicitly requested
     if (shouldIncludeTransfers) {
       const transferTransactions = transactions.filter(t => 
-        (t.type === 'transfer' || t.category === 'Internal Transfer') && t.amount < 0 // Only negative transfers for spending
+        this.isInternalTransfer(t) && t.amount < 0 // Only negative transfers for spending
       );
       expenseTransactions = [...expenseTransactions, ...transferTransactions];
     }
@@ -372,7 +367,7 @@ class ReportsService {
     // Calculate statistics for each category
     return Object.entries(categoryTotals)
       .map(([categoryName, categoryTransactions]) => {
-        // Sum all amounts in category (positive and negative) and flip sign to make expenses positive
+        // Calculate statistics for each category
         const amount = categoryTransactions.reduce((sum, t) => sum + (-t.amount), 0);
         const transactionCount = categoryTransactions.length;
         const averageAmount = amount / transactionCount;
@@ -467,7 +462,7 @@ class ReportsService {
         // Add transfers if requested
         if (shouldIncludeTransfers) {
           const transferTransactions = monthTransactions.filter(t => 
-            t.type === 'transfer' || t.category === 'Internal Transfer'
+            this.isInternalTransfer(t)
           );
           // Add to expenses or income based on amount
           transferTransactions.forEach(t => {
@@ -631,18 +626,14 @@ class ReportsService {
   }
 
   async getCategoryDeepDive(categoryName: string, dateRange?: DateRange, includeTransfers: boolean = false): Promise<CategoryDeepDive | null> {
-  // For deep dive we intentionally do NOT exclude internal transfers for the target category
-  // because broad transfer heuristics were removing valid category transactions.
     const all = await dataService.getAllTransactions();
-    const inRange = dateRange ? all.filter(t => t.date >= dateRange.startDate && t.date <= dateRange.endDate) : all;
-    let working = inRange;
-    if (!includeTransfers) {
-      // Exclude all internal transfers, regardless of category
-      working = inRange.filter(t => !this.isInternalTransfer(t));
-    }
-    const transactions = working;
-    const preferences = await userPreferencesService.getPreferences();
     
+    // Apply only date filtering - do NOT filter out transfers based on category or description
+    // The category itself is the source of truth for what type of transaction this is
+    const inRange = dateRange ? all.filter(t => t.date >= dateRange.startDate && t.date <= dateRange.endDate) : all;
+    const transactions = inRange; // No transfer filtering - category is source of truth
+    const preferences = await userPreferencesService.getPreferences();
+
     const categoryTransactionsRaw = transactions
       .filter(t => {
         if (t.category !== categoryName) return false;
@@ -651,9 +642,8 @@ class ReportsService {
         return true;
       })
       .sort((a, b) => b.date.getTime() - a.date.getTime());
-    const categoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactionsRaw);
-
-    if (categoryTransactions.length === 0) {
+      
+    const categoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactionsRaw);    if (categoryTransactions.length === 0) {
       return null;
     }
 
@@ -682,9 +672,8 @@ class ReportsService {
       }
     }, 0);
     
-    // Count only spending transactions for compatibility
-    const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
-    transactionCount = spendingTransactions.length;
+    // Count ALL transactions for consistency with main reports page
+    transactionCount = categoryTransactions.length;
     averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
   } else if (isIncomeCategory) {
     // For income categories: sum all amounts (positive and negative income)
@@ -703,8 +692,8 @@ class ReportsService {
       }
     }, 0);
     
-    const spendingTransactions = categoryTransactions.filter(t => t.amount < 0);
-    transactionCount = spendingTransactions.length;
+    // Count ALL transactions for consistency with main reports page
+    transactionCount = categoryTransactions.length;
     averageTransaction = transactionCount > 0 ? totalAmount / transactionCount : 0;
   }
     
@@ -847,9 +836,10 @@ class ReportsService {
     
     const projectedMonthlySpending = daysPassed > 0 ? (currentMonthExpenses / daysPassed) * daysInMonth : monthlyBurnRate;
 
-    // Get income for balance projection
+    // Get income for balance projection using category-based logic
+    const incomeCategories = this.getCategoriesOfType('income');
     const currentMonthIncome = transactions
-      .filter(t => (t.type === 'income' || t.amount > 0) && t.date >= currentMonthStart && t.date <= now)
+      .filter(t => (incomeCategories.includes(t.category) || t.amount > 0) && t.date >= currentMonthStart && t.date <= now)
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
     const projectedEndOfMonthBalance = currentMonthIncome - projectedMonthlySpending;
@@ -953,10 +943,10 @@ class ReportsService {
     return filteredTransactions;
   }
 
-  private async getTransactionsInRange(dateRange?: DateRange, includeTransfers: boolean = false): Promise<Transaction[]> {
+  private async getTransactionsInRange(dateRange?: DateRange, includeTransfers: boolean = true): Promise<Transaction[]> {
     const allTransactions = await dataService.getAllTransactions();
     
-    // Filter out transfers using comprehensive detection (unless specifically requested)
+    // Category is the source of truth - don't filter by transfer detection unless explicitly excluded
     let filteredTransactions = includeTransfers ? allTransactions : allTransactions.filter(t => !this.isInternalTransfer(t));
     
     if (!dateRange) {
@@ -1060,7 +1050,7 @@ class ReportsService {
       // Add transfers if explicitly requested
       if (shouldIncludeTransfers) {
         const transferTransactions = transactions.filter(t => 
-          (t.type === 'transfer' || t.category === 'Internal Transfer') && t.amount > 0 // Only positive transfers for income
+          this.isInternalTransfer(t) && t.amount > 0 // Only positive transfers for income
         );
         incomeTransactions = [...incomeTransactions, ...transferTransactions];
       }

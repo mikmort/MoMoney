@@ -1,7 +1,25 @@
 import { Transaction, ReimbursementMatch, ReimbursementMatchRequest, ReimbursementMatchResponse } from '../types';
 import { currencyExchangeService } from './currencyExchangeService';
+import { defaultCategories } from '../data/defaultCategories';
 
 export class ReimbursementMatchingService {
+  
+  // Helper method to determine if a transaction is an expense based on category
+  private isExpenseTransaction(transaction: Transaction): boolean {
+    const expenseCategories = defaultCategories
+      .filter(cat => cat.type === 'expense')
+      .map(cat => cat.name);
+    return expenseCategories.includes(transaction.category);
+  }
+  
+  // Helper method to determine if a transaction is income based on category
+  private isIncomeTransaction(transaction: Transaction): boolean {
+    const incomeCategories = defaultCategories
+      .filter(cat => cat.type === 'income')
+      .map(cat => cat.name);
+    return incomeCategories.includes(transaction.category);
+  }
+
   async findReimbursementMatches(request: ReimbursementMatchRequest): Promise<ReimbursementMatchResponse> {
     const { transactions, dateRangeStart, dateRangeEnd, maxDaysDifference = 90, tolerancePercentage = 0.05 } = request;
     
@@ -18,13 +36,13 @@ export class ReimbursementMatchingService {
 
     // Separate potential reimbursable expenses and reimbursements
     const potentialExpenses = filteredTransactions.filter(t => 
-      t.type === 'expense' && 
+      this.isExpenseTransaction(t) && 
       !t.reimbursed &&
       this.isReimbursableCategory(t.category)
     );
 
     const potentialReimbursements = filteredTransactions.filter(t => 
-      t.type === 'income' && 
+      this.isIncomeTransaction(t) && 
       this.isPotentialReimbursement(t.description)
     );
 
@@ -251,7 +269,7 @@ export class ReimbursementMatchingService {
   filterNonReimbursedTransactions(transactions: Transaction[]): Transaction[] {
     return transactions.filter(t => {
       // Keep all income transactions
-      if (t.type === 'income') return true;
+      if (this.isIncomeTransaction(t)) return true;
       
       // For expenses, only keep non-reimbursed ones
       return !t.reimbursed;

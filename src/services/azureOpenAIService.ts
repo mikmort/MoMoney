@@ -794,8 +794,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
           description: sanitized.description,
           category: t.category,
           subcategory: t.subcategory,
-          account: t.account,
-          type: t.type
+          account: t.account
         };
       });
 

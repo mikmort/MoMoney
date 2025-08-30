@@ -1247,7 +1247,6 @@ EXAMPLE OUTPUT FORMAT:
       ...tx,
       // Ensure required fields have proper defaults
       category: tx.category || 'Uncategorized',
-      type: tx.type || (tx.amount >= 0 ? 'income' : 'expense'),
       confidence: typeof tx.confidence === 'number' ? tx.confidence : 0.7,
       isVerified: false,
       // Clean up text fields
@@ -1338,7 +1337,6 @@ EXAMPLE OUTPUT FORMAT:
         // AI-enhanced fields (optional but valuable)
         category: r.category || 'Uncategorized',
         subcategory: r.subcategory || undefined,
-        type: r.type || (r.amount >= 0 ? 'income' : 'expense'),
         vendor: r.vendor || undefined,
         
         // AI metadata fields
@@ -1835,8 +1833,6 @@ EXAMPLE OUTPUT FORMAT:
         subcategory: finalSubName,
         confidence: finalConfidence,
         reasoning: ai.reasoning,
-        // Fix transaction type for Internal Transfer category
-        type: finalCategoryName === 'Internal Transfer' ? 'transfer' : transaction.type,
         id: uuidv4(),
         addedDate: new Date(),
         lastModifiedDate: new Date(),
@@ -2074,7 +2070,6 @@ EXAMPLE OUTPUT FORMAT:
           ...baseTransaction,
           category: ruleResult.rule.action.categoryName,
           subcategory: ruleResult.rule.action.subcategoryName,
-          type: ruleResult.rule.action.transactionType || baseTransaction.type, // Override type if specified
           confidence: 1.0,
           reasoning: `Matched rule: ${ruleResult.rule.name}`,
         };

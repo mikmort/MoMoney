@@ -54,7 +54,7 @@ describe('Category Drilldown Expense Calculation', () => {
     // Should be 400 + 200 - 100 = 500, not 400 + 200 + 100 = 700
     expect(categoryData).toBeDefined();
     expect(categoryData!.totalAmount).toBe(500.00);
-    expect(categoryData!.transactionCount).toBe(2); // Only spending transactions (negative amounts) are counted
+    expect(categoryData!.transactionCount).toBe(3); // Count ALL transactions (including refunds) for consistency with main reports
   });
 
   it('should correctly calculate monthly trend with refunds', async () => {

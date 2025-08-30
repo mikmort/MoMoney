@@ -122,7 +122,7 @@ class DataService {
         let syncedPairs = 0;
         for (let i = 0; i < this.transactions.length; i++) {
           const tx = this.transactions[i];
-            if (tx.type === 'transfer' && tx.reimbursementId) {
+          if (tx.category === 'Internal Transfer' && tx.reimbursementId) {
               const peer = this.transactions.find(p => p.id === tx.reimbursementId);
               if (peer) {
                 if (!tx.transferId || tx.transferId !== tx.reimbursementId) {
@@ -450,26 +450,6 @@ class DataService {
   async getAllTransactions(): Promise<Transaction[]> {
     await this.ensureInitialized();
     console.log(`DataService: getAllTransactions called, returning ${this.transactions.length} transactions`);
-    // One-time post-initialization audit in case legacy data was loaded before new integrity pass existed
-    if (!this.internalTransferTypeAuditDone) {
-      const mismatches = this.transactions.filter(t => t.category === 'Internal Transfer' && t.type !== 'transfer');
-      if (mismatches.length > 0) {
-        console.log(`[TX] Auditing Internal Transfer type mismatches in getAllTransactions: found ${mismatches.length}`);
-        for (let i = 0; i < this.transactions.length; i++) {
-          const tx = this.transactions[i];
-          if (tx.category === 'Internal Transfer' && tx.type !== 'transfer') {
-            this.transactions[i] = { ...tx, type: 'transfer', lastModifiedDate: new Date() };
-          }
-        }
-        try {
-          await this.saveToDB();
-          console.log(`[TX] Corrected ${mismatches.length} Internal Transfer transaction type(s) during audit`);
-        } catch (e) {
-          console.warn('[TX] Failed to persist Internal Transfer audit fixes', e);
-        }
-      }
-      this.internalTransferTypeAuditDone = true;
-    }
     return [...this.transactions];
   }
 
@@ -507,17 +487,8 @@ class DataService {
   async addTransaction(transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Promise<Transaction> {
     await this.ensureInitialized();
     const now = new Date();
-    
-    // Ensure transaction type consistency with special categories
-    let correctedTransaction = { ...transaction };
-    if (transaction.category === 'Internal Transfer') {
-      correctedTransaction.type = 'transfer';
-    } else if (transaction.category === 'Asset Allocation') {
-      correctedTransaction.type = 'asset-allocation';
-    }
-    
     const newTransaction: Transaction = {
-      ...correctedTransaction,
+      ...transaction,
       id: uuidv4(),
       addedDate: now,
       lastModifiedDate: now,

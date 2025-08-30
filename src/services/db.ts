@@ -476,7 +476,6 @@ export class MoMoneyDB extends Dexie {
       subcategory: t.subcategory,
       amount: '***', // Anonymize amounts
       account: t.account ? '***' : null,
-      type: t.type,
       confidence: t.confidence,
       isVerified: t.isVerified,
       addedDate: toIso(t.addedDate),
