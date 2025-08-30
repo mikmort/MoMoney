@@ -2,6 +2,13 @@
 export const isDevelopmentMode = process.env.NODE_ENV === 'development';
 export const skipAuthentication = process.env.REACT_APP_SKIP_AUTH === 'true';
 
+// Debug logging for development
+if (isDevelopmentMode) {
+  console.log('[Dev Config] NODE_ENV:', process.env.NODE_ENV);
+  console.log('[Dev Config] REACT_APP_SKIP_AUTH:', process.env.REACT_APP_SKIP_AUTH);
+  console.log('[Dev Config] skipAuthentication:', skipAuthentication);
+}
+
 // Mock user data for development
 export const mockUser = {
   id: 'dev-user-123',
