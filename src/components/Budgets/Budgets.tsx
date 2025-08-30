@@ -305,6 +305,7 @@ const ModalContent = styled.div`
 
   .form-group {
     margin-bottom: 16px;
+    text-align: left;
 
     label {
       display: block;
@@ -331,6 +332,20 @@ const ModalContent = styled.div`
       font-size: 0.9rem;
       color: #666;
       margin-top: 4px;
+    }
+
+    .checkbox-label {
+      display: flex !important;
+      align-items: center;
+      gap: 0px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-wrap: nowrap;
+      justify-content: flex-start;
+      text-align: left;
+      margin-bottom: 4px;
+      margin-left: 0;
+      padding-left: 0;
     }
   }
 
@@ -971,16 +986,18 @@ const Budgets: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', whiteSpace: 'nowrap', flexWrap: 'nowrap', justifyContent: 'flex-start' }}>
-                <input
-                  type="checkbox"
-                  checked={budgetForm.isActive}
-                  onChange={(e) => setBudgetForm({...budgetForm, isActive: e.target.checked})}
-                  style={{ marginBottom: '0', flexShrink: 0 }}
-                />
-                Active Budget
-              </label>
-              <div className="help-text">Only active budgets are tracked and show alerts</div>
+              <div style={{ textAlign: 'left', display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start' }}>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={budgetForm.isActive}
+                    onChange={(e) => setBudgetForm({...budgetForm, isActive: e.target.checked})}
+                    style={{ marginBottom: '0', marginRight: '8px', marginLeft: '0' }}
+                  />
+                  Active Budget
+                </label>
+              </div>
+              <div className="help-text" style={{ marginLeft: '0' }}>Only active budgets are tracked and show alerts</div>
             </div>
 
             <div className="form-actions">
