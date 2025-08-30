@@ -50,9 +50,9 @@ describe('BudgetService Month Navigation', () => {
     budgetService['budgets'] = [mockBudget];
   });
 
-  test('calculateBudgetProgress works with specific month parameter', () => {
+  test('calculateBudgetProgress works with specific month parameter', async () => {
     // Test August 2025 (month index 7)
-    const augustProgress = budgetService.calculateBudgetProgress(
+    const augustProgress = await budgetService.calculateBudgetProgress(
       mockBudget,
       mockTransactions,
       mockCategories,
@@ -65,7 +65,7 @@ describe('BudgetService Month Navigation', () => {
     expect(augustProgress.transactions[0].description).toBe('Grocery Store');
 
     // Test September 2025 (month index 8)
-    const septemberProgress = budgetService.calculateBudgetProgress(
+    const septemberProgress = await budgetService.calculateBudgetProgress(
       mockBudget,
       mockTransactions,
       mockCategories,
@@ -78,8 +78,8 @@ describe('BudgetService Month Navigation', () => {
     expect(septemberProgress.transactions[0].description).toBe('Restaurant');
   });
 
-  test('getBudgetProgressForAll accepts month parameter', () => {
-    const progress = budgetService.getBudgetProgressForAll(
+  test('getBudgetProgressForAll accepts month parameter', async () => {
+    const progress = await budgetService.getBudgetProgressForAll(
       mockTransactions,
       mockCategories,
       { year: 2025, month: 7 }
@@ -90,8 +90,8 @@ describe('BudgetService Month Navigation', () => {
     expect(progress[0].transactions).toHaveLength(1);
   });
 
-  test('budget progress includes transactions array', () => {
-    const progress = budgetService.calculateBudgetProgress(
+  test('budget progress includes transactions array', async () => {
+    const progress = await budgetService.calculateBudgetProgress(
       mockBudget,
       mockTransactions,
       mockCategories,

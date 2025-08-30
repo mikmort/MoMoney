@@ -254,7 +254,7 @@ class BudgetService {
     // Convert transactions to default currency for accurate budget calculations
     const convertedCategoryTransactions = await currencyDisplayService.convertTransactionsBatch(categoryTransactions);
 
-    const actualSpent = convertedCategoryTransactions.reduce((sum, t) => sum + (-t.amount), 0); // Flip sign to make expenses positive
+    const actualSpent = convertedCategoryTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0); // Use absolute value to handle both positive and negative amounts
     const percentage = (actualSpent / budget.amount) * 100;
     const remaining = budget.amount - actualSpent;
 
