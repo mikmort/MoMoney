@@ -1,4 +1,5 @@
 import { skipAuthentication } from '../config/devConfig';
+import { staticWebAppAuthService } from './staticWebAppAuthService';
 
 interface BlobUploadResult {
   success: boolean;
@@ -13,7 +14,7 @@ interface BlobDownloadResult {
 }
 
 class AzureBlobService {
-  private readonly baseUrl = 'https://storageproxy-c6g8bvbcdqc7duam.canadacentral-01.azurewebsites.net/api/blob';
+  public readonly baseUrl = 'https://storageproxy-c6g8bvbcdqc7duam.canadacentral-01.azurewebsites.net/api/blob';
   private readonly syncIntervalMs = 30000; // 30 seconds
   private syncTimer: NodeJS.Timeout | null = null;
   private lastDataHash: string | null = null;
@@ -106,23 +107,48 @@ class AzureBlobService {
     }
   }
 
-  private getUserId(): string {
+  private async getUserId(): Promise<string> {
     if (skipAuthentication) {
-      return '55555'; // Development mode user ID
+      return 'dev-user-123'; // Development mode user ID (matches mockUser.id)
     }
     
     // In production, get from authenticated user
-    // For now, return a placeholder - this would come from Azure AD token
-    return '55555'; // TODO: Get from actual auth context
+    try {
+      const user = await staticWebAppAuthService.getUser();
+      if (user && user.userId) {
+        // Use the actual user ID from Azure Static Web Apps
+        return user.userId;
+      }
+      
+      // Fallback: if no userId, use a hash of userDetails + email for consistency
+      if (user && user.userDetails) {
+        const email = user.claims?.find((c: any) => c.typ === 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress')?.val;
+        const identifier = `${user.userDetails}-${email || 'unknown'}`;
+        // Create a simple hash for consistent user identification
+        let hash = 0;
+        for (let i = 0; i < identifier.length; i++) {
+          const char = identifier.charCodeAt(i);
+          hash = ((hash << 5) - hash) + char;
+          hash = hash & hash; // Convert to 32-bit integer
+        }
+        return Math.abs(hash).toString();
+      }
+    } catch (error) {
+      console.error('[Azure Sync] Failed to get user ID:', error);
+    }
+    
+    // Final fallback
+    return 'anonymous-user';
   }
 
-  private getBlobName(): string {
-    const userId = this.getUserId();
+  public async getBlobName(): Promise<string> {
+    const userId = await this.getUserId();
     return `${userId}-money-save`;
   }
 
-  public getBlobUrl(): string {
-    return `${this.baseUrl}/${this.getBlobName()}`;
+  public async getBlobUrl(): Promise<string> {
+    const blobName = await this.getBlobName();
+    return `${this.baseUrl}/${blobName}`;
   }
 
   private async uploadBlob(blobName: string, content: any, contentType: string = 'application/json'): Promise<BlobUploadResult> {
@@ -366,7 +392,7 @@ class AzureBlobService {
         return true; // No changes, sync not needed
       }
 
-      const blobName = this.getBlobName();
+      const blobName = await this.getBlobName();
       const result = await this.uploadBlob(blobName, localData);
       
       if (result.success) {
@@ -385,7 +411,7 @@ class AzureBlobService {
 
   public async syncFromCloud(): Promise<boolean> {
     try {
-      const blobName = this.getBlobName();
+      const blobName = await this.getBlobName();
       const result = await this.downloadBlob(blobName);
       
       if (result.success && result.content) {
@@ -441,7 +467,7 @@ class AzureBlobService {
         return { success: false, message: 'No local data to upload' };
       }
 
-      const blobName = this.getBlobName();
+      const blobName = await this.getBlobName();
       const result = await this.uploadBlob(blobName, localData);
       
       if (result.success) {
@@ -466,7 +492,7 @@ class AzureBlobService {
 
   public async forceDownload(): Promise<{ success: boolean; message: string }> {
     try {
-      const blobName = this.getBlobName();
+      const blobName = await this.getBlobName();
       const result = await this.downloadBlob(blobName);
       
       if (result.success && result.content) {

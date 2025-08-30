@@ -8,6 +8,7 @@ import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { currencyExchangeService } from '../../services/currencyExchangeService';
 import { backupService } from '../../services/backupService';
 import { azureBlobService } from '../../services/azureBlobService';
+import { appInitializationService } from '../../services/appInitializationService';
 import { useNotification } from '../../contexts/NotificationContext';
 import { UserPreferences, CurrencyExchangeRate } from '../../types';
 import { BackupMetadata } from '../../types/backup';
@@ -448,6 +449,7 @@ const Settings: React.FC = () => {
   const [isUploadingToCloud, setIsUploadingToCloud] = useState(false);
   const [isDownloadingFromCloud, setIsDownloadingFromCloud] = useState(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<string>('');
+  const [blobUrl, setBlobUrl] = useState<string>('');
   const [isAutoSyncActive, setIsAutoSyncActive] = useState(false);
   
   // Import selection dialog state
@@ -458,7 +460,23 @@ const Settings: React.FC = () => {
   useEffect(() => {
     loadPreferences();
     loadDeploymentInfo();
+    loadBlobUrl();
+    loadAutosaveStatus();
   }, []);
+
+  const loadAutosaveStatus = () => {
+    setIsAutoSyncActive(appInitializationService.isAutosaveEnabled());
+  };
+
+  const loadBlobUrl = async () => {
+    try {
+      const url = await azureBlobService.getBlobUrl();
+      setBlobUrl(url);
+    } catch (error) {
+      console.error('Failed to load blob URL:', error);
+      setBlobUrl('Error loading URL');
+    }
+  };
 
   const loadPreferences = async () => {
     try {
@@ -871,10 +889,14 @@ const Settings: React.FC = () => {
   const handleStartAutoSync = async () => {
     try {
       setCloudSyncStatus('Starting automatic sync...');
-      await azureBlobService.startSync();
-      setIsAutoSyncActive(true);
-      setCloudSyncStatus('');
-      showAlert('success', 'Automatic cloud sync started successfully!');
+      const success = await appInitializationService.toggleAutosave(true);
+      if (success) {
+        setIsAutoSyncActive(true);
+        setCloudSyncStatus('');
+        showAlert('success', 'Automatic cloud sync started successfully!');
+      } else {
+        throw new Error('Failed to enable autosave');
+      }
     } catch (error) {
       console.error('Start sync error:', error);
       setCloudSyncStatus('');
@@ -882,10 +904,19 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleStopAutoSync = () => {
-    azureBlobService.stopSync();
-    setIsAutoSyncActive(false);
-    showAlert('success', 'Automatic cloud sync stopped.');
+  const handleStopAutoSync = async () => {
+    try {
+      const success = await appInitializationService.toggleAutosave(false);
+      if (success) {
+        setIsAutoSyncActive(false);
+        showAlert('success', 'Automatic cloud sync stopped.');
+      } else {
+        throw new Error('Failed to disable autosave');
+      }
+    } catch (error) {
+      console.error('Stop sync error:', error);
+      showAlert('error', 'Failed to stop automatic sync.');
+    }
   };
 
   // Backup management functions
@@ -1170,7 +1201,7 @@ const Settings: React.FC = () => {
         
         <div style={{ marginBottom: '20px' }}>
           <h4>☁️ Cloud Storage</h4>
-          <p>Automatically sync your data to Azure Blob Storage every 30 seconds when changes are detected.</p>
+          <p>Automatically sync your data to Azure Blob Storage. The app checks for cloud data on startup and syncs with whichever version is newer. Auto-sync is enabled by default and saves changes every 30 seconds.</p>
           
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
             <Button 
@@ -1213,7 +1244,7 @@ const Settings: React.FC = () => {
           )}
 
           <div style={{ marginTop: '12px', fontSize: '14px', color: isAutoSyncActive ? '#4CAF50' : '#666' }}>
-            {isAutoSyncActive ? '🔄 Auto sync active - syncing every 30 seconds' : '⏸️ Auto sync disabled - use manual buttons to sync'}
+            {isAutoSyncActive ? '🔄 Auto sync active - automatically syncs on startup and every 30 seconds' : '⏸️ Auto sync disabled - use manual buttons to sync'}
           </div>
           
           <div style={{ marginTop: '12px', padding: '12px', background: '#f3e5f5', borderRadius: '6px', fontSize: '14px', color: '#7b1fa2' }}>
@@ -1221,14 +1252,18 @@ const Settings: React.FC = () => {
               <strong>🔗 Cloud Storage URL:</strong>
             </div>
             <div style={{ fontFamily: 'monospace', fontSize: '12px', background: 'white', padding: '6px 8px', borderRadius: '4px', wordBreak: 'break-all', border: '1px solid #e0e0e0' }}>
-              <a 
-                href={azureBlobService.getBlobUrl()} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={{ color: '#7b1fa2', textDecoration: 'none' }}
-              >
-                {azureBlobService.getBlobUrl()}
-              </a>
+              {blobUrl ? (
+                <a 
+                  href={blobUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  style={{ color: '#7b1fa2', textDecoration: 'none' }}
+                >
+                  {blobUrl}
+                </a>
+              ) : (
+                <span style={{ color: '#999' }}>Loading URL...</span>
+              )}
             </div>
             <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
               💡 Your data is automatically synced to this location every 30 seconds when changes are detected. Manual sync buttons above for immediate upload/download.

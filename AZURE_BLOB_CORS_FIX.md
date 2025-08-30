@@ -49,34 +49,55 @@ The tests show everything working, so if you're still seeing 403 errors, check:
 2. **Browser**: Clear browser cache, hard refresh (Ctrl+F5)
 3. **Origin**: Ensure your app is running from an allowed origin
 
-### Production CORS Configuration
-If you're still seeing 403 errors from the production app, ensure the production origin is allowed:
+### Production CORS Issue - FOUND! ⚠️
 
-**Current CORS (confirmed working):**
-- ✅ `http://localhost:3000` - Working for development
-- ❓ `https://gentle-moss-087d9321e.1.azurestaticapps.net` - Check production
+**Problem Identified**: The Azure Portal CORS is working correctly, but the **Azure Functions code** has its own origin validation that's blocking the production origin.
 
-**Test production CORS:**
+**Test Results:**
 ```bash
-curl -I -H "Origin: https://gentle-moss-087d9321e.1.azurestaticapps.net" \
+curl -H "Origin: https://gentle-moss-087d9321e.1.azurestaticapps.net" \
   "https://storageproxy-c6g8bvbcdqc7duam.canadacentral-01.azurewebsites.net/api/blob/list"
-# Should return: Access-Control-Allow-Origin: https://gentle-moss-087d9321e.1.azurestaticapps.net
+
+# Returns:
+HTTP/1.1 403 Forbidden
+Access-Control-Allow-Origin: https://gentle-moss-087d9321e.1.azurestaticapps.net  # ✅ Portal CORS working
+{"success":false,"error":"Origin not allowed"}  # ❌ Functions code blocking it
 ```
 
-## Testing Complete - No Further Action Needed ✅
+**Root Cause**: The Azure Functions code has its own `isOriginAllowed()` function that checks the `ALLOWED_ORIGINS` environment variable:
+
+```typescript
+function isOriginAllowed(origin: string): boolean {
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
+    return allowedOrigins.some(allowedOrigin => allowedOrigin.trim() === origin);
+}
+```
+
+**Required Fix**: Add the `ALLOWED_ORIGINS` environment variable to your Azure Functions app:
+
+1. **Go to Azure Portal** → **Function Apps** → **storageproxy-c6g8bvbcdqc7duam**
+2. **Click "Configuration"** in the left sidebar  
+3. **Add Application Setting**:
+   - **Name**: `ALLOWED_ORIGINS`
+   - **Value**: `http://localhost:3000,https://gentle-moss-087d9321e.1.azurestaticapps.net`
+4. **Click "Save"**
+5. **Wait 2-3 minutes** for changes to propagate
+
+## Testing Complete - ONE MORE CONFIGURATION NEEDED ⚠️
 
 ### Summary:
 - ✅ **Azure Functions**: Fully deployed and operational
-- ✅ **CORS**: Working for development (localhost:3000)  
+- ✅ **CORS Portal Settings**: Working correctly (returns proper Access-Control headers)  
 - ✅ **Blob Storage**: Connected with existing data
-- ✅ **App Configuration**: Mo Money app correctly configured
-- ✅ **Health Status**: All services reporting healthy
+- ✅ **Development Mode**: Working perfectly (localhost:3000)
+- ⚠️ **Production Mode**: Blocked by Azure Functions environment variable
 
-**The original 403 error was likely a temporary issue or browser cache problem.** Everything is now confirmed to be working correctly.
+### Required Action:
+**Add `ALLOWED_ORIGINS` environment variable** to your Azure Functions app configuration:
+```
+ALLOWED_ORIGINS = http://localhost:3000,https://gentle-moss-087d9321e.1.azurestaticapps.net
+```
 
-If you continue to experience issues, they are likely related to:
-1. **Browser cache** - Clear and hard refresh
-2. **Production CORS** - Verify production origin is allowed
-3. **Network/firewall** - Check if requests are being blocked
+After adding this setting, production blob storage will work immediately. The Azure Portal CORS configuration you have is perfect - the issue is just the missing environment variable for the Functions code logic.
 
-Your Azure Blob Storage proxy is **fully functional and ready to use**!
+Your Azure Blob Storage proxy will be **fully functional for both development and production** once this environment variable is added!
