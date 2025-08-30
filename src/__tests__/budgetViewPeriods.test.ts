@@ -135,8 +135,8 @@ describe('Budget View Periods', () => {
   });
 
   describe('calculateBudgetProgressWithViewPeriod', () => {
-    test('calculates monthly view progress correctly', () => {
-      const progress = budgetService.calculateBudgetProgressWithViewPeriod(
+    test('calculates monthly view progress correctly', async () => {
+      const progress = await budgetService.calculateBudgetProgressWithViewPeriod(
         mockBudget,
         mockTransactions,
         mockCategories,
@@ -151,8 +151,8 @@ describe('Budget View Periods', () => {
       expect(progress.transactions).toHaveLength(2);
     });
 
-    test('calculates quarterly view progress correctly', () => {
-      const progress = budgetService.calculateBudgetProgressWithViewPeriod(
+    test('calculates quarterly view progress correctly', async () => {
+      const progress = await budgetService.calculateBudgetProgressWithViewPeriod(
         mockBudget,
         mockTransactions,
         mockCategories,
@@ -167,8 +167,8 @@ describe('Budget View Periods', () => {
       expect(progress.transactions).toHaveLength(3); // Jan + Mar transactions
     });
 
-    test('calculates annual view progress correctly', () => {
-      const progress = budgetService.calculateBudgetProgressWithViewPeriod(
+    test('calculates annual view progress correctly', async () => {
+      const progress = await budgetService.calculateBudgetProgressWithViewPeriod(
         mockBudget,
         mockTransactions,
         mockCategories,
@@ -183,7 +183,7 @@ describe('Budget View Periods', () => {
       expect(progress.transactions).toHaveLength(3);
     });
 
-    test('calculates weekly view progress correctly', () => {
+    test('calculates weekly view progress correctly', async () => {
       // Let's create transactions that will actually fall within the first week of January 2025
       const weeklyTestTransactions: Transaction[] = [
         {
@@ -198,7 +198,7 @@ describe('Budget View Periods', () => {
         }
       ];
 
-      const progress = budgetService.calculateBudgetProgressWithViewPeriod(
+      const progress = await budgetService.calculateBudgetProgressWithViewPeriod(
         mockBudget,
         weeklyTestTransactions,
         mockCategories,
@@ -214,7 +214,7 @@ describe('Budget View Periods', () => {
   });
 
   describe('getBudgetProgressForAllWithViewPeriod', () => {
-    test('returns progress for all active budgets with view period', () => {
+    test('returns progress for all active budgets with view period', async () => {
       const transportationBudget: Budget = {
         id: 'test-budget-2',
         name: 'Transportation Budget',
@@ -228,7 +228,7 @@ describe('Budget View Periods', () => {
 
       budgetService['budgets'] = [mockBudget, transportationBudget];
 
-      const progressList = budgetService.getBudgetProgressForAllWithViewPeriod(
+      const progressList = await budgetService.getBudgetProgressForAllWithViewPeriod(
         mockTransactions,
         mockCategories,
         { year: 2025, month: 1 }, // February 2025
@@ -250,7 +250,7 @@ describe('Budget View Periods', () => {
   });
 
   describe('status calculation with different view periods', () => {
-    test('status calculation works correctly across different view periods', () => {
+    test('status calculation works correctly across different view periods', async () => {
       // Create a budget with transactions that will show up in different view periods
       const testBudget: Budget = {
         ...mockBudget,
@@ -281,7 +281,7 @@ describe('Budget View Periods', () => {
         }
       ];
 
-      const weeklyProgress = budgetService.calculateBudgetProgressWithViewPeriod(
+      const weeklyProgress = await budgetService.calculateBudgetProgressWithViewPeriod(
         testBudget,
         testTransactions,
         mockCategories,
@@ -289,7 +289,7 @@ describe('Budget View Periods', () => {
         'weekly'
       );
 
-      const annualProgress = budgetService.calculateBudgetProgressWithViewPeriod(
+      const annualProgress = await budgetService.calculateBudgetProgressWithViewPeriod(
         testBudget,
         testTransactions,
         mockCategories,
