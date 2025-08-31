@@ -11,6 +11,7 @@ describe('AzureOpenAI Service', () => {
     {
       id: 'food-dining',
       name: 'Food & Dining',
+      type: 'expense' as const,
       subcategories: [
         { id: 'restaurants', name: 'Restaurants' },
         { id: 'groceries', name: 'Groceries' }
@@ -19,6 +20,7 @@ describe('AzureOpenAI Service', () => {
     {
       id: 'transportation',
       name: 'Transportation',
+      type: 'expense' as const,
       subcategories: [
         { id: 'gas', name: 'Gas & Fuel' },
         { id: 'public-transport', name: 'Public Transportation' }
@@ -27,6 +29,7 @@ describe('AzureOpenAI Service', () => {
     {
       id: 'uncategorized',
       name: 'Uncategorized',
+      type: 'expense' as const,
       subcategories: []
     }
   ];

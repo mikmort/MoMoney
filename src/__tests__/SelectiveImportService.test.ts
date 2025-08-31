@@ -141,6 +141,9 @@ describe('SimplifiedImportExportService - Selective Import', () => {
       rules: false,
       budgets: false,
       categories: true,
+      balanceHistory: false,
+      currencyRates: false,
+      transferMatches: false,
       preferences: true,
       transactionHistory: true
     };
@@ -179,6 +182,9 @@ describe('SimplifiedImportExportService - Selective Import', () => {
       rules: false,
       budgets: false,
       categories: true,
+      balanceHistory: false,
+      currencyRates: false,
+      transferMatches: false,
       preferences: false,
       transactionHistory: false
     };
@@ -236,6 +242,9 @@ describe('SimplifiedImportExportService - Selective Import', () => {
       rules: false,
       budgets: true,
       categories: false,
+      balanceHistory: false,
+      currencyRates: false,
+      transferMatches: false,
       preferences: false,
       transactionHistory: false
     };
@@ -259,6 +268,9 @@ describe('SimplifiedImportExportService - Selective Import', () => {
       rules: false, // But don't import rules
       budgets: false,
       categories: false,
+      balanceHistory: false,
+      currencyRates: false,
+      transferMatches: false,
       preferences: true,
       transactionHistory: true
     };
