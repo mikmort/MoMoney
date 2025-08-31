@@ -7,17 +7,27 @@ import { sanitizeTransactionForAI, sanitizeFileContent, validateMaskedAccountNum
 // Example: REACT_APP_OPENAI_PROXY_URL=https://<your-func>.azurewebsites.net/api/openai/chat/completions
 // In development, we keep it relative to leverage CRA's setupProxy.
 // In production, if it's relative and a base is provided, build an absolute URL to the Azure Function.
+// If no environment variables are provided in production, fall back to the deployed Azure Function.
 const OPENAI_PROXY_URL: string = (() => {
   const envUrl = (process.env.REACT_APP_OPENAI_PROXY_URL as string | undefined) || '/api/openai/chat/completions';
   const isAbsolute = /^https?:\/\//i.test(envUrl);
   if (isAbsolute) return envUrl;
+  
   const isProd = process.env.NODE_ENV === 'production';
   const base = (process.env.REACT_APP_FUNCTION_BASE_URL as string | undefined) || '';
-  if (isProd && base) {
-    const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
-    const path = envUrl.startsWith('/') ? envUrl : `/${envUrl}`;
-    return `${trimmedBase}${path}`;
+  
+  if (isProd) {
+    if (base) {
+      // Use environment-provided base URL
+      const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      const path = envUrl.startsWith('/') ? envUrl : `/${envUrl}`;
+      return `${trimmedBase}${path}`;
+    } else {
+      // Production fallback: use deployed Azure Function for OpenAI proxy
+      return 'https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/chat/completions';
+    }
   }
+  
   return envUrl; // development or no base provided
 })();
 
@@ -103,8 +113,11 @@ export class AzureOpenAIService {
   private computeDisabledReason(): string {
     const cfg = defaultConfig.azure.openai;
     const hasProxy = !!(process.env.REACT_APP_OPENAI_PROXY_URL || process.env.REACT_APP_FUNCTION_BASE_URL);
-    // If proxy exists we don't need endpoint/apiKey locally and can allow operation
-    if (!hasProxy) {
+    const isProd = process.env.NODE_ENV === 'production';
+    
+    // In production, we have a fallback proxy URL, so we always have a proxy available
+    // If proxy exists or we're in production (with fallback) we don't need endpoint/apiKey locally
+    if (!hasProxy && !isProd) {
       if (!cfg.endpoint || cfg.endpoint.includes('YOUR_AZURE_OPENAI_ENDPOINT')) return 'No proxy and placeholder endpoint';
       if (!cfg.apiKey || cfg.apiKey.includes('YOUR_AZURE_OPENAI_API_KEY')) return 'No proxy and placeholder api key';
     }
@@ -113,7 +126,12 @@ export class AzureOpenAIService {
 
   private isEffectivelyDisabled(): boolean {
     const hasProxy = !!(process.env.REACT_APP_OPENAI_PROXY_URL || process.env.REACT_APP_FUNCTION_BASE_URL);
-    if (hasProxy) return false; // proxy handles auth/model routing
+    const isProd = process.env.NODE_ENV === 'production';
+    
+    // In production, we have a fallback proxy URL, so proxy is always available
+    if (hasProxy || isProd) return false; // proxy handles auth/model routing
+    
+    // Development without proxy: check for direct credentials
     const cfg = defaultConfig.azure.openai;
     const placeholderEndpoint = !cfg.endpoint || cfg.endpoint.startsWith('YOUR_');
     const placeholderKey = !cfg.apiKey || cfg.apiKey.startsWith('YOUR_');

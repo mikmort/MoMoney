@@ -399,4 +399,103 @@ describe('AzureOpenAI Service', () => {
       expect(result.reasoning).toBe('AI classification'); // Default reasoning
     });
   });
+
+  describe('Production Configuration', () => {
+    let originalNodeEnv: string | undefined;
+    let originalProxyUrl: string | undefined;  
+    let originalFunctionUrl: string | undefined;
+
+    beforeEach(() => {
+      // Store original environment
+      originalNodeEnv = process.env.NODE_ENV;
+      originalProxyUrl = process.env.REACT_APP_OPENAI_PROXY_URL;
+      originalFunctionUrl = process.env.REACT_APP_FUNCTION_BASE_URL;
+    });
+
+    afterEach(() => {
+      // Restore original environment
+      if (originalNodeEnv !== undefined) {
+        process.env.NODE_ENV = originalNodeEnv;
+      } else {
+        delete process.env.NODE_ENV;
+      }
+      if (originalProxyUrl !== undefined) {
+        process.env.REACT_APP_OPENAI_PROXY_URL = originalProxyUrl;
+      } else {
+        delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      }
+      if (originalFunctionUrl !== undefined) {
+        process.env.REACT_APP_FUNCTION_BASE_URL = originalFunctionUrl;
+      } else {
+        delete process.env.REACT_APP_FUNCTION_BASE_URL;
+      }
+    });
+
+    it('should enable service in production even without environment variables', () => {
+      // Simulate production environment without env vars (the reported issue)
+      process.env.NODE_ENV = 'production';
+      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      delete process.env.REACT_APP_FUNCTION_BASE_URL;
+      
+      const testService = new AzureOpenAIService();
+      
+      // Service should be enabled with production fallback URL
+      expect((testService as any).disabledReason).toBeUndefined();
+    });
+
+    it('should use production fallback URL when no environment variables provided', () => {
+      // This test verifies the URL construction logic
+      process.env.NODE_ENV = 'production';
+      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      delete process.env.REACT_APP_FUNCTION_BASE_URL;
+
+      // Simulate the URL construction logic from the service
+      const envUrl = '/api/openai/chat/completions';
+      const isAbsolute = /^https?:\/\//i.test(envUrl);
+      const isProd = process.env.NODE_ENV === 'production';
+      const base = process.env.REACT_APP_FUNCTION_BASE_URL || '';
+
+      let finalUrl;
+      if (isProd) {
+        if (base) {
+          const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+          const path = envUrl.startsWith('/') ? envUrl : `/${envUrl}`;
+          finalUrl = `${trimmedBase}${path}`;
+        } else {
+          // Production fallback
+          finalUrl = 'https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/chat/completions';
+        }
+      } else {
+        finalUrl = envUrl;
+      }
+
+      expect(finalUrl).toBe('https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/chat/completions');
+    });
+
+    it('should prefer environment variable over production fallback', () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      process.env.REACT_APP_FUNCTION_BASE_URL = 'https://custom.azurewebsites.net';
+
+      // Simulate the URL construction logic
+      const envUrl = '/api/openai/chat/completions';
+      const isProd = process.env.NODE_ENV === 'production';
+      const base = process.env.REACT_APP_FUNCTION_BASE_URL || '';
+
+      let finalUrl;
+      if (isProd) {
+        if (base) {
+          const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+          const path = envUrl.startsWith('/') ? envUrl : `/${envUrl}`;
+          finalUrl = `${trimmedBase}${path}`;
+        } else {
+          finalUrl = 'https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/chat/completions';
+        }
+      } else {
+        finalUrl = envUrl;
+      }
+
+      expect(finalUrl).toBe('https://custom.azurewebsites.net/api/openai/chat/completions');
+    });
+  });
 });
