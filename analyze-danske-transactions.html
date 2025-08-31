@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Danske Individual Transaction Analysis</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .summary { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .positive { color: green; }
+        .negative { color: red; }
+        .large { font-weight: bold; background: yellow; }
+        .transaction { margin: 5px 0; padding: 5px; border-left: 3px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>Danske Individual Account Transaction Analysis</h1>
+    <button onclick="analyzeTransactions()">Analyze All Danske Individual Transactions</button>
+    <div id="result"></div>
+
+    <script>
+    async function analyzeTransactions() {
+        try {
+            // Get transaction data from localStorage
+            const transactionData = localStorage.getItem('mo_money_transactions');
+            if (!transactionData) {
+                document.getElementById('result').innerHTML = 'No transaction data found in localStorage';
+                return;
+            }
+            
+            const allTransactions = JSON.parse(transactionData);
+            
+            // Filter for Danske Individual account
+            const danskeTransactions = allTransactions.filter(tx => 
+                tx.account === 'Danske Individual' || 
+                tx.account === 'danske-bank-danske-individual-checking'
+            );
+            
+            console.log('Total Danske Individual transactions found:', danskeTransactions.length);
+            
+            if (danskeTransactions.length === 0) {
+                document.getElementById('result').innerHTML = 'No Danske Individual transactions found';
+                return;
+            }
+            
+            // Sort by date (oldest first)
+            danskeTransactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            // Calculate running total
+            let runningTotal = 0;
+            let incomeTotal = 0;
+            let expenseTotal = 0;
+            let transferTotal = 0;
+            
+            const transactionSummary = [];
+            const largeTransactions = [];
+            
+            danskeTransactions.forEach(tx => {
+                const amount = parseFloat(tx.amount);
+                runningTotal += amount;
+                
+                // Categorize
+                if (amount > 0) {
+                    incomeTotal += amount;
+                } else {
+                    expenseTotal += amount;
+                }
+                
+                if (tx.type === 'transfer') {
+                    transferTotal += amount;
+                }
+                
+                // Flag large transactions (>100,000 DKK or <-100,000 DKK)
+                if (Math.abs(amount) > 100000) {
+                    largeTransactions.push({
+                        date: tx.date,
+                        description: tx.description,
+                        amount: amount,
+                        type: tx.type,
+                        category: tx.category
+                    });
+                }
+                
+                transactionSummary.push({
+                    date: new Date(tx.date).toLocaleDateString(),
+                    description: tx.description,
+                    amount: amount,
+                    runningBalance: runningTotal,
+                    type: tx.type
+                });
+            });
+            
+            // Display results
+            let html = `
+                <div class="summary">
+                    <h2>Transaction Summary</h2>
+                    <p><strong>Total Transactions:</strong> ${danskeTransactions.length}</p>
+                    <p><strong>Date Range:</strong> ${new Date(danskeTransactions[0].date).toLocaleDateString()} to ${new Date(danskeTransactions[danskeTransactions.length-1].date).toLocaleDateString()}</p>
+                    <p><strong class="positive">Total Income:</strong> DKK ${incomeTotal.toLocaleString()}</p>
+                    <p><strong class="negative">Total Expenses:</strong> DKK ${expenseTotal.toLocaleString()}</p>
+                    <p><strong>Transfer Net:</strong> DKK ${transferTotal.toLocaleString()}</p>
+                    <p><strong>CALCULATED BALANCE (from zero):</strong> DKK ${runningTotal.toLocaleString()}</p>
+                    <p><strong>With Historical Balance (691,778.53):</strong> DKK ${(691778.53 + runningTotal).toLocaleString()}</p>
+                </div>
+                
+                <div class="summary">
+                    <h3>Large Transactions (>100,000 DKK)</h3>
+            `;
+            
+            if (largeTransactions.length === 0) {
+                html += '<p>No large transactions found.</p>';
+            } else {
+                largeTransactions.forEach(tx => {
+                    const amountClass = tx.amount > 0 ? 'positive' : 'negative';
+                    html += `
+                        <div class="transaction large">
+                            <strong>${new Date(tx.date).toLocaleDateString()}</strong> - 
+                            <span class="${amountClass}">DKK ${tx.amount.toLocaleString()}</span> - 
+                            ${tx.description} (${tx.type})
+                        </div>
+                    `;
+                });
+            }
+            
+            html += '</div>';
+            
+            // Show last 20 transactions for context
+            html += `
+                <div class="summary">
+                    <h3>Recent Transactions (Last 20)</h3>
+            `;
+            
+            const recentTransactions = transactionSummary.slice(-20);
+            recentTransactions.forEach(tx => {
+                const amountClass = tx.amount > 0 ? 'positive' : 'negative';
+                html += `
+                    <div class="transaction">
+                        ${tx.date} - <span class="${amountClass}">DKK ${tx.amount.toLocaleString()}</span> - 
+                        ${tx.description} → Running: DKK ${tx.runningBalance.toLocaleString()}
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            
+            document.getElementById('result').innerHTML = html;
+            
+        } catch (error) {
+            document.getElementById('result').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+        }
+    }
+    </script>
+</body>
+</html>

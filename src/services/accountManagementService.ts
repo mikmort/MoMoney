@@ -2,6 +2,7 @@ import { Account, AccountStatementAnalysisResponse, MultipleAccountAnalysisRespo
 import * as XLSX from 'xlsx';
 import { defaultAccounts, accountDetectionPatterns } from '../data/defaultAccounts';
 import { AzureOpenAIService } from './azureOpenAIService';
+import { currencyExchangeService } from './currencyExchangeService';
 
 // Import dataService directly - circular dependency is managed by initialization timing
 let dataServiceCache: any = null;
@@ -691,6 +692,46 @@ ${userPrompt}`;
   }
 
   /**
+   * Convert a transaction amount to the account's currency
+   */
+  private async convertTransactionToAccountCurrency(transaction: any, account: Account): Promise<number> {
+    // If transaction has no currency info, assume it's in account currency
+    const transactionCurrency = transaction.originalCurrency || 
+      transaction.currency || 
+      account.currency || 
+      'USD';
+    
+    const accountCurrency = account.currency || 'USD';
+    
+    // If currencies match, no conversion needed
+    if (transactionCurrency === accountCurrency) {
+      return transaction.amount;
+    }
+    
+    try {
+      // Convert from transaction currency to account currency
+      const conversionResult = await currencyExchangeService.convertAmount(
+        Math.abs(transaction.amount),
+        transactionCurrency,
+        accountCurrency
+      );
+      
+      if (conversionResult) {
+        // Preserve the sign of the original amount
+        return transaction.amount < 0 
+          ? -conversionResult.convertedAmount 
+          : conversionResult.convertedAmount;
+      } else {
+        console.warn(`No exchange rate available for ${transactionCurrency} to ${accountCurrency} - using original amount`);
+        return transaction.amount;
+      }
+    } catch (error) {
+      console.error(`Failed to convert ${transactionCurrency} to ${accountCurrency}:`, error);
+      return transaction.amount;
+    }
+  }
+
+  /**
    * Calculate current account balance based on historical balance and transactions
    */
   async calculateCurrentBalance(accountId: string): Promise<number | null> {
@@ -713,9 +754,12 @@ ${userPrompt}`;
           t.date > account.historicalBalanceDate!
         );
 
-        const balanceChange = transactionsAfterDate.reduce((sum: number, t: any) => {
-          return sum + t.amount;
-        }, 0);
+        // Convert all transaction amounts to account currency before summing
+        let balanceChange = 0;
+        for (const transaction of transactionsAfterDate) {
+          const convertedAmount = await this.convertTransactionToAccountCurrency(transaction, account);
+          balanceChange += convertedAmount;
+        }
 
         const currentBalance = account.historicalBalance + balanceChange;
         
@@ -727,9 +771,11 @@ ${userPrompt}`;
       }
 
       // If no historical balance, calculate from all transactions (assuming 0 starting balance)
-      const currentBalance = accountTransactions.reduce((sum: number, t: any) => {
-        return sum + t.amount;
-      }, 0);
+      let currentBalance = 0;
+      for (const transaction of accountTransactions) {
+        const convertedAmount = await this.convertTransactionToAccountCurrency(transaction, account);
+        currentBalance += convertedAmount;
+      }
 
       console.log(`💰 Calculated current balance for ${account.name} from all transactions: ${currentBalance}`);
       
@@ -778,7 +824,8 @@ ${userPrompt}`;
   }
 
   /**
-   * Calculate monthly balance history for an account from today back to the first transaction
+   * Calculate monthly balance history for an account
+   * Uses a backward calculation approach: starts from current balance and works backward
    */
   async calculateMonthlyBalanceHistory(accountId: string): Promise<Array<{
     date: Date;
@@ -792,11 +839,11 @@ ${userPrompt}`;
       const ds = await getDataService();
       const allTransactions = await ds.getAllTransactions();
       
-      // Filter and sort transactions for this account by date (oldest first)
+      // Filter and sort transactions for this account by date (newest first for backward calculation)
       const accountTransactions = allTransactions
         .filter((t: any) => t.account === account.name || t.account === account.id)
         .map((t: any) => ({ ...t, date: new Date(t.date) }))
-        .sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
+        .sort((a: any, b: any) => b.date.getTime() - a.date.getTime()); // Newest first
 
       if (accountTransactions.length === 0) {
         // No transactions, return current balance for today
@@ -808,64 +855,91 @@ ${userPrompt}`;
         }];
       }
 
-      const firstTransactionDate = accountTransactions[0].date;
-      const lastTransactionDate = accountTransactions[accountTransactions.length - 1].date;
+      // Get current balance as our starting point
+      const currentBalance = await this.calculateCurrentBalance(accountId);
+      if (currentBalance === null) return [];
+
       const history: Array<{ date: Date; formattedDate: string; balance: number }> = [];
-
-      // Start from the first transaction month and go to the last transaction date
-      let currentDate = new Date(firstTransactionDate.getFullYear(), firstTransactionDate.getMonth(), 1);
-      const endDate = lastTransactionDate; // Use the exact date of the last transaction
-
-      // Calculate starting balance (historical balance or 0)
-      let runningBalance = account.historicalBalance || 0;
+      const latestTransactionDate = accountTransactions[0].date;
       
-      // If we have historical balance, adjust for transactions before that date
-      if (account.historicalBalance !== undefined && account.historicalBalanceDate) {
-        // Start with the historical balance as our baseline
-        runningBalance = account.historicalBalance;
-      } else {
-        // No historical balance, start from 0
-        runningBalance = 0;
-      }
+      // Start from the month of the latest transaction and work backward
+      let runningBalance = currentBalance;
 
-      while (currentDate <= endDate) {
-        // Get last day of this month
-        const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
-        const currentYear = currentDate.getFullYear();
-        const currentMonth = currentDate.getMonth();
+      // Group transactions by month
+      const transactionsByMonth = new Map<string, any[]>();
+      accountTransactions.forEach((t: any) => {
+        const monthKey = `${t.date.getFullYear()}-${t.date.getMonth()}`;
+        if (!transactionsByMonth.has(monthKey)) {
+          transactionsByMonth.set(monthKey, []);
+        }
+        transactionsByMonth.get(monthKey)!.push(t);
+      });
+
+      // Calculate balance for each month, working backward
+      const startYear = latestTransactionDate.getFullYear();
+      const startMonth = latestTransactionDate.getMonth();
+      
+      // Determine how far back to go
+      const minDate = account.historicalBalanceDate 
+        ? new Date(account.historicalBalanceDate)
+        : accountTransactions[accountTransactions.length - 1].date; // Oldest transaction
+      
+      for (let year = startYear; year >= minDate.getFullYear(); year--) {
+        const maxMonth = year === startYear ? startMonth : 11;
+        const minMonth = year === minDate.getFullYear() ? minDate.getMonth() : 0;
         
-        // Get transactions for this month
-        const monthTransactions = accountTransactions.filter((t: any) => {
-          const transactionDate = t.date;
-          return transactionDate.getFullYear() === currentYear &&
-                 transactionDate.getMonth() === currentMonth &&
-                 // If historical balance exists, only include transactions after that date
-                 (!account.historicalBalanceDate || transactionDate > account.historicalBalanceDate);
-        });
-
-        // Add this month's transactions to running balance
-        const monthlyChange = monthTransactions.reduce((sum: number, t: any) => sum + t.amount, 0);
-        runningBalance += monthlyChange;
-
-        // For the final month (containing the last transaction), use the last transaction date
-        // For all other months, use the month end
-        const isLastMonth = currentDate.getFullYear() === lastTransactionDate.getFullYear() && 
-                           currentDate.getMonth() === lastTransactionDate.getMonth();
-        const displayDate = isLastMonth ? lastTransactionDate : monthEnd;
-
-        // Add entry for this month
-        history.push({
-          date: displayDate,
-          formattedDate: this.formatDateLong(displayDate),
-          balance: runningBalance
-        });
-
-        // Move to next month
-        currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+        for (let month = maxMonth; month >= minMonth; month--) {
+          const monthKey = `${year}-${month}`;
+          const monthTransactions = transactionsByMonth.get(monthKey) || [];
+          
+          // Filter transactions after historical balance date if applicable
+          const relevantTransactions = monthTransactions.filter((t: any) => 
+            !account.historicalBalanceDate || t.date > account.historicalBalanceDate
+          );
+          
+          // Only include this month if it has relevant transactions or is the current month
+          if (relevantTransactions.length > 0 || (year === startYear && month === startMonth)) {
+            // Use the latest transaction date in this month, or month end
+            const monthLastDay = new Date(year, month + 1, 0);
+            const latestInMonth = relevantTransactions.length > 0 
+              ? relevantTransactions[0].date // Already sorted newest first
+              : monthLastDay;
+            
+            history.push({
+              date: latestInMonth,
+              formattedDate: this.formatDateLong(latestInMonth),
+              balance: runningBalance
+            });
+          }
+          
+          // Subtract this month's transactions from running balance for next (previous) month
+          let monthTotal = 0;
+          for (const transaction of relevantTransactions) {
+            const convertedAmount = await this.convertTransactionToAccountCurrency(transaction, account);
+            monthTotal += convertedAmount;
+          }
+          runningBalance -= monthTotal;
+          
+          // Stop if we've reached the historical balance date month
+          if (account.historicalBalanceDate) {
+            const historicalDate = new Date(account.historicalBalanceDate);
+            if (year === historicalDate.getFullYear() && month === historicalDate.getMonth()) {
+              break;
+            }
+          }
+        }
+        
+        // Stop if we've reached the historical balance date year
+        if (account.historicalBalanceDate) {
+          const historicalDate = new Date(account.historicalBalanceDate);
+          if (year === historicalDate.getFullYear()) {
+            break;
+          }
+        }
       }
 
-      // Return in reverse chronological order (newest first)
-      return history.reverse();
+      // Return in chronological order (newest first) - history is already in this order
+      return history;
 
     } catch (error) {
       console.error('Error calculating monthly balance history:', error);

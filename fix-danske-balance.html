@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fix Danske Individual Account Balance</title>
+</head>
+<body>
+    <h1>Fix Danske Individual Account Historical Balance</h1>
+    <button onclick="fixBalance()">Set Historical Balance (DKK 691,778.53 on Dec 31, 2023)</button>
+    <div id="result"></div>
+
+    <script>
+    async function fixBalance() {
+        try {
+            // Set the correct historical balance for Danske Individual account
+            // Based on actual bank statement: 691,778.53 DKK on December 31, 2023
+            const accountId = 'danske-bank-danske-individual-checking';
+            const historicalBalance = 691778.53; // DKK amount from bank statement
+            const historicalDate = new Date('2023-12-31T23:59:59.000Z'); // December 31, 2023
+            
+            // Get existing data
+            const existingData = localStorage.getItem('mo_money_accounts');
+            if (!existingData) {
+                document.getElementById('result').innerHTML = 'No account data found in localStorage';
+                return;
+            }
+            
+            const accounts = JSON.parse(existingData);
+            
+            // Find the Danske Individual account
+            const accountIndex = accounts.findIndex(acc => acc.id === accountId);
+            if (accountIndex === -1) {
+                document.getElementById('result').innerHTML = 'Danske Individual account not found';
+                return;
+            }
+            
+            // Update the account with historical balance
+            accounts[accountIndex].historicalBalance = historicalBalance;
+            accounts[accountIndex].historicalBalanceDate = historicalDate.toISOString();
+            
+            // Save back to localStorage
+            localStorage.setItem('mo_money_accounts', JSON.stringify(accounts));
+            
+            document.getElementById('result').innerHTML = `
+                <p style="color: green;">✅ Successfully updated Danske Individual account:</p>
+                <ul>
+                    <li>Historical Balance: DKK ${historicalBalance.toLocaleString()}</li>
+                    <li>Historical Date: ${historicalDate.toLocaleDateString()}</li>
+                    <li>Account ID: ${accountId}</li>
+                </ul>
+                <p><strong>Now refresh the Mo Money application to see the corrected balance history!</strong></p>
+            `;
+            
+        } catch (error) {
+            document.getElementById('result').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+        }
+    }
+    </script>
+</body>
+</html>
