@@ -7,15 +7,15 @@ import { userPreferencesService } from '../services/userPreferencesService';
 import { dataService } from '../services/dataService';
 import { Transaction } from '../types';
 
+// Mock the useTransferMatching hook
+import { useTransferMatching } from '../hooks/useTransferMatching';
+
 // Mock services
 jest.mock('../services/currencyDisplayService');
 jest.mock('../services/currencyExchangeService');
 jest.mock('../services/userPreferencesService');
 jest.mock('../services/dataService');
 jest.mock('../hooks/useTransferMatching');
-
-// Mock the useTransferMatching hook
-import { useTransferMatching } from '../hooks/useTransferMatching';
 const mockUseTransferMatching = useTransferMatching as jest.MockedFunction<typeof useTransferMatching>;
 
 describe('TransferMatchesPage Currency Validation', () => {

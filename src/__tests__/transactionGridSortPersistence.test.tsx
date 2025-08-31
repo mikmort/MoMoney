@@ -7,6 +7,15 @@ import Transactions from '../components/Transactions/Transactions';
 import { dataService } from '../services/dataService';
 import { Transaction } from '../types';
 
+// Import mocked hooks
+import { useCategoriesManager } from '../hooks/useCategoriesManager';
+import { useReimbursementMatching } from '../hooks/useReimbursementMatching';
+import { useTransferMatching } from '../hooks/useTransferMatching';
+import { useAccountManagement } from '../hooks/useAccountManagement';
+
+// Import and mock currencyDisplayService
+import { currencyDisplayService } from '../services/currencyDisplayService';
+
 // Mock external dependencies
 jest.mock('../services/dataService');
 jest.mock('../services/rulesService');
@@ -60,21 +69,12 @@ jest.mock('../hooks/useReimbursementMatching');
 jest.mock('../hooks/useTransferMatching');
 jest.mock('../hooks/useAccountManagement');
 
-// Import mocked hooks
-import { useCategoriesManager } from '../hooks/useCategoriesManager';
-import { useReimbursementMatching } from '../hooks/useReimbursementMatching';
-import { useTransferMatching } from '../hooks/useTransferMatching';
-import { useAccountManagement } from '../hooks/useAccountManagement';
-
 const mockUseCategoriesManager = useCategoriesManager as jest.MockedFunction<typeof useCategoriesManager>;
 const mockUseReimbursementMatching = useReimbursementMatching as jest.MockedFunction<typeof useReimbursementMatching>;
 const mockUseTransferMatching = useTransferMatching as jest.MockedFunction<typeof useTransferMatching>;
 const mockUseAccountManagement = useAccountManagement as jest.MockedFunction<typeof useAccountManagement>;
 
 const mockDataService = dataService as jest.Mocked<typeof dataService>;
-
-// Import and mock currencyDisplayService
-import { currencyDisplayService } from '../services/currencyDisplayService';
 const mockCurrencyDisplayService = currencyDisplayService as jest.Mocked<typeof currencyDisplayService>;
 
 // Mock transactions with different descriptions to test sorting
