@@ -456,7 +456,7 @@ describe('AzureOpenAI Service', () => {
       const envUrl = '/api/openai/chat/completions';
       const isAbsolute = /^https?:\/\//i.test(envUrl);
       const isProd = process.env.NODE_ENV === 'production';
-      const base = process.env.REACT_APP_FUNCTION_BASE_URL || '';
+      const base: string = process.env.REACT_APP_FUNCTION_BASE_URL || '';
 
       let finalUrl;
       if (isProd) {
