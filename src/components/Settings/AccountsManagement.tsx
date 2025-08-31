@@ -113,6 +113,20 @@ const EditModalContent = styled.div`
     padding-top: 20px;
     border-top: 1px solid #eee;
   }
+
+  .checkbox-label {
+    display: flex !important;
+    align-items: center;
+    gap: 0px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    text-align: left;
+    margin-bottom: 4px;
+    margin-left: 0;
+    padding-left: 0;
+  }
 `;
 
 const UploadSection = styled.div`
@@ -1146,16 +1160,16 @@ export const AccountsManagement: React.FC<AccountsManagementProps> = () => {
             </div>
 
             <div className="form-group">
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={accountForm.isActive}
-                  onChange={(e) => handleFormChange('isActive', e.target.checked)}
-                  style={{ cursor: 'pointer' }}
-                />
-                <span style={{ marginLeft: '20px', cursor: 'pointer' }} onClick={() => handleFormChange('isActive', !accountForm.isActive)}>
+              <div style={{ textAlign: 'left', display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start' }}>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={accountForm.isActive}
+                    onChange={(e) => handleFormChange('isActive', e.target.checked)}
+                    style={{ marginBottom: '0', marginRight: '8px', marginLeft: '0' }}
+                  />
                   Account is active
-                </span>
+                </label>
               </div>
             </div>
 

@@ -44,17 +44,19 @@ export const useAppAuth = () => {
         
         if (currentUser) {
           const displayName = currentUser.userDetails || 'User';
-          const email = currentUser.claims?.find(c => c.typ === 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress')?.val || 'unknown@example.com';
+          const email = currentUser.claims?.find(c => c.typ === 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress')?.val;
+          
+          const finalEmail = email || displayName;
           
           setUser({
             displayName,
-            email
+            email: finalEmail
           });
           
           // Map StaticWebAppUser to AppAccount for compatibility
           setAccount({
             name: displayName,
-            username: email
+            username: finalEmail
           });
         } else {
           setUser(null);

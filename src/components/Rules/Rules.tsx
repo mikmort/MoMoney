@@ -435,25 +435,6 @@ const Rules: React.FC = () => {
     }
   };
 
-  const handleGenerateRulesFromTransactions = async () => {
-    try {
-      setIsLoading(true);
-      const createdCount = await rulesService.initializeRulesFromExistingTransactions();
-      await loadRules();
-      
-      if (createdCount > 0) {
-        showAlert('success', `Successfully generated ${createdCount} new rule(s) from existing transactions.`, 'Rules Generated');
-      } else {
-        showAlert('info', 'No new rules were generated. This could be because rules already exist or there are no suitable transactions.');
-      }
-    } catch (error) {
-      console.error('Failed to generate rules:', error);
-      showAlert('error', 'Failed to generate rules from transactions.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div>
       <PageHeader>
@@ -464,13 +445,6 @@ const Rules: React.FC = () => {
             disabled={isLoading}
           >
             {isAddingRule ? 'Cancel' : 'Add Rule'}
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={handleGenerateRulesFromTransactions}
-            disabled={isLoading}
-          >
-            {isLoading ? '🔄 Generating...' : '🤖 Generate from Transactions'}
           </Button>
           <Button 
             variant="outline" 
@@ -812,9 +786,6 @@ const Rules: React.FC = () => {
                   <div style={{ marginTop: '20px' }}>
                     <Button onClick={() => setIsAddingRule(true)} style={{ marginRight: '10px' }}>
                       Add Your First Rule
-                    </Button>
-                    <Button variant="outline" onClick={handleGenerateRulesFromTransactions}>
-                      🤖 Generate from Transactions
                     </Button>
                   </div>
                 </Card>
