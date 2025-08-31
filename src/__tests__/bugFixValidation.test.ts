@@ -2,6 +2,7 @@ import { FileProcessingService } from '../services/fileProcessingService';
 import { rulesService } from '../services/rulesService';
 import { azureOpenAIService } from '../services/azureOpenAIService';
 import { defaultCategories } from '../data/defaultCategories';
+import { Transaction } from '../types';
 
 describe('Transaction Categorization Bug Fix Validation', () => {
   let fileProcessingService: FileProcessingService;
@@ -242,9 +243,9 @@ describe('Transaction Categorization Bug Fix Validation', () => {
       expect(result).toHaveLength(3);
 
       // Find transactions by description
-      const spotify = result.find(t => t.description === 'Spotify USA');
-      const netflix = result.find(t => t.description === 'Netflix');
-      const amazon = result.find(t => t.description === 'Amazon Purchase');
+      const spotify = result.find((t: Transaction) => t.description === 'Spotify USA');
+      const netflix = result.find((t: Transaction) => t.description === 'Netflix');
+      const amazon = result.find((t: Transaction) => t.description === 'Amazon Purchase');
 
       console.log('Results:');
       [spotify, netflix, amazon].forEach(t => {
@@ -265,7 +266,7 @@ describe('Transaction Categorization Bug Fix Validation', () => {
       expect(amazon!.confidence).toBe(0.82);
 
       // All should be properly categorized (none should be "Uncategorized")
-      result.forEach(transaction => {
+      result.forEach((transaction: Transaction) => {
         expect(transaction.category).not.toBe('Uncategorized');
         expect(transaction.confidence).toBeGreaterThan(0.8);
       });

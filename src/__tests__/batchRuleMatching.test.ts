@@ -2,6 +2,7 @@ import { fileProcessingService } from '../services/fileProcessingService';
 import { rulesService } from '../services/rulesService';
 import { azureOpenAIService } from '../services/azureOpenAIService';
 import { defaultCategories } from '../data/defaultCategories';
+import { Transaction } from '../types';
 
 // Mock external dependencies
 jest.mock('../services/azureOpenAIService');
@@ -72,8 +73,8 @@ describe('Batch Rule Matching', () => {
     expect(rules.length).toBeGreaterThanOrEqual(1);
     
     // Verify that some transactions have rule confidence (1.0) indicating they were matched by rules
-    const ruleMatchedTransactions = result.filter(t => t.confidence === 1.0);
-    const aiMatchedTransactions = result.filter(t => t.confidence === 0.95);
+    const ruleMatchedTransactions = result.filter((t: Transaction) => t.confidence === 1.0);
+    const aiMatchedTransactions = result.filter((t: Transaction) => t.confidence === 0.95);
     
     console.log(`📊 Results: ${ruleMatchedTransactions.length} rule-matched, ${aiMatchedTransactions.length} AI-matched`);
     console.log(`🤖 AI was called ${aiCallCount} times with total ${totalAIRequests} requests`);

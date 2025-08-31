@@ -178,7 +178,7 @@ describe('AI Batch Classification Index Mismatch Issue #306', () => {
     expect(bloxTransaction?.reasoning).not.toContain('HELP.MAX.COM');
 
     // Each transaction's reasoning matches its description
-    expect(helpTransaction?.reasoning).toContain(helpTransaction.description);
-    expect(bloxTransaction?.reasoning).toContain(bloxTransaction.description);
+    expect(helpTransaction?.reasoning).toContain(helpTransaction!.description);
+    expect(bloxTransaction?.reasoning).toContain(bloxTransaction!.description);
   });
 });
