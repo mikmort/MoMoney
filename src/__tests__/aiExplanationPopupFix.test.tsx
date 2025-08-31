@@ -104,7 +104,7 @@ describe('AI Explanation Popup Fix', () => {
       };
     };
 
-    let confidencePopupData = { isOpen: false, transaction: null };
+    let confidencePopupData: { isOpen: boolean; transaction: any } = { isOpen: false, transaction: null };
     
     const mockSetState = (newData: any) => {
       confidencePopupData = newData;

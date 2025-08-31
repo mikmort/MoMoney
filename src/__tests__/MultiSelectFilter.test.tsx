@@ -308,7 +308,7 @@ describe('MultiSelectFilter Integration - Transaction Filtering', () => {
     ];
 
     // Empty filters should show all transactions
-    const emptyFilters = { category: [], type: [], account: [] };
+    const emptyFilters = { category: [] as string[], type: [] as string[], account: [] as string[] };
     
     let filtered = transactions;
     if (emptyFilters.category.length > 0) {
