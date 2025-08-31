@@ -19,6 +19,7 @@ import { lazyWithRetry } from './utils/lazyWithRetry';
 // Point directly to forensic renamed component to test resolution
 const Transactions = lazyWithRetry(() => import('./components/Transactions/Transactions'));
 const Dashboard = lazyWithRetry(() => import('./components/Dashboard/Dashboard'));
+const Subscriptions = lazyWithRetry(() => import('./components/Subscriptions/Subscriptions'));
 const Rules = lazyWithRetry(() => import('./components/Rules/Rules'));
 const Budgets = lazyWithRetry(() => import('./components/Budgets/Budgets'));
 const ReportsLayout = lazyWithRetry(() => import('./components/Reports/ReportsLayout'));
@@ -64,6 +65,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
   { path: 'transactions', element: <Transactions /> },
+      { path: 'subscriptions', element: <Subscriptions /> },
       { path: 'rules', element: <Rules /> },
       { path: 'accounts', element: <Accounts /> },
       { path: 'transfer-matches', element: <TransferMatchesPage /> },
