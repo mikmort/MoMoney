@@ -1,0 +1,79 @@
+name: Quality Checks (Parallel)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Allow concurrent quality checks
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality_checks:
+    runs-on: ubuntu-latest
+    name: Lint and Test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          lfs: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.4'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies (dev only)
+        run: |
+          npm ci \
+            --prefer-offline \
+            --no-audit \
+            --no-fund \
+            --ignore-scripts
+        env:
+          CI: true
+          npm_config_progress: false
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+        env:
+          CI: true
+
+  # Optional: Type checking in parallel
+  type_check:
+    runs-on: ubuntu-latest
+    name: TypeScript Check
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.4'
+          cache: 'npm'
+
+      - name: Install dependencies (minimal)
+        run: |
+          npm ci \
+            --prefer-offline \
+            --no-audit \
+            --no-fund \
+            --ignore-scripts \
+            --omit=optional
+        env:
+          CI: true
+
+      - name: Type check
+        run: npx tsc --noEmit
