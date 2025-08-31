@@ -1,4 +1,8 @@
 // Mock the dataService
+import { dashboardService } from '../services/dashboardService';
+import { dataService } from '../services/dataService';
+import { Transaction } from '../types';
+
 jest.mock('../services/dataService', () => ({
   dataService: {
     getAllTransactions: jest.fn()
@@ -11,10 +15,6 @@ jest.mock('../services/currencyDisplayService', () => ({
     convertTransactionsBatch: jest.fn().mockImplementation((transactions) => Promise.resolve(transactions))
   }
 }));
-
-import { dashboardService } from '../services/dashboardService';
-import { dataService } from '../services/dataService';
-import { Transaction } from '../types';
 
 const mockDataService = dataService as jest.Mocked<typeof dataService>;
 
