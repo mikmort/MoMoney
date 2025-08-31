@@ -1648,57 +1648,89 @@ const Transactions: React.FC = () => {
   };
 
   const handleEditFormSubmit = async () => {
-    if (!editingTransaction) return;
-    
     try {
-      // Create updated transaction object
-      const updatedTransaction: Transaction = {
-        ...editingTransaction,
-        description: transactionForm.description,
-        amount: parseFloat(transactionForm.amount),
-        category: transactionForm.category,
-        subcategory: transactionForm.subcategory,
-        account: transactionForm.account,
-        type: transactionForm.type as 'income' | 'expense' | 'transfer',
-        date: new Date(transactionForm.date),
-        notes: transactionForm.notes,
-        originalCurrency: transactionForm.originalCurrency || undefined,
-        lastModifiedDate: new Date(),
-        splits: transactionForm.splits,
-        isSplit: !!(transactionForm.splits && transactionForm.splits.length > 0)
-      };
-
-      // Check if category or subcategory has changed (user made a manual categorization change)
-      const categoryChanged = editingTransaction.category !== updatedTransaction.category;
-      const subcategoryChanged = editingTransaction.subcategory !== updatedTransaction.subcategory;
-      
-      if ((categoryChanged || subcategoryChanged) && !transactionForm.splits) {
-        // Only show category change dialog for non-split transactions
-        // Store the data and show the confirmation dialog
-        setCategoryEditData({
-          transaction: editingTransaction,
-          newCategory: updatedTransaction.category,
-          newSubcategory: updatedTransaction.subcategory,
-          updatedTransaction
-        });
-        setShowCategoryEditDialog(true);
-        return; // Don't update yet, wait for user confirmation
+      // Validate required fields
+      if (!transactionForm.description || !transactionForm.amount || !transactionForm.type || !transactionForm.date) {
+        showAlert('error', 'Please fill in all required fields (Description, Amount, Type, Date)');
+        return;
       }
 
-      // No category change or split transaction, proceed with normal update
-      await dataService.updateTransaction(editingTransaction.id, {
-        description: updatedTransaction.description,
-        amount: updatedTransaction.amount,
-        category: updatedTransaction.category,
-        subcategory: updatedTransaction.subcategory,
-        account: updatedTransaction.account,
-        type: updatedTransaction.type,
-        date: updatedTransaction.date,
-        notes: updatedTransaction.notes,
-        lastModifiedDate: updatedTransaction.lastModifiedDate,
-        splits: updatedTransaction.splits,
-        isSplit: updatedTransaction.isSplit
-      });
+      if (editingTransaction) {
+        // Editing existing transaction
+        // Create updated transaction object
+        const updatedTransaction: Transaction = {
+          ...editingTransaction,
+          description: transactionForm.description,
+          amount: parseFloat(transactionForm.amount),
+          category: transactionForm.category,
+          subcategory: transactionForm.subcategory,
+          account: transactionForm.account,
+          type: transactionForm.type as 'income' | 'expense' | 'transfer',
+          date: new Date(transactionForm.date),
+          notes: transactionForm.notes,
+          originalCurrency: transactionForm.originalCurrency || undefined,
+          lastModifiedDate: new Date(),
+          splits: transactionForm.splits,
+          isSplit: !!(transactionForm.splits && transactionForm.splits.length > 0)
+        };
+
+        // Check if category or subcategory has changed (user made a manual categorization change)
+        const categoryChanged = editingTransaction.category !== updatedTransaction.category;
+        const subcategoryChanged = editingTransaction.subcategory !== updatedTransaction.subcategory;
+        
+        if ((categoryChanged || subcategoryChanged) && !transactionForm.splits) {
+          // Only show category change dialog for non-split transactions
+          // Store the data and show the confirmation dialog
+          setCategoryEditData({
+            transaction: editingTransaction,
+            newCategory: updatedTransaction.category,
+            newSubcategory: updatedTransaction.subcategory,
+            updatedTransaction
+          });
+          setShowCategoryEditDialog(true);
+          return; // Don't update yet, wait for user confirmation
+        }
+
+        // No category change or split transaction, proceed with normal update
+        await dataService.updateTransaction(editingTransaction.id, {
+          description: updatedTransaction.description,
+          amount: updatedTransaction.amount,
+          category: updatedTransaction.category,
+          subcategory: updatedTransaction.subcategory,
+          account: updatedTransaction.account,
+          type: updatedTransaction.type,
+          date: updatedTransaction.date,
+          notes: updatedTransaction.notes,
+          lastModifiedDate: updatedTransaction.lastModifiedDate,
+          splits: updatedTransaction.splits,
+          isSplit: updatedTransaction.isSplit
+        });
+        
+        console.log('✅ Transaction updated successfully');
+      } else {
+        // Adding new transaction
+        const newTransaction: Omit<Transaction, 'id'> = {
+          description: transactionForm.description,
+          amount: parseFloat(transactionForm.amount),
+          category: transactionForm.category || 'Uncategorized',
+          subcategory: transactionForm.subcategory,
+          account: transactionForm.account,
+          type: transactionForm.type as 'income' | 'expense' | 'transfer',
+          date: new Date(transactionForm.date),
+          notes: transactionForm.notes,
+          originalCurrency: transactionForm.originalCurrency || undefined,
+          addedDate: new Date(),
+          lastModifiedDate: new Date(),
+          splits: transactionForm.splits,
+          isSplit: !!(transactionForm.splits && transactionForm.splits.length > 0),
+          isVerified: true, // Manual entry is considered verified
+          confidence: 100, // Manual entry gets full confidence
+          reasoning: 'Manually entered by user'
+        };
+
+        await dataService.addTransaction(newTransaction);
+        console.log('✅ Transaction added successfully');
+      }
       
       // Refresh the transactions list
       const updatedTransactions = await dataService.getAllTransactions();
@@ -1709,11 +1741,32 @@ const Transactions: React.FC = () => {
       setShowEditModal(false);
       setEditingTransaction(null);
       
-      console.log('✅ Transaction updated successfully');
     } catch (error) {
-      console.error('❌ Error updating transaction:', error);
-      showAlert('error', 'Failed to update transaction. Please try again.');
+      console.error('❌ Error saving transaction:', error);
+      showAlert('error', `Failed to ${editingTransaction ? 'update' : 'add'} transaction. Please try again.`);
     }
+  };
+
+  const handleAddTransaction = () => {
+    // Clear the editing transaction
+    setEditingTransaction(null);
+    
+    // Reset form to empty state with today's date
+    setTransactionForm({
+      description: '',
+      amount: '',
+      category: '',
+      subcategory: '',
+      account: '',
+      type: '',
+      date: new Date().toISOString().split('T')[0], // Default to today
+      notes: '',
+      originalCurrency: '',
+      splits: undefined
+    });
+    
+    // Show the modal
+    setShowEditModal(true);
   };
 
   const handleEditFormCancel = () => {
@@ -2943,7 +2996,7 @@ const Transactions: React.FC = () => {
             📋 Rules
           </Button>
           <Button variant="outline">Export</Button>
-          <Button>Add Transaction</Button>
+          <Button onClick={handleAddTransaction}>Add Transaction</Button>
           <Button 
             variant="outline"
             onClick={() => setShowReceiptImport(true)}
@@ -3395,7 +3448,7 @@ const Transactions: React.FC = () => {
       {showEditModal && (
         <EditModalOverlay onClick={handleEditFormCancel}>
           <EditModalContent onClick={(e) => e.stopPropagation()}>
-            <h2>Edit Transaction</h2>
+            <h2>{editingTransaction ? 'Edit Transaction' : 'Add Transaction'}</h2>
             
             <div className="form-group">
               <label>Description *</label>
@@ -3528,7 +3581,7 @@ const Transactions: React.FC = () => {
                 Cancel
               </Button>
               <Button onClick={handleEditFormSubmit}>
-                Save Changes
+                {editingTransaction ? 'Save Changes' : 'Add Transaction'}
               </Button>
             </div>
           </EditModalContent>
