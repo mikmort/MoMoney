@@ -15,7 +15,7 @@ describe('Category Drilldown Expense Calculation', () => {
     // Refund: $100 (refund, positive amount)
     // Expected total: 400 + 200 - 100 = 500
 
-    const testTransactions: Partial<Transaction>[] = [
+    const testTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [
       {
         date: new Date('2025-01-15'),
         amount: -400.00,
@@ -58,7 +58,7 @@ describe('Category Drilldown Expense Calculation', () => {
   });
 
   it('should correctly calculate monthly trend with refunds', async () => {
-    const testTransactions: Partial<Transaction>[] = [
+    const testTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [
       {
         date: new Date('2025-01-15'),
         amount: -300.00,
@@ -108,7 +108,7 @@ describe('Category Drilldown Expense Calculation', () => {
   });
 
   it('should correctly calculate subcategory totals with refunds', async () => {
-    const testTransactions: Partial<Transaction>[] = [
+    const testTransactions: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>[] = [
       {
         date: new Date('2025-01-15'),
         amount: -100.00,
