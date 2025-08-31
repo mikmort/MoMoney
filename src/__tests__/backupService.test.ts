@@ -17,18 +17,22 @@ describe('BackupService', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     
+    // Create refs to mock functions that we can use later
+    const mockToArray = jest.fn().mockResolvedValue([]);
+    const mockReverse = jest.fn().mockReturnValue({ toArray: mockToArray });
+    const mockOrderBy = jest.fn().mockReturnValue({ reverse: mockReverse });
+    
     // Mock database tables
     mockDb.backupMetadata = {
       add: jest.fn(),
       get: jest.fn(),
       delete: jest.fn(),
-      orderBy: jest.fn().mockReturnValue({
-        reverse: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([])
-        })
-      }),
+      orderBy: mockOrderBy,
       toArray: jest.fn().mockResolvedValue([])
     } as any;
+
+    // Store references for test use
+    (mockDb.backupMetadata as any)._mockToArray = mockToArray;
 
     mockDb.backupData = {
       add: jest.fn(),
@@ -48,7 +52,9 @@ describe('BackupService', () => {
       ],
       accounts: [
         { id: 'acc1', name: 'Test Account' }
-      ]
+      ],
+      preferences: null,
+      transactionHistory: [] as any[]
     });
     
     mockImportExportService.importData = jest.fn().mockResolvedValue({
@@ -64,12 +70,14 @@ describe('BackupService', () => {
 
   describe('createBackup', () => {
     it('should create a backup successfully', async () => {
-      const mockExportData = {
+      const mockExportData: any = {
         version: '1.0',
         exportDate: new Date().toISOString(),
         appVersion: '0.1.0',
         transactions: [{ id: 'tx1', description: 'Test', amount: -50 }],
-        accounts: [{ id: 'acc1', name: 'Test Account' }]
+        accounts: [{ id: 'acc1', name: 'Test Account' }],
+        preferences: null,
+        transactionHistory: []
       };
       
       mockImportExportService.exportData.mockResolvedValue(mockExportData);
@@ -125,7 +133,7 @@ describe('BackupService', () => {
         }
       ];
       
-      mockDb.backupMetadata.orderBy().reverse().toArray.mockResolvedValue(mockBackups);
+      (mockDb.backupMetadata as any)._mockToArray.mockResolvedValue(mockBackups);
       
       const backups = await backupService.getBackupList();
       
@@ -134,7 +142,7 @@ describe('BackupService', () => {
     });
 
     it('should handle errors when getting backup list', async () => {
-      mockDb.backupMetadata.orderBy().reverse().toArray.mockRejectedValue(new Error('DB error'));
+      (mockDb.backupMetadata as any)._mockToArray.mockRejectedValue(new Error('DB error'));
       
       const backups = await backupService.getBackupList();
       
@@ -244,7 +252,7 @@ describe('BackupService', () => {
         }
       ];
       
-      mockDb.backupMetadata.orderBy().reverse().toArray.mockResolvedValue(mockBackups);
+      (mockDb.backupMetadata as any)._mockToArray.mockResolvedValue(mockBackups);
       
       const stats = await backupService.getBackupStats();
       
@@ -255,7 +263,7 @@ describe('BackupService', () => {
     });
 
     it('should handle empty backup list', async () => {
-      mockDb.backupMetadata.orderBy().reverse().toArray.mockResolvedValue([]);
+      (mockDb.backupMetadata as any)._mockToArray.mockResolvedValue([]);
       
       const stats = await backupService.getBackupStats();
       
