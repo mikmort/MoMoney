@@ -42,7 +42,7 @@ jobs:
           npm_config_progress: false
 
       - name: Run linting
-        run: npm run lint
+        run: npm run lint:ci
 
       - name: Run tests
         run: npm test

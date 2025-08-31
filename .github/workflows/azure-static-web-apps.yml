@@ -52,8 +52,8 @@ jobs:
       # Run linting and tests in parallel with build for faster feedback
       - name: Run quality checks
         run: |
-          # Run linting (fast check)
-          npm run lint --if-present || echo "No lint script found"
+          # Run linting with warnings allowed for CI
+          npm run lint:ci
           # Skip tests in CI for now to speed up deployment
           # Add back with: npm test -- --watchAll=false --passWithNoTests --coverage=false
         continue-on-error: false  # Fail build if linting fails
@@ -83,9 +83,9 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          app_location: "/"
+          app_location: "./build"
           api_location: ""
-          output_location: "build"
+          output_location: ""
           # Skip the built-in build since we already built
           skip_app_build: true
 
