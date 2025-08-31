@@ -1490,7 +1490,7 @@ EXAMPLE OUTPUT FORMAT:
 
     // Step 0: Detect if amounts need to be reversed (expenses positive, income negative)
     const validPrepared = validIndices.map(i => prepared[i]).filter(p => p.date && p.description && p.amount !== null);
-    const shouldReverseAmounts = await this.detectAmountReversal(validPrepared);
+    const shouldReverseAmounts = await this.detectAmountReversal(validPrepared, accountId);
     
     if (shouldReverseAmounts) {
       console.log('🔄 Detected reversed amount convention - flipping all amounts');
@@ -1876,12 +1876,40 @@ EXAMPLE OUTPUT FORMAT:
     description: string;
     amount: number | null;
     notes: string;
-  }>): Promise<boolean> {
+  }>, accountId: string): Promise<boolean> {
     if (transactions.length === 0) {
       return false;
     }
 
     console.log(`🔍 Analyzing ${transactions.length} transactions for amount reversal detection`);
+
+    // Get account information to check if it's a credit card
+    const account = accountManagementService.getAccount(accountId);
+    const isCreditCard = account?.type === 'credit';
+    
+    console.log(`🏦 Account info: ${account?.name} (${account?.type}) - Credit card: ${isCreditCard}`);
+
+    // Credit card specific logic
+    if (isCreditCard) {
+      const positiveCount = transactions.filter(tx => tx.amount && tx.amount > 0).length;
+      const negativeCount = transactions.filter(tx => tx.amount && tx.amount < 0).length;
+      const totalCount = positiveCount + negativeCount;
+      
+      console.log(`💳 Credit card analysis: ${positiveCount} positive, ${negativeCount} negative (${totalCount} total)`);
+      
+      // For credit cards, if most transactions are positive, it's likely reversed
+      // Credit cards should predominantly have negative amounts (charges) with occasional positive amounts (payments/credits)
+      if (totalCount >= 3 && positiveCount / totalCount >= 0.6) {
+        console.log(`🔄 Credit card reversal detected: ${Math.round((positiveCount / totalCount) * 100)}% of transactions are positive`);
+        console.log(`💡 Credit cards should have mostly negative amounts (charges), suggesting reversal is needed`);
+        return true;
+      }
+      
+      // If it's a credit card but doesn't meet the reversal criteria, log why
+      if (totalCount >= 3) {
+        console.log(`✅ Credit card amounts appear correct: ${Math.round((negativeCount / totalCount) * 100)}% negative (charges), ${Math.round((positiveCount / totalCount) * 100)}% positive (payments/credits)`);
+      }
+    }
 
     // Common expense keywords that should typically be negative
     const expenseKeywords = [

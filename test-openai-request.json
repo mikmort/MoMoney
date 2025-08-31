@@ -1,0 +1,11 @@
+{
+  "deployment": "gpt-4o",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello, please respond with OK"
+    }
+  ],
+  "max_tokens": 10,
+  "temperature": 0
+}
