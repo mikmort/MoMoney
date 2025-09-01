@@ -29,6 +29,10 @@ yarn-error.log*
 pids
 *.pid
 
+# Debug and test files
+debug-*.html
+test-*.html
+
 # Screenshots and demo files  
 *.png
 *.jpg
