@@ -67,6 +67,7 @@
     "build:analyze": "CI=false npm run build && npm run analyze",
     "perf:check": "node scripts/performance-check.js --analyze-only",
     "perf:build": "node scripts/performance-check.js --build-and-analyze",
+    "startup:check": "node scripts/startup-performance.js",
     "track:regression": "node scripts/track-regression.js",
     "track:stats": "node scripts/track-regression.js stats",
     "track:report": "node scripts/track-regression.js report"

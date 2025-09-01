@@ -1,6 +1,18 @@
-import { azureBlobService } from './azureBlobService';
-import { userPreferencesService } from './userPreferencesService';
-import { simplifiedImportExportService } from './simplifiedImportExportService';
+// Lazy imports for faster initial app startup - services loaded on demand
+const getAzureBlobService = async () => {
+  const { azureBlobService } = await import('./azureBlobService');
+  return azureBlobService;
+};
+
+const getUserPreferencesService = async () => {
+  const { userPreferencesService } = await import('./userPreferencesService');
+  return userPreferencesService;
+};
+
+const getSimplifiedImportExportService = async () => {
+  const { simplifiedImportExportService } = await import('./simplifiedImportExportService');
+  return simplifiedImportExportService;
+};
 
 interface InitializationResult {
   success: boolean;
@@ -51,7 +63,8 @@ class AppInitializationService {
     try {
       console.log('[App Init] Configuring autosave settings...');
       
-      // Get current preferences (for potential future use)
+      // Get current preferences (for potential future use) - lazy load service
+      const userPreferencesService = await getUserPreferencesService();
       await userPreferencesService.getPreferences();
       
       // Check if user has explicitly configured autosave before
@@ -61,7 +74,8 @@ class AppInitializationService {
         // First time user or user hasn't configured autosave yet - enable it by default
         console.log('[App Init] Enabling autosave by default for new user');
         
-        // Enable Azure Blob autosync
+        // Enable Azure Blob autosync - lazy load service
+        const azureBlobService = await getAzureBlobService();
         await azureBlobService.startSync();
         
         // Mark autosave as configured so we don't override user's choice in the future
@@ -75,6 +89,7 @@ class AppInitializationService {
         console.log(`[App Init] Using existing autosave preference: ${autosaveEnabled}`);
         
         if (autosaveEnabled) {
+          const azureBlobService = await getAzureBlobService();
           await azureBlobService.startSync();
         }
         
@@ -151,6 +166,8 @@ class AppInitializationService {
 
   private async downloadCloudData(): Promise<{ success: boolean; data?: any; notFound?: boolean; error?: string }> {
     try {
+      // Lazy load Azure blob service
+      const azureBlobService = await getAzureBlobService();
       const blobName = await azureBlobService.getBlobName();
       console.log(`[App Init] Checking for existing cloud data: ${blobName}`);
       
@@ -232,7 +249,8 @@ class AppInitializationService {
     try {
       console.log('[App Init] Restoring data from cloud using import service...');
       
-      // Convert cloud data format to ExportData format for the import service
+      // Convert cloud data format to ExportData format for the import service - lazy load
+      const importExportService = await getSimplifiedImportExportService();
       const importData = {
         version: cloudData.version || '1.0',
         exportDate: cloudData.timestamp || new Date().toISOString(),
@@ -252,7 +270,7 @@ class AppInitializationService {
       console.log(`[App Init] Restoring: ${importData.transactions.length} transactions, ${importData.accounts.length} accounts`);
 
       // Use the import service to properly restore all data
-      const result = await simplifiedImportExportService.importData(importData, {
+      const result = await importExportService.importData(importData, {
         accounts: true,
         transactions: true,
         rules: true,
@@ -300,6 +318,8 @@ class AppInitializationService {
         return true; // Not an error
       }
       
+      // Lazy load Azure blob service
+      const azureBlobService = await getAzureBlobService();
       const result = await azureBlobService.forceUpload();
       
       if (result.success) {
@@ -328,6 +348,9 @@ class AppInitializationService {
     try {
       localStorage.setItem('mo_money_autosave_configured', 'true');
       localStorage.setItem('mo_money_autosave_enabled', enabled.toString());
+      
+      // Lazy load Azure blob service
+      const azureBlobService = await getAzureBlobService();
       
       if (enabled) {
         await azureBlobService.startSync();

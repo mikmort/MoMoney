@@ -87,11 +87,11 @@ const router = createBrowserRouter([
 ]);
 
 const App: React.FC = () => {
-  // Initialize the app on startup
+  // Initialize the app on startup - DEFERRED for faster initial render
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        console.log('[App] Starting application initialization...');
+        console.log('[App] Starting deferred application initialization...');
         const result = await appInitializationService.initialize();
         
         if (result.success) {
@@ -104,8 +104,14 @@ const App: React.FC = () => {
       }
     };
     
-    // Only initialize once per session
-    initializeApp();
+    // Defer initialization to allow initial render to complete first
+    // This prevents cloud sync operations from blocking the UI
+    const deferredInit = setTimeout(() => {
+      initializeApp();
+    }, 100); // 100ms delay allows initial render to complete
+    
+    // Cleanup timeout on unmount
+    return () => clearTimeout(deferredInit);
   }, []); // Empty dependency array ensures this runs only once
 
   return (
