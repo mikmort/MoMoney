@@ -22,8 +22,19 @@ export interface Subscription {
   transactionCount: number;
   averageAmount: number;
   category: string;
+  subcategory?: string;
   account: string;
   transactions: Transaction[];
+  isActive: boolean;
+  monthsSinceLastCharge: number;
+  brandLogo?: string;
+  priceChange?: {
+    hasChanged: boolean;
+    oldAmount?: number;
+    newAmount?: number;
+    changePercent?: number;
+    changeDate?: Date;
+  };
 }
 
 export interface SubscriptionDetectionResult {
@@ -36,23 +47,114 @@ export interface SubscriptionDetectionResult {
 }
 
 class SubscriptionsService {
-  // Helper to calculate frequency of transactions (borrowed from reportsService)
+  // Brand logos for well-known subscription services
+  private readonly BRAND_LOGOS = {
+    'netflix': '🎬',
+    'spotify': '🎵', 
+    'apple music': '🎵',
+    'youtube': '📺',
+    'youtube premium': '📺',
+    'hulu': '📺',
+    'disney': '🏰',
+    'disney+': '🏰',
+    'hbo': '📺',
+    'hbo max': '📺',
+    'amazon prime': '📦',
+    'adobe': '🎨',
+    'microsoft': '💼',
+    'office 365': '💼',
+    'dropbox': '☁️',
+    'google': '🔍',
+    'gmail': '📧',
+    'zoom': '📹',
+    'slack': '💬',
+    'github': '👨‍💻',
+    'linkedin': '💼',
+    'twitter': '🐦',
+    'instagram': '📸',
+    'facebook': '👥',
+    'whatsapp': '💬',
+    'telegram': '💬',
+    'uber': '🚗',
+    'lyft': '🚗',
+    'doordash': '🍔',
+    'ubereats': '🍔',
+    'grubhub': '🍔',
+    'instacart': '🛒',
+    'peloton': '🚴‍♂️',
+    'gym': '💪',
+    'fitness': '💪',
+    'planet fitness': '💪',
+    'starbucks': '☕',
+    'walmart': '🛒',
+    'target': '🎯',
+    'costco': '🛒',
+    'sam\'s club': '🛒'
+  };
+
+  // Helper to detect brand and get logo
+  private detectBrandLogo(description: string): string | undefined {
+    const normalizedDesc = description.toLowerCase();
+    
+    for (const [brand, logo] of Object.entries(this.BRAND_LOGOS)) {
+      if (normalizedDesc.includes(brand)) {
+        return logo;
+      }
+    }
+    
+    return undefined;
+  }
+
+  // Enhanced frequency calculation with strict pattern detection
   private calculateFrequency(transactions: Transaction[]): string {
     if (transactions.length <= 1) return 'One-time';
     
     const sortedTransactions = transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
+    // Calculate intervals between consecutive transactions
+    const intervals: number[] = [];
+    for (let i = 1; i < sortedTransactions.length; i++) {
+      const prevDate = new Date(sortedTransactions[i - 1].date);
+      const currDate = new Date(sortedTransactions[i].date);
+      const daysDiff = Math.ceil((currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
+      intervals.push(daysDiff);
+    }
+    
+    // Check for consistent patterns (not just averages)
+    const avgInterval = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
+    const maxDeviation = Math.max(...intervals.map(interval => Math.abs(interval - avgInterval)));
+    
+    // Require much stricter consistency for subscription detection
+    // Allow max 7 days deviation for monthly, 3 days for weekly, 1 day for bi-weekly
+    const tolerances = {
+      weekly: { min: 5, max: 10, maxDeviation: 3 },
+      biweekly: { min: 12, max: 18, maxDeviation: 4 },  
+      monthly: { min: 25, max: 35, maxDeviation: 7 },
+      quarterly: { min: 85, max: 100, maxDeviation: 14 }
+    };
+    
+    // Check if pattern matches known subscription frequencies
+    if (avgInterval >= tolerances.weekly.min && avgInterval <= tolerances.weekly.max && maxDeviation <= tolerances.weekly.maxDeviation) {
+      return 'Weekly';
+    }
+    if (avgInterval >= tolerances.biweekly.min && avgInterval <= tolerances.biweekly.max && maxDeviation <= tolerances.biweekly.maxDeviation) {
+      return 'Bi-weekly';
+    }
+    if (avgInterval >= tolerances.monthly.min && avgInterval <= tolerances.monthly.max && maxDeviation <= tolerances.monthly.maxDeviation) {
+      return 'Monthly';
+    }
+    if (avgInterval >= tolerances.quarterly.min && avgInterval <= tolerances.quarterly.max && maxDeviation <= tolerances.quarterly.maxDeviation) {
+      return 'Quarterly';
+    }
+    
+    // Check for annual patterns (need at least 2 years of data)
     const firstDate = new Date(sortedTransactions[0].date);
     const lastDate = new Date(sortedTransactions[sortedTransactions.length - 1].date);
-    const daysDiff = Math.ceil((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
+    const totalDays = Math.ceil((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
     
-    if (daysDiff === 0) return 'Same day';
-    
-    const avgDaysBetween = daysDiff / (transactions.length - 1);
-    
-    if (avgDaysBetween <= 7) return 'Weekly';
-    if (avgDaysBetween <= 15) return 'Bi-weekly';  
-    if (avgDaysBetween <= 35) return 'Monthly';
-    if (avgDaysBetween <= 95) return 'Quarterly';
+    if (totalDays >= 300 && avgInterval >= 350 && avgInterval <= 380 && maxDeviation <= 30) {
+      return 'Annual';
+    }
     
     return 'Irregular';
   }
@@ -70,8 +172,10 @@ class SubscriptionsService {
         return absAmount * 12;
       case 'Quarterly':
         return absAmount * 4;
+      case 'Annual':
+        return absAmount;
       default:
-        // For irregular or one-time, estimate based on historical data
+        // For irregular or one-time, don't annualize
         return absAmount;
     }
   }
@@ -92,6 +196,9 @@ class SubscriptionsService {
         break;
       case 'Quarterly':
         nextDate.setMonth(nextDate.getMonth() + 3);
+        break;
+      case 'Annual':
+        nextDate.setFullYear(nextDate.getFullYear() + 1);
         break;
       default:
         return undefined;
@@ -168,7 +275,7 @@ class SubscriptionsService {
   }
 
   // Main method to detect subscriptions from transactions
-  async detectSubscriptions(): Promise<SubscriptionDetectionResult> {
+  async detectSubscriptions(showInactiveOnly: boolean = false): Promise<SubscriptionDetectionResult> {
     try {
       // Get all transactions
       const allTransactions = await dataService.getAllTransactions();
@@ -186,28 +293,33 @@ class SubscriptionsService {
       // Group similar transactions using optimized algorithm
       const transactionGroups = this.groupSimilarTransactionsOptimized(convertedTransactions);
       
-      // Analyze each group for subscription characteristics
-      const subscriptions: Subscription[] = [];
+      // Analyze each group for subscription characteristics (much stricter now)
+      const allSubscriptions: Subscription[] = [];
       
       for (const group of transactionGroups) {
         if (this.isLikelySubscription(group)) {
           const subscription = this.createSubscriptionFromGroup(group);
-          subscriptions.push(subscription);
+          allSubscriptions.push(subscription);
         }
       }
 
-      // Sort by annual cost descending
-      subscriptions.sort((a, b) => b.annualCost - a.annualCost);
+      // Filter by active status (show active by default, unless showInactiveOnly is true)
+      const filteredSubscriptions = showInactiveOnly 
+        ? allSubscriptions.filter(s => !s.isActive)
+        : allSubscriptions.filter(s => s.isActive);
 
-      // Calculate summary statistics
-      const totalAnnualCost = subscriptions.reduce((sum, sub) => sum + sub.annualCost, 0);
-      const monthlySubscriptions = subscriptions.filter(s => s.frequency === 'Monthly').length;
-      const weeklySubscriptions = subscriptions.filter(s => s.frequency === 'Weekly').length;
-      const quarterlySubscriptions = subscriptions.filter(s => s.frequency === 'Quarterly').length;
-      const otherFrequencySubscriptions = subscriptions.length - monthlySubscriptions - weeklySubscriptions - quarterlySubscriptions;
+      // Sort by annual cost descending
+      filteredSubscriptions.sort((a, b) => b.annualCost - a.annualCost);
+
+      // Calculate summary statistics (from filtered subscriptions)
+      const totalAnnualCost = filteredSubscriptions.reduce((sum, sub) => sum + sub.annualCost, 0);
+      const monthlySubscriptions = filteredSubscriptions.filter(s => s.frequency === 'Monthly').length;
+      const weeklySubscriptions = filteredSubscriptions.filter(s => s.frequency === 'Weekly').length;
+      const quarterlySubscriptions = filteredSubscriptions.filter(s => s.frequency === 'Quarterly').length;
+      const otherFrequencySubscriptions = filteredSubscriptions.length - monthlySubscriptions - weeklySubscriptions - quarterlySubscriptions;
 
       return {
-        subscriptions,
+        subscriptions: filteredSubscriptions,
         totalAnnualCost,
         monthlySubscriptions,
         weeklySubscriptions,
@@ -228,6 +340,26 @@ class SubscriptionsService {
     }
   }
 
+  // Method to get both active and inactive subscriptions with counts
+  async getAllSubscriptionsWithStatus(): Promise<{
+    active: Subscription[];
+    inactive: Subscription[];
+    totalActive: number;
+    totalInactive: number;
+    totalAnnualCost: number;
+  }> {
+    const activeResult = await this.detectSubscriptions(false);
+    const inactiveResult = await this.detectSubscriptions(true);
+    
+    return {
+      active: activeResult.subscriptions,
+      inactive: inactiveResult.subscriptions,
+      totalActive: activeResult.subscriptions.length,
+      totalInactive: inactiveResult.subscriptions.length,
+      totalAnnualCost: activeResult.totalAnnualCost
+    };
+  }
+
   // Helper to check if transaction is an internal transfer
   private isInternalTransfer(transaction: Transaction): boolean {
     return transaction.category === 'Internal Transfer';
@@ -245,17 +377,29 @@ class SubscriptionsService {
       amount: Math.abs(t.amount)
     }));
 
-    // Create a map for fast amount-based lookups (group by similar amounts first)
+    // Create amount groups with tolerance for price changes (e.g., Netflix $25.37 vs $27.58)
     const amountGroups = new Map<string, typeof transactionData>();
+    
     for (const data of transactionData) {
-      // Round amount to nearest cent for grouping
-      const roundedAmount = Math.round(data.amount * 100) / 100;
-      const amountKey = roundedAmount.toString();
+      let foundGroup = false;
       
-      if (!amountGroups.has(amountKey)) {
-        amountGroups.set(amountKey, []);
+      // Check if this amount fits into an existing group (within 30% tolerance)
+      for (const [groupKey, existingGroup] of amountGroups) {
+        const groupAmount = parseFloat(groupKey);
+        const tolerance = Math.max(0.5, groupAmount * 0.3); // Minimum 50 cents or 30% tolerance
+        
+        if (Math.abs(data.amount - groupAmount) <= tolerance) {
+          existingGroup.push(data);
+          foundGroup = true;
+          break;
+        }
       }
-      amountGroups.get(amountKey)!.push(data);
+      
+      // If no similar amount group found, create new one
+      if (!foundGroup) {
+        const amountKey = data.amount.toString();
+        amountGroups.set(amountKey, [data]);
+      }
     }
 
     // Process each amount group separately (much smaller subsets)
@@ -270,14 +414,14 @@ class SubscriptionsService {
         continue;
       }
 
-      // For transactions with the same amount, group by description similarity
+      // For transactions with similar amounts, group by description similarity
       for (const data of amountGroup) {
         if (used.has(data.transaction.id)) continue;
 
         const group = [data.transaction];
         used.add(data.transaction.id);
 
-        // Only compare with other transactions in the same amount group
+        // Compare with other transactions in the same amount group
         for (const otherData of amountGroup) {
           if (used.has(otherData.transaction.id)) continue;
           
@@ -323,23 +467,101 @@ class SubscriptionsService {
 
   // Helper to determine if a group of transactions represents a likely subscription
   private isLikelySubscription(transactions: Transaction[]): boolean {
-    if (transactions.length < 2) return false;
+    // Must have at least 3 transactions to establish a pattern (more strict)
+    if (transactions.length < 3) {
+      return false;
+    }
 
     const frequency = this.calculateFrequency(transactions);
     
-    // Consider it a subscription if:
-    // 1. It's regular (not one-time or irregular)
-    // 2. It has at least 2 transactions
-    // 3. The amounts are consistent
-    const isRegular = ['Weekly', 'Bi-weekly', 'Monthly', 'Quarterly'].includes(frequency);
-    const hasMinTransactions = transactions.length >= 2;
+    // Only consider regular subscription frequencies (exclude irregular patterns)
+    const validFrequencies = ['Weekly', 'Bi-weekly', 'Monthly', 'Quarterly', 'Annual'];
+    if (!validFrequencies.includes(frequency)) {
+      return false;
+    }
     
-    // Check amount consistency (allow for small variations)
+    // Exclude daily purchases (like cafeterias) from being considered subscriptions
+    if (this.isDailyPurchasePattern(transactions, frequency)) {
+      return false;
+    }
+    
+    // Check for amount consistency - subscriptions should have consistent amounts
     const amounts = transactions.map(t => Math.abs(t.amount));
     const avgAmount = amounts.reduce((sum, amt) => sum + amt, 0) / amounts.length;
-    const amountVariation = amounts.every(amt => Math.abs(amt - avgAmount) / avgAmount <= 0.1);
+    
+    // Allow for some price variation (up to 25% for subscription price changes)
+    const maxVariation = amounts.reduce((max, amt) => Math.max(max, Math.abs(amt - avgAmount) / avgAmount), 0);
+    if (maxVariation > 0.25) {
+      return false;
+    }
+    
+    // Exclude very small amounts (likely tips, fees, etc.) unless it's a known brand
+    if (avgAmount < 5.0) {
+      const brandLogo = this.detectBrandLogo(transactions[0].description);
+      if (!brandLogo) {
+        return false;
+      }
+    }
+    
+    // Exclude very large amounts (likely one-off purchases) unless monthly/quarterly/annual
+    if (avgAmount > 500.0 && !['Monthly', 'Quarterly', 'Annual'].includes(frequency)) {
+      return false;
+    }
+    
+    // Must span a reasonable time period to establish pattern
+    const sortedTransactions = transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const firstDate = new Date(sortedTransactions[0].date);
+    const lastDate = new Date(sortedTransactions[sortedTransactions.length - 1].date);
+    const daysDiff = Math.ceil((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    // Require minimum time span based on frequency
+    const requiredSpan = {
+      'Weekly': 21, // At least 3 weeks
+      'Bi-weekly': 42, // At least 6 weeks  
+      'Monthly': 70, // At least 2+ months
+      'Quarterly': 200, // At least 6+ months
+      'Annual': 400 // At least 1+ years
+    };
+    
+    if (daysDiff < (requiredSpan[frequency as keyof typeof requiredSpan] || 30)) {
+      return false;
+    }
 
-    return isRegular && hasMinTransactions && amountVariation;
+    return true;
+  }
+
+  // Helper to detect daily purchase patterns that shouldn't be subscriptions
+  private isDailyPurchasePattern(transactions: Transaction[], frequency: string): boolean {
+    // If it's weekly or more frequent, check if it's likely a food/dining purchase
+    if (frequency === 'Weekly' && transactions.length > 4) {
+      // Check if most transactions are in Food & Dining category
+      const foodTransactions = transactions.filter(t => 
+        t.category === 'Food & Dining' || 
+        t.subcategory?.includes('Food') ||
+        t.subcategory?.includes('Dining') ||
+        t.subcategory?.includes('Coffee') ||
+        t.subcategory?.includes('Restaurant') ||
+        t.subcategory?.includes('Cafeteria')
+      );
+      
+      const foodRatio = foodTransactions.length / transactions.length;
+      
+      // If 80% or more are food-related, likely a daily purchase pattern
+      if (foodRatio >= 0.8) {
+        return true;
+      }
+    }
+    
+    // Check for merchants that are commonly daily purchases
+    const commonDailyMerchants = ['meyers', 'starbucks', 'dunkin', 'cafe', 'coffee', 'lunch', 'canteen', 'cafeteria'];
+    const description = transactions[0]?.description?.toLowerCase() || '';
+    
+    if (commonDailyMerchants.some(merchant => description.includes(merchant))) {
+      // If it's weekly frequency and appears to be food-related, exclude it
+      return frequency === 'Weekly';
+    }
+    
+    return false;
   }
 
   // Helper to create a subscription object from a group of transactions
@@ -354,6 +576,21 @@ class SubscriptionsService {
     
     const nextEstimatedDate = this.estimateNextPaymentDate(latestTransaction.date, frequency);
 
+    // Calculate months since last charge and active status
+    const now = new Date();
+    const lastChargeDate = new Date(latestTransaction.date);
+    const daysSinceLastCharge = Math.floor((now.getTime() - lastChargeDate.getTime()) / (1000 * 60 * 60 * 24));
+    const monthsSinceLastCharge = Math.floor(daysSinceLastCharge / 30.44);
+    
+    // Determine if subscription is active based on frequency and time since last charge
+    const isActive = this.isSubscriptionActive(frequency, monthsSinceLastCharge);
+    
+    // Detect brand logo
+    const brandLogo = this.detectBrandLogo(latestTransaction.description);
+
+    // Detect price changes - compare latest transaction with earliest
+    const priceChangeInfo = this.detectPriceChange(transactions);
+
     return {
       id: `subscription-${normalizedName.replace(/\s+/g, '-').toLowerCase()}`,
       name: normalizedName || 'Unknown Service',
@@ -366,9 +603,80 @@ class SubscriptionsService {
       transactionCount: transactions.length,
       averageAmount,
       category: latestTransaction.category,
+      subcategory: latestTransaction.subcategory,
       account: latestTransaction.account,
-      transactions: sortedTransactions
+      transactions: sortedTransactions,
+      isActive,
+      monthsSinceLastCharge,
+      brandLogo,
+      // Add price change information
+      priceChange: priceChangeInfo
     };
+  }
+
+  // Helper to determine if a subscription is still active
+  private isSubscriptionActive(frequency: string, monthsSinceLastCharge: number): boolean {
+    // Define thresholds for each frequency type
+    const activityThresholds = {
+      'Weekly': 1, // If no charge in 1+ months, likely inactive
+      'Bi-weekly': 1.5, // If no charge in 1.5+ months, likely inactive
+      'Monthly': 2, // If no charge in 2+ months, likely inactive  
+      'Quarterly': 4, // If no charge in 4+ months, likely inactive
+      'Annual': 14 // If no charge in 14+ months, likely inactive
+    };
+    
+    const threshold = activityThresholds[frequency as keyof typeof activityThresholds] || 2;
+    return monthsSinceLastCharge < threshold;
+  }
+
+  // Helper to detect price changes in subscription
+  private detectPriceChange(transactions: Transaction[]): { hasChanged: boolean; oldAmount?: number; newAmount?: number; changePercent?: number; changeDate?: Date } {
+    if (transactions.length < 2) {
+      return { hasChanged: false };
+    }
+
+    const sortedTransactions = transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const amounts = sortedTransactions.map(t => Math.abs(t.amount));
+    
+    // Look for significant amount changes (more than 5% and at least 50 cents)
+    const firstAmount = amounts[0];
+    const lastAmount = amounts[amounts.length - 1];
+    
+    const amountDifference = Math.abs(lastAmount - firstAmount);
+    const percentChange = (amountDifference / firstAmount) * 100;
+    
+    // Consider it a price change if:
+    // 1. The difference is more than 5% AND at least 50 cents
+    // 2. OR if there's a clear step change in the middle of the transaction history
+    if (percentChange > 5 && amountDifference > 0.5) {
+      return {
+        hasChanged: true,
+        oldAmount: firstAmount,
+        newAmount: lastAmount,
+        changePercent: lastAmount > firstAmount ? percentChange : -percentChange,
+        changeDate: sortedTransactions[sortedTransactions.length - 1].date
+      };
+    }
+
+    // Check for step changes in the middle of the transaction history
+    for (let i = 1; i < amounts.length; i++) {
+      const prevAmount = amounts[i - 1];
+      const currentAmount = amounts[i];
+      const stepDifference = Math.abs(currentAmount - prevAmount);
+      const stepPercent = (stepDifference / prevAmount) * 100;
+      
+      if (stepPercent > 5 && stepDifference > 0.5) {
+        return {
+          hasChanged: true,
+          oldAmount: prevAmount,
+          newAmount: currentAmount,
+          changePercent: currentAmount > prevAmount ? stepPercent : -stepPercent,
+          changeDate: sortedTransactions[i].date
+        };
+      }
+    }
+
+    return { hasChanged: false };
   }
 
   // Method to detect subscriptions with filters applied

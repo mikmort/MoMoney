@@ -4,8 +4,10 @@ import { subscriptionsService, SubscriptionDetectionResult } from '../../service
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 
 const Container = styled.div`
-  max-width: 1200px;
+  max-width: none !important;
+  width: 100% !important;
   margin: 0 auto;
+  /* Force refresh - multi-column layout v3 */
 `;
 
 const Header = styled.div`
@@ -76,8 +78,18 @@ const StatCard = styled.div`
 `;
 
 const SubscriptionsGrid = styled.div`
-  display: grid;
-  gap: 1rem;
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 2rem !important;
+  width: 100% !important;
+  
+  @media (max-width: 1200px) {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  
+  @media (max-width: 800px) {
+    grid-template-columns: 1fr !important;
+  }
 `;
 
 const SubscriptionCard = styled.div`
@@ -278,7 +290,7 @@ const Subscriptions: React.FC = () => {
     return (
       <Container>
         <LoadingState>
-          <div>🔍 Analyzing your transactions for subscriptions...</div>
+          <div>🔍 Analyzing your transactions for recurring payments...</div>
         </LoadingState>
       </Container>
     );
@@ -289,7 +301,7 @@ const Subscriptions: React.FC = () => {
       <Container>
         <ErrorState>
           <div className="icon">⚠️</div>
-          <h3>Error Loading Subscriptions</h3>
+          <h3>Error Loading Recurring Payments</h3>
           <p>{error}</p>
         </ErrorState>
       </Container>
@@ -302,14 +314,14 @@ const Subscriptions: React.FC = () => {
         <Header>
           <h1>
             <span className="icon">🔄</span>
-            Subscriptions
+            Recurring Payments
           </h1>
           <p>Track your recurring subscription payments and their annual costs</p>
         </Header>
         
         <EmptyState>
           <div className="icon">📭</div>
-          <h3>No Subscriptions Found</h3>
+          <h3>No Recurring Payments Found</h3>
           <p>
             We couldn't find any recurring subscription payments in your transactions. 
             This could mean you don't have any subscriptions, or they haven't been imported yet. 
@@ -325,7 +337,7 @@ const Subscriptions: React.FC = () => {
       <Header>
         <h1>
           <span className="icon">🔄</span>
-          Subscriptions
+          Recurring Payments
         </h1>
         <p>Track your recurring subscription payments and their annual costs</p>
       </Header>
@@ -338,7 +350,7 @@ const Subscriptions: React.FC = () => {
           </div>
           <div className="stat-value">{formatCurrency(subscriptionData.totalAnnualCost)}</div>
           <div className="stat-description">
-            Estimated yearly spending on subscriptions
+            Estimated yearly spending on recurring payments
           </div>
         </StatCard>
 
@@ -379,12 +391,21 @@ const Subscriptions: React.FC = () => {
       </StatsGrid>
 
       <SubscriptionsGrid>
-        {subscriptionData.subscriptions.map((subscription) => (
+        {subscriptionData.subscriptions.length === 0 ? (
+          <div>No subscriptions detected</div>
+        ) : (
+          subscriptionData.subscriptions.map((subscription) => (
           <SubscriptionCard key={subscription.id}>
             <SubscriptionHeader>
               <div className="service-info">
-                <h3 className="service-name">{subscription.name}</h3>
-                <p className="service-description">{subscription.category}</p>
+                <h3 className="service-name">
+                  {subscription.brandLogo && <span style={{marginRight: '8px'}}>{subscription.brandLogo}</span>}
+                  {subscription.name}
+                </h3>
+                <p className="service-description">
+                  {subscription.category}
+                  {subscription.subcategory && ` • ${subscription.subcategory}`}
+                </p>
               </div>
               <div className="amount-info">
                 <div className="current-amount">
@@ -435,7 +456,8 @@ const Subscriptions: React.FC = () => {
               </div>
             </SubscriptionDetails>
           </SubscriptionCard>
-        ))}
+          ))
+        )}
       </SubscriptionsGrid>
     </Container>
   );

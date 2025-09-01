@@ -65,7 +65,7 @@ const ReportsLayout: React.FC = () => {
           to="/reports/subscriptions" 
           $isActive={location.pathname === '/reports/subscriptions'}
         >
-          🔄 Subscriptions
+          🔄 Recurring Payments
         </SubNavLink>
       </SubNavigation>
 
