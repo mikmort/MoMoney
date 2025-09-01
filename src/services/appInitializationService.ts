@@ -1,5 +1,6 @@
 import { azureBlobService } from './azureBlobService';
 import { userPreferencesService } from './userPreferencesService';
+import { simplifiedImportExportService } from './simplifiedImportExportService';
 
 interface InitializationResult {
   success: boolean;
@@ -229,20 +230,45 @@ class AppInitializationService {
 
   private async restoreFromCloudData(cloudData: any): Promise<boolean> {
     try {
-      console.log('[App Init] Restoring data from cloud...');
+      console.log('[App Init] Restoring data from cloud using import service...');
       
-      // Save the cloud data to localStorage
-      if (cloudData.transactions) localStorage.setItem('mo_money_transactions', cloudData.transactions);
-      if (cloudData.categories) localStorage.setItem('mo_money_categories', cloudData.categories);
-      if (cloudData.accounts) localStorage.setItem('mo_money_accounts', cloudData.accounts);
-      if (cloudData.preferences) localStorage.setItem('mo_money_user_preferences', cloudData.preferences);
-      if (cloudData.budgets) localStorage.setItem('mo_money_budgets', cloudData.budgets);
-      if (cloudData.rules) localStorage.setItem('mo_money_category_rules', cloudData.rules);
-      
+      // Convert cloud data format to ExportData format for the import service
+      const importData = {
+        version: cloudData.version || '1.0',
+        exportDate: cloudData.timestamp || new Date().toISOString(),
+        appVersion: '0.1.0',
+        transactions: cloudData.transactions ? JSON.parse(cloudData.transactions) : [],
+        categories: cloudData.categories ? JSON.parse(cloudData.categories) : [],
+        accounts: cloudData.accounts ? JSON.parse(cloudData.accounts) : [],
+        preferences: cloudData.preferences ? JSON.parse(cloudData.preferences) : null,
+        budgets: cloudData.budgets ? JSON.parse(cloudData.budgets) : [],
+        rules: cloudData.rules ? JSON.parse(cloudData.rules) : [],
+        transactionHistory: cloudData.transactionHistory ? JSON.parse(cloudData.transactionHistory) : [],
+        balanceHistory: cloudData.balanceHistory ? JSON.parse(cloudData.balanceHistory) : [],
+        currencyRates: cloudData.currencyRates ? JSON.parse(cloudData.currencyRates) : [],
+        transferMatches: cloudData.transferMatches ? JSON.parse(cloudData.transferMatches) : []
+      };
+
+      console.log(`[App Init] Restoring: ${importData.transactions.length} transactions, ${importData.accounts.length} accounts`);
+
+      // Use the import service to properly restore all data
+      const result = await simplifiedImportExportService.importData(importData, {
+        accounts: true,
+        transactions: true,
+        rules: true,
+        budgets: true,
+        categories: true,
+        balanceHistory: true,
+        currencyRates: true,
+        transferMatches: true,
+        preferences: true,
+        transactionHistory: true
+      });
+
       // Update sync timestamp
       localStorage.setItem('mo_money_last_sync_timestamp', cloudData.timestamp || new Date().toISOString());
       
-      console.log('[App Init] ✅ Cloud data restored to localStorage');
+      console.log('[App Init] ✅ Cloud data restored successfully:', result);
       return true;
       
     } catch (error) {

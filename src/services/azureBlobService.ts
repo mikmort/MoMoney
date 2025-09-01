@@ -1,5 +1,6 @@
 import { skipAuthentication } from '../config/devConfig';
 import { staticWebAppAuthService } from './staticWebAppAuthService';
+import { simplifiedImportExportService } from './simplifiedImportExportService';
 
 interface BlobUploadResult {
   success: boolean;
@@ -342,21 +343,32 @@ class AzureBlobService {
 
   private async getLocalData(): Promise<any> {
     try {
-      // Get all data from localStorage that we want to sync
-      const data = {
+      console.log('[Azure Sync] Getting local data using export service...');
+      
+      // Use the proper export service instead of directly reading localStorage
+      const exportData = await simplifiedImportExportService.exportData();
+      
+      // Transform the export format to the cloud sync format
+      const cloudSyncData = {
         timestamp: new Date().toISOString(),
-        transactions: localStorage.getItem('mo_money_transactions'),
-        categories: localStorage.getItem('mo_money_categories'),
-        accounts: localStorage.getItem('mo_money_accounts'),
-        preferences: localStorage.getItem('mo_money_user_preferences'),
-        budgets: localStorage.getItem('mo_money_budgets'),
-        rules: localStorage.getItem('mo_money_category_rules'),
-        version: '1.0'
+        transactions: JSON.stringify(exportData.transactions || []),
+        categories: JSON.stringify(exportData.categories || []),
+        accounts: JSON.stringify(exportData.accounts || []),
+        preferences: JSON.stringify(exportData.preferences || {}),
+        budgets: JSON.stringify(exportData.budgets || []),
+        rules: JSON.stringify(exportData.rules || []),
+        version: '1.0',
+        // Additional data from export
+        transactionHistory: JSON.stringify(exportData.transactionHistory || []),
+        balanceHistory: JSON.stringify(exportData.balanceHistory || []),
+        currencyRates: JSON.stringify(exportData.currencyRates || []),
+        transferMatches: JSON.stringify(exportData.transferMatches || [])
       };
 
-      return data;
+      console.log(`[Azure Sync] Collected data: ${exportData.transactions?.length || 0} transactions, ${exportData.accounts?.length || 0} accounts, ${exportData.categories?.length || 0} categories`);
+      return cloudSyncData;
     } catch (error) {
-      console.error('Error getting local data:', error);
+      console.error('[Azure Sync] Error getting local data:', error);
       return null;
     }
   }
@@ -365,17 +377,45 @@ class AzureBlobService {
     try {
       if (!data || typeof data !== 'object') return false;
 
-      // Restore data to localStorage
-      if (data.transactions) localStorage.setItem('mo_money_transactions', data.transactions);
-      if (data.categories) localStorage.setItem('mo_money_categories', data.categories);
-      if (data.accounts) localStorage.setItem('mo_money_accounts', data.accounts);
-      if (data.preferences) localStorage.setItem('mo_money_user_preferences', data.preferences);
-      if (data.budgets) localStorage.setItem('mo_money_budgets', data.budgets);
-      if (data.rules) localStorage.setItem('mo_money_category_rules', data.rules);
+      console.log('[Azure Sync] Restoring data from cloud using import service...');
 
+      // Convert cloud sync format back to ExportData format
+      const importData = {
+        version: data.version || '1.0',
+        exportDate: data.timestamp || new Date().toISOString(),
+        appVersion: '0.1.0',
+        transactions: data.transactions ? JSON.parse(data.transactions) : [],
+        categories: data.categories ? JSON.parse(data.categories) : [],
+        accounts: data.accounts ? JSON.parse(data.accounts) : [],
+        preferences: data.preferences ? JSON.parse(data.preferences) : null,
+        budgets: data.budgets ? JSON.parse(data.budgets) : [],
+        rules: data.rules ? JSON.parse(data.rules) : [],
+        transactionHistory: data.transactionHistory ? JSON.parse(data.transactionHistory) : [],
+        balanceHistory: data.balanceHistory ? JSON.parse(data.balanceHistory) : [],
+        currencyRates: data.currencyRates ? JSON.parse(data.currencyRates) : [],
+        transferMatches: data.transferMatches ? JSON.parse(data.transferMatches) : []
+      };
+
+      console.log(`[Azure Sync] Restoring: ${importData.transactions.length} transactions, ${importData.accounts.length} accounts, ${importData.categories.length} categories`);
+
+      // Use the import service to properly restore all data
+      const result = await simplifiedImportExportService.importData(importData, {
+        accounts: true,
+        transactions: true,
+        rules: true,
+        budgets: true,
+        categories: true,
+        balanceHistory: true,
+        currencyRates: true,
+        transferMatches: true,
+        preferences: true,
+        transactionHistory: true
+      });
+
+      console.log('[Azure Sync] ✅ Data restored successfully:', result);
       return true;
     } catch (error) {
-      console.error('Error saving local data:', error);
+      console.error('[Azure Sync] Error saving local data:', error);
       return false;
     }
   }
