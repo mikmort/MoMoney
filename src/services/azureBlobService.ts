@@ -1,6 +1,8 @@
 import { skipAuthentication } from '../config/devConfig';
 import { staticWebAppAuthService } from './staticWebAppAuthService';
 import { simplifiedImportExportService } from './simplifiedImportExportService';
+import { db } from './db';
+import { accountManagementService } from './accountManagementService';
 
 interface BlobUploadResult {
   success: boolean;
@@ -375,9 +377,13 @@ class AzureBlobService {
 
   private async saveLocalData(data: any): Promise<boolean> {
     try {
-      if (!data || typeof data !== 'object') return false;
+      if (!data || typeof data !== 'object') {
+        console.warn('[Azure Sync] Invalid data object provided for saving');
+        return false;
+      }
 
       console.log('[Azure Sync] Restoring data from cloud using import service...');
+      console.log('[Azure Sync] Raw cloud data keys:', Object.keys(data));
 
       // Convert cloud sync format back to ExportData format
       const importData = {
@@ -396,7 +402,16 @@ class AzureBlobService {
         transferMatches: data.transferMatches ? JSON.parse(data.transferMatches) : []
       };
 
-      console.log(`[Azure Sync] Restoring: ${importData.transactions.length} transactions, ${importData.accounts.length} accounts, ${importData.categories.length} categories`);
+      console.log(`[Azure Sync] Converted for import: ${importData.transactions.length} transactions, ${importData.accounts.length} accounts, ${importData.categories.length} categories`);
+
+      // Check if we actually have meaningful data to import
+      const hasMeaningfulData = importData.transactions.length > 0 || importData.accounts.length > 0 || importData.categories.length > 0;
+      console.log(`[Azure Sync] Has meaningful data to import: ${hasMeaningfulData}`);
+
+      if (!hasMeaningfulData) {
+        console.warn('[Azure Sync] No meaningful data found in cloud backup - skipping import');
+        return false;
+      }
 
       // Use the import service to properly restore all data
       const result = await simplifiedImportExportService.importData(importData, {
@@ -412,11 +427,54 @@ class AzureBlobService {
         transactionHistory: true
       });
 
-      console.log('[Azure Sync] ✅ Data restored successfully:', result);
-      return true;
+      console.log('[Azure Sync] ✅ Data import result:', result);
+      
+      // Verify the data was actually saved
+      const verification = await this.verifyDataRestored(result);
+      console.log('[Azure Sync] Data verification result:', verification);
+      
+      return verification.success;
     } catch (error) {
       console.error('[Azure Sync] Error saving local data:', error);
       return false;
+    }
+  }
+
+  // Helper method to verify data was actually restored
+  private async verifyDataRestored(importResult: any): Promise<{ success: boolean; details: string }> {
+    try {
+      // Check localStorage first for basic verification
+      const transactionsStr = localStorage.getItem('transactions');
+      const accountsStr = localStorage.getItem('accounts');
+      const categoriesStr = localStorage.getItem('categories');
+      
+      const transactionCount = transactionsStr ? JSON.parse(transactionsStr).length : 0;
+      const accountCount = accountsStr ? JSON.parse(accountsStr).length : 0;
+      const categoryCount = categoriesStr ? JSON.parse(categoriesStr).length : 0;
+      
+      console.log(`[Azure Sync] Verification - Found ${transactionCount} transactions, ${accountCount} accounts, ${categoryCount} categories in localStorage`);
+      
+      // Also try to check IndexedDB if available
+      try {
+        const transactions = await db.transactions.toArray();
+        const accounts = accountManagementService.getAccounts();
+        console.log(`[Azure Sync] IndexedDB verification - Found ${transactions.length} transactions, ${accounts.length} accounts`);
+      } catch (dbError) {
+        console.warn('[Azure Sync] Could not verify IndexedDB data:', dbError);
+      }
+      
+      const hasData = transactionCount > 0 || accountCount > 0 || categoryCount > 0;
+      
+      return {
+        success: hasData,
+        details: `Verified ${transactionCount} transactions, ${accountCount} accounts, ${categoryCount} categories in localStorage`
+      };
+    } catch (error) {
+      console.error('[Azure Sync] Error during verification:', error);
+      return {
+        success: false,
+        details: `Verification failed: ${error}`
+      };
     }
   }
 
@@ -532,20 +590,29 @@ class AzureBlobService {
 
   public async forceDownload(): Promise<{ success: boolean; message: string }> {
     try {
+      console.log('[Azure Sync] Starting force download...');
       const blobName = await this.getBlobName();
+      console.log(`[Azure Sync] Blob name: ${blobName}`);
+      
       const result = await this.downloadBlob(blobName);
+      console.log('[Azure Sync] Download blob result:', result);
       
       if (result.success && result.content) {
+        console.log('[Azure Sync] Content received, size:', JSON.stringify(result.content).length, 'characters');
+        console.log('[Azure Sync] Content preview:', Object.keys(result.content));
+        
         const saved = await this.saveLocalData(result.content);
+        console.log('[Azure Sync] Save local data result:', saved);
+        
         if (saved) {
           return { 
             success: true, 
-            message: `Data downloaded successfully from: ${blobName}` 
+            message: `Data downloaded and restored successfully from: ${blobName}` 
           };
         } else {
           return { 
             success: false, 
-            message: 'Downloaded data but failed to save locally' 
+            message: 'Downloaded data but failed to save locally - check console for details' 
           };
         }
       } else if (result.success && !result.content) {
@@ -560,6 +627,7 @@ class AzureBlobService {
         };
       }
     } catch (error) {
+      console.error('[Azure Sync] Force download error:', error);
       return { 
         success: false, 
         message: `Download error: ${error}` 
