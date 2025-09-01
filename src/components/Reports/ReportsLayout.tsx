@@ -61,6 +61,12 @@ const ReportsLayout: React.FC = () => {
         >
           💰 Income
         </SubNavLink>
+        <SubNavLink 
+          to="/reports/subscriptions" 
+          $isActive={location.pathname === '/reports/subscriptions'}
+        >
+          🔄 Subscriptions
+        </SubNavLink>
       </SubNavigation>
 
       <Outlet />
