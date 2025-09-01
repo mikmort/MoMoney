@@ -100,24 +100,16 @@ class SubscriptionsService {
     return nextDate;
   }
 
-  // Helper to normalize merchant/service name from transaction description
+  // Helper to normalize merchant/service name from transaction description (optimized)
   private normalizeServiceName(description: string): string {
-    // Remove common prefixes and suffixes
+    // Use more efficient regex-based approach
     let normalized = description
-      .replace(/^(RECURRING\s+|AUTO\s+|AUTOMATIC\s+)/i, '')
-      .replace(/\s+(RECURRING|AUTO|AUTOMATIC)$/i, '')
-      .replace(/\s+(PAYMENT|PAY|BILL|SUBSCRIPTION|SUB)$/i, '')
-      .replace(/^(PAYMENT\s+TO\s+|PAY\s+)/i, '')
+      .replace(/^(RECURRING\s+|AUTO\s+|AUTOMATIC\s+|PAYMENT\s+TO\s+|PAY\s+)/i, '')
+      .replace(/\s+(RECURRING|AUTO|AUTOMATIC|PAYMENT|PAY|BILL|SUBSCRIPTION|SUB)$/i, '')
+      .replace(/\s+[A-Z0-9]{6,}|\s+\d{6,}|\s+\d{1,2}\/\d{1,2}\/\d{2,4}/g, '') // Combined regex for IDs and dates
       .trim();
-
-    // Remove transaction IDs and reference numbers
-    normalized = normalized.replace(/\s+[A-Z0-9]{6,}/g, '');
-    normalized = normalized.replace(/\s+\d{6,}/g, '');
     
-    // Remove dates
-    normalized = normalized.replace(/\s+\d{1,2}\/\d{1,2}\/\d{2,4}/g, '');
-    
-    return normalized.trim();
+    return normalized;
   }
 
   // Helper to determine if transactions are likely the same subscription
@@ -181,18 +173,18 @@ class SubscriptionsService {
       // Get all transactions
       const allTransactions = await dataService.getAllTransactions();
       
-      // Convert to common currency
-      const convertedTransactions = await currencyDisplayService.convertTransactionsBatch(allTransactions);
-      
-      // Filter for expense transactions only (subscriptions are typically expenses)
-      const expenseTransactions = convertedTransactions.filter(t => 
+      // Filter for expense transactions first to reduce processing overhead
+      const expenseTransactions = allTransactions.filter(t => 
         t.type === 'expense' && 
         t.amount < 0 && // Expense transactions have negative amounts
         !this.isInternalTransfer(t)
       );
 
-      // Group similar transactions
-      const transactionGroups = this.groupSimilarTransactions(expenseTransactions);
+      // Convert only expense transactions to common currency (much smaller dataset)
+      const convertedTransactions = await currencyDisplayService.convertTransactionsBatch(expenseTransactions);
+      
+      // Group similar transactions using optimized algorithm
+      const transactionGroups = this.groupSimilarTransactionsOptimized(convertedTransactions);
       
       // Analyze each group for subscription characteristics
       const subscriptions: Subscription[] = [];
@@ -241,30 +233,92 @@ class SubscriptionsService {
     return transaction.category === 'Internal Transfer';
   }
 
-  // Helper to group similar transactions
-  private groupSimilarTransactions(transactions: Transaction[]): Transaction[][] {
+  // Helper to group similar transactions using optimized approach
+  private groupSimilarTransactionsOptimized(transactions: Transaction[]): Transaction[][] {
     const groups: Transaction[][] = [];
     const used = new Set<string>();
 
-    for (const transaction of transactions) {
-      if (used.has(transaction.id)) continue;
+    // Pre-compute normalized descriptions and amounts for faster lookup
+    const transactionData = transactions.map(t => ({
+      transaction: t,
+      normalizedDesc: this.normalizeServiceName(t.description).toLowerCase(),
+      amount: Math.abs(t.amount)
+    }));
 
-      const group = [transaction];
-      used.add(transaction.id);
+    // Create a map for fast amount-based lookups (group by similar amounts first)
+    const amountGroups = new Map<string, typeof transactionData>();
+    for (const data of transactionData) {
+      // Round amount to nearest cent for grouping
+      const roundedAmount = Math.round(data.amount * 100) / 100;
+      const amountKey = roundedAmount.toString();
+      
+      if (!amountGroups.has(amountKey)) {
+        amountGroups.set(amountKey, []);
+      }
+      amountGroups.get(amountKey)!.push(data);
+    }
 
-      // Find similar transactions
-      for (const otherTransaction of transactions) {
-        if (used.has(otherTransaction.id)) continue;
-        if (this.areTransactionsSimilar(transaction, otherTransaction)) {
-          group.push(otherTransaction);
-          used.add(otherTransaction.id);
+    // Process each amount group separately (much smaller subsets)
+    for (const [, amountGroup] of amountGroups) {
+      if (amountGroup.length === 1) {
+        // Single transaction, create its own group
+        const data = amountGroup[0];
+        if (!used.has(data.transaction.id)) {
+          groups.push([data.transaction]);
+          used.add(data.transaction.id);
         }
+        continue;
       }
 
-      groups.push(group);
+      // For transactions with the same amount, group by description similarity
+      for (const data of amountGroup) {
+        if (used.has(data.transaction.id)) continue;
+
+        const group = [data.transaction];
+        used.add(data.transaction.id);
+
+        // Only compare with other transactions in the same amount group
+        for (const otherData of amountGroup) {
+          if (used.has(otherData.transaction.id)) continue;
+          
+          // Fast similarity check using simple string contains before expensive Levenshtein
+          if (this.areDescriptionsSimilarFast(data.normalizedDesc, otherData.normalizedDesc)) {
+            group.push(otherData.transaction);
+            used.add(otherData.transaction.id);
+          }
+        }
+
+        groups.push(group);
+      }
     }
 
     return groups;
+  }
+
+  // Fast similarity check using simple string operations before expensive calculations
+  private areDescriptionsSimilarFast(desc1: string, desc2: string): boolean {
+    if (desc1 === desc2) return true;
+    if (desc1.length === 0 || desc2.length === 0) return false;
+    
+    // If one string is contained in the other, consider them similar
+    if (desc1.includes(desc2) || desc2.includes(desc1)) return true;
+    
+    // Quick word-based similarity check
+    const words1 = desc1.split(/\s+/).filter(w => w.length > 2);
+    const words2 = desc2.split(/\s+/).filter(w => w.length > 2);
+    
+    if (words1.length === 0 || words2.length === 0) return false;
+    
+    // If majority of words match, consider similar
+    const commonWords = words1.filter(w1 => words2.some(w2 => w1 === w2 || w1.includes(w2) || w2.includes(w1)));
+    const similarity = commonWords.length / Math.max(words1.length, words2.length);
+    
+    // If fast check shows high similarity, do expensive Levenshtein check only if needed
+    if (similarity > 0.5) {
+      return this.calculateStringSimilarity(desc1, desc2) > 0.7;
+    }
+    
+    return false;
   }
 
   // Helper to determine if a group of transactions represents a likely subscription
