@@ -67,11 +67,9 @@ describe('Internal Transfer Type Import Fix', () => {
     expect(result).toHaveLength(1);
     const processedTransaction = result[0];
     
-    // Should have Internal Transfer category from AI
+    // Should have Internal Transfer category and correct type from AI
     expect(processedTransaction.category).toBe('Internal Transfer');
-    
-    // KEY FIX: Transaction type is now determined by category, not stored as property
-    // We validate behavior through category instead of type property
+    expect(processedTransaction.type).toBe('transfer');
     
     // Should preserve other AI metadata
     expect(processedTransaction.confidence).toBe(0.95);
@@ -170,7 +168,7 @@ describe('Internal Transfer Type Import Fix', () => {
     const processedTransaction = result[0];
     
     expect(processedTransaction.category).toBe('Internal Transfer');
-    // Transaction type is now determined by category, not stored as property
+    expect(processedTransaction.type).toBe('transfer');
     expect(processedTransaction.confidence).toBe(0.92);
   });
 });

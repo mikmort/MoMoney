@@ -1827,8 +1827,18 @@ EXAMPLE OUTPUT FORMAT:
 
       // Note: Auto-rule creation now happens immediately after each batch (above) for better availability
 
+      // Prepare the corrected transaction data
+      let correctedTransaction = { ...transaction };
+      
+      // Ensure transaction type consistency with special categories (same logic as dataService)
+      if (finalCategoryName === 'Internal Transfer') {
+        correctedTransaction.type = 'transfer';
+      } else if (finalCategoryName === 'Asset Allocation') {
+        correctedTransaction.type = 'asset-allocation';
+      }
+
       const newTransaction = {
-        ...transaction,
+        ...correctedTransaction,
         category: finalCategoryName,
         subcategory: finalSubName,
         confidence: finalConfidence,
