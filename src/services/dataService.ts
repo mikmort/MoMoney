@@ -487,8 +487,17 @@ class DataService {
   async addTransaction(transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'>): Promise<Transaction> {
     await this.ensureInitialized();
     const now = new Date();
+    
+    // Ensure transaction type consistency with special categories (same logic as addTransactions)
+    let correctedTransaction = { ...transaction };
+    if (transaction.category === 'Internal Transfer') {
+      correctedTransaction.type = 'transfer';
+    } else if (transaction.category === 'Asset Allocation') {
+      correctedTransaction.type = 'asset-allocation';
+    }
+    
     const newTransaction: Transaction = {
-      ...transaction,
+      ...correctedTransaction,
       id: uuidv4(),
       addedDate: now,
       lastModifiedDate: now,

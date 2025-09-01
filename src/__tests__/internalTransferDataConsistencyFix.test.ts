@@ -147,9 +147,9 @@ describe('Internal Transfer Data Consistency Fix', () => {
       type: 'expense' // This should be overridden
     });
 
-    // The dataService should have corrected the category (type is determined by category now)
+    // The dataService should have corrected the category and type
     expect(transaction.category).toBe('Internal Transfer');
-    // Transaction type is now determined by category, not stored as property
+    expect(transaction.type).toBe('transfer');
   });
 
   it('should fix transactions when rules with Internal Transfer are applied to existing data', async () => {
@@ -203,7 +203,7 @@ describe('Internal Transfer Data Consistency Fix', () => {
     const updatedTransaction = allTransactions.find(t => t.id === transaction.id);
     
     expect(updatedTransaction?.category).toBe('Internal Transfer');
-    // Transaction type is now determined by category, not stored as property
+    expect(updatedTransaction?.type).toBe('transfer');
     expect(updatedTransaction?.subcategory).toBe('Between Accounts');
   });
 
@@ -219,22 +219,22 @@ describe('Internal Transfer Data Consistency Fix', () => {
     expect(migrationResult.errors).toHaveLength(0);
   });
 
-  it('should automatically fix transactions through audit in getAllTransactions', async () => {
-    // Test that the automatic audit feature works correctly
+  it('should allow manual migration to fix problematic transactions', async () => {
+    // Test the manual migration functionality
     await dataService['ensureInitialized']();
     dataService['transactions'] = [];
     
-    // Add problematic transactions and reset audit flag
+    // Add problematic transactions directly to memory
     const problematicTransactions: Transaction[] = [
       {
-        id: 'audit-tx-1',
+        id: 'migrate-tx-1',
         date: new Date('2024-04-01T10:00:00.000Z'),
         description: 'Auto Transfer',
         amount: -100.00,
         notes: '',
         category: 'Internal Transfer',
         account: 'Test Account',
-        type: 'expense', // Wrong type - should trigger audit
+        type: 'expense', // Wrong type - needs manual migration
         isVerified: false,
         originalText: 'Auto Transfer',
         subcategory: 'Test',
@@ -246,17 +246,22 @@ describe('Internal Transfer Data Consistency Fix', () => {
     ];
     
     dataService['transactions'] = [...problematicTransactions];
-    dataService['internalTransferTypeAuditDone'] = false; // Enable audit
     
-    // Call getAllTransactions which should trigger the audit
-    const allTransactions = await dataService.getAllTransactions();
-    
-    // Verify audit fixed the transaction
+    // Verify the problem exists initially
+    let allTransactions = await dataService.getAllTransactions();
     expect(allTransactions).toHaveLength(1);
-    const fixedTx = allTransactions.find(t => t.id === 'audit-tx-1');
-    expect(fixedTx?.category).toBe('Internal Transfer');
-    // Transaction type is now determined by category, not stored as property
+    const initialTx = allTransactions.find(t => t.id === 'migrate-tx-1');
+    expect(initialTx?.category).toBe('Internal Transfer');
+    expect(initialTx?.type).toBe('expense'); // Still wrong
     
-    // Note: Audit functionality was part of transaction.type system which we've removed
+    // Run manual migration
+    const migrationResult = await dataService['migrateInternalTransferTypes']();
+    expect(migrationResult.fixed).toBe(1);
+    
+    // Verify migration fixed the transaction
+    allTransactions = await dataService.getAllTransactions();
+    const fixedTx = allTransactions.find(t => t.id === 'migrate-tx-1');
+    expect(fixedTx?.category).toBe('Internal Transfer');
+    expect(fixedTx?.type).toBe('transfer'); // Now fixed
   });
 });
