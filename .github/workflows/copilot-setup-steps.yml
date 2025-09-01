@@ -47,11 +47,24 @@ jobs:
           npm ci --prefer-offline --no-audit
           echo "Dependencies installed and cached"
 
+      - name: Warm TypeScript compilation cache
+        run: |
+          echo "Warming TypeScript compilation cache..."
+          npx tsc --noEmit --skipLibCheck
+          echo "TypeScript cache warmed"
+
       - name: Warm build cache
         run: |
           echo "Warming build caches..."
           npm run build
           echo "Build cache warmed successfully"
+
+      - name: Pre-compile development assets
+        run: |
+          echo "Pre-compiling development assets..."
+          # Create temporary development build to warm more caches
+          CI=false timeout 30s npm start || echo "Dev server cache warming completed"
+          echo "Development asset cache warmed"
 
       - name: Warm test cache
         run: |
@@ -63,8 +76,11 @@ jobs:
         run: |
           echo "✅ Using preinstalled Node.js $(node --version) - no installation time!"
           echo "✅ npm dependencies cached" 
-          echo "✅ TypeScript build cache warmed"
+          echo "✅ TypeScript compilation cache warmed"
+          echo "✅ Production build cache warmed"
+          echo "✅ Development asset cache warmed"
           echo "✅ Jest test cache warmed"
           echo "✅ Corepack toolchain ready"
           echo ""
           echo "🚀 GitHub agents will start significantly faster!"
+          echo "🚀 Optimized for both development and production builds!"
