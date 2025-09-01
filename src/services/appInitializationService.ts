@@ -128,7 +128,55 @@ class AppInitializationService {
       console.log(`[App Init] Local data timestamp: ${localTimestamp ? localTimestamp.toISOString() : 'none'}`);
       console.log(`[App Init] Cloud data timestamp: ${cloudTimestamp.toISOString()}`);
 
-      if (!localTimestamp || cloudTimestamp > localTimestamp) {
+      // Special handling for invalid cloud timestamps (epoch time suggests corrupted/missing timestamp)
+      const isCloudTimestampValid = cloudTimestamp.getTime() > new Date('2020-01-01').getTime();
+      
+      // Check if cloud data has meaningful content
+      const hasCloudData = this.hasCloudDataMeaningfulContent(cloudData);
+      
+      console.log(`[App Init] Cloud timestamp valid: ${isCloudTimestampValid}, Cloud has content: ${hasCloudData}, Local has content: ${!!localTimestamp}`);
+
+      if (!localTimestamp && (!hasCloudData || !isCloudTimestampValid)) {
+        // Neither local nor cloud data is meaningful - nothing to sync
+        console.log('[App Init] No meaningful data in local or cloud storage - first time user');
+        return true; // Not an error, just nothing to sync
+      } else if (!localTimestamp && hasCloudData) {
+        // No local data but cloud has meaningful data - download from cloud regardless of timestamp
+        console.log('[App Init] No local data but cloud has content - downloading from cloud...');
+        const restoreResult = await this.restoreFromCloudData(cloudData);
+        
+        if (restoreResult) {
+          console.log('[App Init] ✅ Successfully synchronized with cloud data (local was empty)');
+          return true;
+        } else {
+          console.error('[App Init] ❌ Failed to restore cloud data');
+          return false;
+        }
+      } else if (localTimestamp && !hasCloudData) {
+        // Local data exists but cloud is empty/meaningless - upload to cloud
+        console.log('[App Init] Local data exists but cloud is empty - uploading to cloud...');
+        const uploadResult = await this.uploadLocalDataToCloud();
+        
+        if (uploadResult) {
+          console.log('[App Init] ✅ Successfully uploaded local data to cloud');
+          return true;
+        } else {
+          console.error('[App Init] ❌ Failed to upload local data to cloud');
+          return false;
+        }
+      } else if (!isCloudTimestampValid) {
+        // Cloud has data but invalid timestamp, local has data - prefer local (avoid overwriting good data with bad timestamp)
+        console.log('[App Init] Cloud data has invalid timestamp - uploading newer local data...');
+        const uploadResult = await this.uploadLocalDataToCloud();
+        
+        if (uploadResult) {
+          console.log('[App Init] ✅ Successfully uploaded local data to replace cloud data with invalid timestamp');
+          return true;
+        } else {
+          console.error('[App Init] ❌ Failed to upload local data to cloud');
+          return false;
+        }
+      } else if (!localTimestamp || cloudTimestamp > localTimestamp) {
         // Cloud data is newer - download and restore
         console.log('[App Init] Cloud data is newer - downloading and applying...');
         const restoreResult = await this.restoreFromCloudData(cloudData);
@@ -222,26 +270,125 @@ class AppInitializationService {
         'mo_money_category_rules'
       ];
       
-      // If we have any data, assume it was modified recently
-      let hasLocalData = false;
+      // Check if we have any MEANINGFUL data (not just empty arrays/objects)
+      let hasMeaningfulData = false;
       for (const key of dataKeys) {
-        if (localStorage.getItem(key)) {
-          hasLocalData = true;
-          break;
+        const value = localStorage.getItem(key);
+        if (value) {
+          try {
+            const parsed = JSON.parse(value);
+            // Check if it's a meaningful data structure
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              hasMeaningfulData = true;
+              break;
+            } else if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+              // For objects like preferences, check if they have meaningful content
+              if (key === 'mo_money_user_preferences') {
+                hasMeaningfulData = true;
+                break;
+              }
+            }
+          } catch (e) {
+            // If it's not JSON, treat it as meaningful data
+            hasMeaningfulData = true;
+            break;
+          }
         }
       }
       
-      if (hasLocalData && timestamps.length === 0) {
-        // We have data but no timestamp - assume it's recent for safety
+      if (hasMeaningfulData && timestamps.length === 0) {
+        // We have meaningful data but no timestamp - assume it's recent for safety
         timestamps.push(new Date());
       }
       
-      // Return the most recent timestamp
+      // Return the most recent timestamp, or null if no meaningful data
       return timestamps.length > 0 ? new Date(Math.max(...timestamps.map(d => d.getTime()))) : null;
       
     } catch (error) {
       console.error('[App Init] Error getting local data timestamp:', error);
       return null;
+    }
+  }
+
+  private hasCloudDataMeaningfulContent(cloudData: any): boolean {
+    try {
+      if (!cloudData || typeof cloudData !== 'object') {
+        return false;
+      }
+
+      // Check if cloud data has meaningful transactions
+      if (cloudData.transactions) {
+        try {
+          const transactions = typeof cloudData.transactions === 'string' 
+            ? JSON.parse(cloudData.transactions) 
+            : cloudData.transactions;
+          if (Array.isArray(transactions) && transactions.length > 0) {
+            return true;
+          }
+        } catch (e) {
+          // If transactions field exists but can't be parsed, treat as no meaningful data
+        }
+      }
+
+      // Check if cloud data has meaningful accounts (beyond defaults)
+      if (cloudData.accounts) {
+        try {
+          const accounts = typeof cloudData.accounts === 'string'
+            ? JSON.parse(cloudData.accounts)
+            : cloudData.accounts;
+          if (Array.isArray(accounts) && accounts.length > 3) { // More than default accounts
+            return true;
+          }
+        } catch (e) {
+          // If accounts field exists but can't be parsed, treat as no meaningful data
+        }
+      }
+
+      // Check if cloud data has meaningful categories (beyond defaults)
+      if (cloudData.categories) {
+        try {
+          const categories = typeof cloudData.categories === 'string'
+            ? JSON.parse(cloudData.categories)
+            : cloudData.categories;
+          if (Array.isArray(categories) && categories.length > 20) { // More than default categories
+            return true;
+          }
+        } catch (e) {
+          // If categories field exists but can't be parsed, treat as no meaningful data
+        }
+      }
+
+      // Check if cloud data has meaningful budgets or rules
+      if (cloudData.budgets) {
+        try {
+          const budgets = typeof cloudData.budgets === 'string'
+            ? JSON.parse(cloudData.budgets)
+            : cloudData.budgets;
+          if (Array.isArray(budgets) && budgets.length > 0) {
+            return true;
+          }
+        } catch (e) {
+          // If budgets field exists but can't be parsed, treat as no meaningful data
+        }
+      }
+
+      if (cloudData.rules) {
+        try {
+          const rules = typeof cloudData.rules === 'string'
+            ? JSON.parse(cloudData.rules)
+            : cloudData.rules;
+          if (Array.isArray(rules) && rules.length > 0) {
+            return true;
+          }
+        } catch (e) {
+          // If rules field exists but can't be parsed, treat as no meaningful data
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error('[App Init] Error checking cloud data content:', error);
+      return false;
     }
   }
 
@@ -299,32 +446,20 @@ class AppInitializationService {
     try {
       console.log('[App Init] Uploading local data to cloud for first-time sync...');
       
-      // Get local data
-      const localData = {
-        timestamp: new Date().toISOString(),
-        transactions: localStorage.getItem('mo_money_transactions'),
-        categories: localStorage.getItem('mo_money_categories'),
-        accounts: localStorage.getItem('mo_money_accounts'),
-        preferences: localStorage.getItem('mo_money_user_preferences'),
-        budgets: localStorage.getItem('mo_money_budgets'),
-        rules: localStorage.getItem('mo_money_category_rules'),
-        version: '1.0'
-      };
-      
-      // Only upload if we have some data
-      const hasData = Object.values(localData).some(value => value !== null && value !== undefined);
-      if (!hasData) {
-        console.log('[App Init] No local data to upload');
-        return true; // Not an error
+      // Check if we have meaningful local data first
+      const localTimestamp = this.getLocalDataTimestamp();
+      if (!localTimestamp) {
+        console.log('[App Init] No meaningful local data to upload');
+        return true; // Not an error - just nothing to upload
       }
       
-      // Lazy load Azure blob service
+      // Lazy load Azure blob service and use its export functionality
       const azureBlobService = await getAzureBlobService();
       const result = await azureBlobService.forceUpload();
       
       if (result.success) {
         // Update sync timestamp
-        localStorage.setItem('mo_money_last_sync_timestamp', localData.timestamp);
+        localStorage.setItem('mo_money_last_sync_timestamp', new Date().toISOString());
         console.log('[App Init] ✅ Initial local data uploaded to cloud successfully');
         return true;
       } else {
