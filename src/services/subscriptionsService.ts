@@ -1,6 +1,14 @@
 import { Transaction } from '../types';
 import { dataService } from './dataService';
 import { currencyDisplayService } from './currencyDisplayService';
+import { DateRange } from './reportsService';
+
+export interface SubscriptionsFilters {
+  dateRange?: DateRange;
+  selectedCategories?: string[];
+  selectedAccounts?: string[];
+  selectedFrequencies?: string[];
+}
 
 export interface Subscription {
   id: string;
@@ -307,6 +315,78 @@ class SubscriptionsService {
       account: latestTransaction.account,
       transactions: sortedTransactions
     };
+  }
+
+  // Method to detect subscriptions with filters applied
+  async detectSubscriptionsWithFilters(filters?: SubscriptionsFilters): Promise<SubscriptionDetectionResult> {
+    try {
+      // First get all subscriptions
+      const allSubscriptionsResult = await this.detectSubscriptions();
+      let filteredSubscriptions = allSubscriptionsResult.subscriptions;
+
+      // Apply filters if provided
+      if (filters) {
+        // Filter by date range
+        if (filters.dateRange) {
+          filteredSubscriptions = filteredSubscriptions.filter(subscription => {
+            // Check if any transaction in the subscription falls within the date range
+            return subscription.transactions.some(transaction => {
+              const transactionDate = new Date(transaction.date);
+              return transactionDate >= filters.dateRange!.startDate && 
+                     transactionDate <= filters.dateRange!.endDate;
+            });
+          });
+        }
+
+        // Filter by categories
+        if (filters.selectedCategories && filters.selectedCategories.length > 0) {
+          filteredSubscriptions = filteredSubscriptions.filter(subscription =>
+            filters.selectedCategories!.includes(subscription.category)
+          );
+        }
+
+        // Filter by accounts
+        if (filters.selectedAccounts && filters.selectedAccounts.length > 0) {
+          filteredSubscriptions = filteredSubscriptions.filter(subscription =>
+            filters.selectedAccounts!.includes(subscription.account)
+          );
+        }
+
+        // Filter by frequencies
+        if (filters.selectedFrequencies && filters.selectedFrequencies.length > 0) {
+          filteredSubscriptions = filteredSubscriptions.filter(subscription =>
+            filters.selectedFrequencies!.includes(subscription.frequency)
+          );
+        }
+      }
+
+      // Recalculate summary statistics for filtered results
+      const totalAnnualCost = filteredSubscriptions.reduce((sum, sub) => sum + sub.annualCost, 0);
+      const monthlySubscriptions = filteredSubscriptions.filter(s => s.frequency === 'Monthly').length;
+      const weeklySubscriptions = filteredSubscriptions.filter(s => s.frequency === 'Weekly').length;
+      const quarterlySubscriptions = filteredSubscriptions.filter(s => s.frequency === 'Quarterly').length;
+      const otherFrequencySubscriptions = filteredSubscriptions.length - monthlySubscriptions - weeklySubscriptions - quarterlySubscriptions;
+
+      return {
+        subscriptions: filteredSubscriptions,
+        totalAnnualCost,
+        monthlySubscriptions,
+        weeklySubscriptions,
+        quarterlySubscriptions,
+        otherFrequencySubscriptions
+      };
+
+    } catch (error) {
+      console.error('Error detecting filtered subscriptions:', error);
+      return {
+        subscriptions: [],
+        totalAnnualCost: 0,
+        monthlySubscriptions: 0,
+        weeklySubscriptions: 0,
+        quarterlySubscriptions: 0,
+        otherFrequencySubscriptions: 0
+      };
+    }
   }
 }
 
