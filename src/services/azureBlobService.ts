@@ -461,31 +461,43 @@ class AzureBlobService {
   // Helper method to verify data was actually restored
   private async verifyDataRestored(importResult: any): Promise<{ success: boolean; details: string }> {
     try {
-      // Check localStorage first for basic verification
-      const transactionsStr = localStorage.getItem('transactions');
-      const accountsStr = localStorage.getItem('accounts');
-      const categoriesStr = localStorage.getItem('categories');
+      // Check IndexedDB first as the primary data source
+      let dbTransactionCount = 0;
+      let dbAccountCount = 0;
       
-      const transactionCount = transactionsStr ? JSON.parse(transactionsStr).length : 0;
-      const accountCount = accountsStr ? JSON.parse(accountsStr).length : 0;
-      const categoryCount = categoriesStr ? JSON.parse(categoriesStr).length : 0;
-      
-      console.log(`[Azure Sync] Verification - Found ${transactionCount} transactions, ${accountCount} accounts, ${categoryCount} categories in localStorage`);
-      
-      // Also try to check IndexedDB if available
       try {
         const transactions = await db.transactions.toArray();
         const accounts = accountManagementService.getAccounts();
-        console.log(`[Azure Sync] IndexedDB verification - Found ${transactions.length} transactions, ${accounts.length} accounts`);
+        dbTransactionCount = transactions.length;
+        dbAccountCount = accounts.length;
+        console.log(`[Azure Sync] IndexedDB verification - Found ${dbTransactionCount} transactions, ${dbAccountCount} accounts`);
       } catch (dbError) {
         console.warn('[Azure Sync] Could not verify IndexedDB data:', dbError);
       }
       
-      const hasData = transactionCount > 0 || accountCount > 0 || categoryCount > 0;
+      // Also check localStorage as secondary verification
+      const transactionsStr = localStorage.getItem('transactions');
+      const accountsStr = localStorage.getItem('accounts');
+      const categoriesStr = localStorage.getItem('categories');
+      
+      const localTransactionCount = transactionsStr ? JSON.parse(transactionsStr).length : 0;
+      const localAccountCount = accountsStr ? JSON.parse(accountsStr).length : 0;
+      const localCategoryCount = categoriesStr ? JSON.parse(categoriesStr).length : 0;
+      
+      console.log(`[Azure Sync] LocalStorage verification - Found ${localTransactionCount} transactions, ${localAccountCount} accounts, ${localCategoryCount} categories`);
+      
+      // Success if IndexedDB has meaningful data (primary source) OR localStorage has meaningful data (fallback)
+      const hasIndexedDBData = dbTransactionCount > 0 || dbAccountCount > 0;
+      const hasLocalStorageData = localTransactionCount > 0 || localAccountCount > 0 || localCategoryCount > 0;
+      const hasData = hasIndexedDBData || hasLocalStorageData;
+      
+      const details = hasIndexedDBData ? 
+        `Verified ${dbTransactionCount} transactions, ${dbAccountCount} accounts in IndexedDB` :
+        `Verified ${localTransactionCount} transactions, ${localAccountCount} accounts, ${localCategoryCount} categories in localStorage`;
       
       return {
         success: hasData,
-        details: `Verified ${transactionCount} transactions, ${accountCount} accounts, ${categoryCount} categories in localStorage`
+        details
       };
     } catch (error) {
       console.error('[Azure Sync] Error during verification:', error);
