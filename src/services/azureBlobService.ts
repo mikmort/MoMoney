@@ -277,8 +277,17 @@ class AzureBlobService {
       const response = await fetch(`${this.baseUrl}/download/${blobName}`);
 
       if (response.ok) {
-        const content = await response.json();
+        const responseData = await response.json();
         console.log(`[Azure Sync] Download successful via /download endpoint`);
+        
+        // Handle Azure Functions response format: {success: true, data: {content: "...", ...}}
+        let content = responseData;
+        if (responseData.success && responseData.data && responseData.data.content) {
+          console.log(`[Azure Sync] Extracting content from Azure Functions response format`);
+          const contentStr = responseData.data.content;
+          content = typeof contentStr === 'string' ? JSON.parse(contentStr) : contentStr;
+        }
+        
         return { 
           success: true, 
           content 
@@ -304,8 +313,17 @@ class AzureBlobService {
       const response = await fetch(`${this.baseUrl}/${blobName}`);
 
       if (response.ok) {
-        const content = await response.json();
+        const responseData = await response.json();
         console.log(`[Azure Sync] Download successful via alternative endpoint`);
+        
+        // Handle Azure Functions response format: {success: true, data: {content: "...", ...}}
+        let content = responseData;
+        if (responseData.success && responseData.data && responseData.data.content) {
+          console.log(`[Azure Sync] Extracting content from Azure Functions response format`);
+          const contentStr = responseData.data.content;
+          content = typeof contentStr === 'string' ? JSON.parse(contentStr) : contentStr;
+        }
+        
         return { 
           success: true, 
           content 
