@@ -1156,13 +1156,28 @@ RULES:
 - Skip headers, page numbers, balances, fees descriptions
 - Convert all dates to YYYY-MM-DD format
 - Use negative amounts for debits/expenses, positive for credits/income
+- **IMPORTANT**: Many statements have separate columns for deposits and debits/withdrawals
+  - Extract BOTH deposits (as positive amounts) AND debits/withdrawals (as negative amounts)
+  - If a row has an amount in the "Deposits" column, create a transaction with positive amount
+  - If a row has an amount in the "Debits/Withdrawals/Checks" column, create a transaction with negative amount
+  - A row may have amounts in BOTH columns - create separate transactions for each
 - Categorize based on merchant/description keywords
 - If unsure about category, use "Uncategorized"
 - Clean up descriptions (remove extra spaces, bank codes)
-- Include ALL transaction rows found
+- Include ALL transaction rows found from ALL columns (deposits, debits, withdrawals, checks, etc.)
 
 EXAMPLE OUTPUT FORMAT:
 [
+  {
+    "date": "2024-01-15",
+    "description": "PAYROLL DEPOSIT",
+    "amount": 2500.00,
+    "category": "Income",
+    "type": "income",
+    "confidence": 0.95,
+    "reasoning": "Salary deposit",
+    "isVerified": false
+  },
   {
     "date": "2024-01-15",
     "description": "STARBUCKS COFFEE #1234",
@@ -1376,7 +1391,8 @@ EXAMPLE OUTPUT FORMAT:
       /\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/, // dd.mm.yyyy or dd-mm-yyyy
       /\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{2,4})\b/i
     ];
-    const amountRegex = /([-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})|[-+]?\d+(?:[.,]\d{2}))/; // capture first plausible amount
+    // Global regex to find ALL amounts on a line
+    const amountRegex = /([-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})|[-+]?\d+(?:[.,]\d{2}))/g;
     const monthMap: Record<string,string> = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',sept:'09',oct:'10',nov:'11',dec:'12'};
 
     const results: any[] = [];
@@ -1405,26 +1421,71 @@ EXAMPLE OUTPUT FORMAT:
         }
       }
       if (!dateISO) continue;
-      const amountMatch = amountRegex.exec(line);
-      if (!amountMatch) continue;
-      const amountStr = amountMatch[1];
-      // Remove thousand separators and normalize decimal
-      let normalized = amountStr.replace(/\s/g,'');
-      // If both . and , appear, assume . thousands and , decimal
-      if (/[.,]/.test(normalized)) {
-        const lastComma = normalized.lastIndexOf(',');
-        const lastDot = normalized.lastIndexOf('.');
-        if (lastComma > lastDot) { // comma likely decimal
-          normalized = normalized.replace(/\./g,'').replace(',','.');
-        } else if (lastDot > lastComma) { // dot decimal
-          normalized = normalized.replace(/,/g,'');
+      
+      // Find ALL amounts on this line
+      const amounts: Array<{value: number, str: string, index: number}> = [];
+      let amountMatch;
+      while ((amountMatch = amountRegex.exec(line)) !== null) {
+        const amountStr = amountMatch[1];
+        // Remove thousand separators and normalize decimal
+        let normalized = amountStr.replace(/\s/g,'');
+        // If both . and , appear, assume . thousands and , decimal
+        if (/[.,]/.test(normalized)) {
+          const lastComma = normalized.lastIndexOf(',');
+          const lastDot = normalized.lastIndexOf('.');
+          if (lastComma > lastDot) { // comma likely decimal
+            normalized = normalized.replace(/\./g,'').replace(',','.');
+          } else if (lastDot > lastComma) { // dot decimal
+            normalized = normalized.replace(/,/g,'');
+          }
+        }
+        const amount = parseFloat(normalized);
+        if (!isNaN(amount)) {
+          amounts.push({ value: amount, str: amountStr, index: amountMatch.index });
         }
       }
-      const amount = parseFloat(normalized);
-      if (isNaN(amount)) continue;
-      // Heuristic: expenses often shown without sign but context may not be available; leave as parsed
-      const description = line.replace(amountMatch[0], '').trim().replace(/\s{2,}/g,' ');
-      results.push({ date: dateISO, description, amount });
+      
+      if (amounts.length === 0) continue;
+      
+      // Get description by removing all amounts
+      let description = line;
+      // Remove amounts from right to left to preserve indices
+      for (let i = amounts.length - 1; i >= 0; i--) {
+        const amt = amounts[i];
+        description = description.substring(0, amt.index) + description.substring(amt.index + amt.str.length);
+      }
+      description = description.trim().replace(/\s{2,}/g,' ');
+      
+      // For multiple amounts, typically we have: [description] [deposits] [withdrawals] [balance]
+      // Strategy: Take the first non-balance amount
+      // If we have 2 amounts, first is likely deposits (positive), second is withdrawals (negative)
+      // If we have 3+ amounts, last is likely balance, previous are transactions
+      
+      if (amounts.length === 1) {
+        // Single amount - use as-is
+        results.push({ date: dateISO, description, amount: amounts[0].value });
+      } else if (amounts.length === 2) {
+        // Two amounts - likely deposits and withdrawals
+        // First amount is typically deposits (positive)
+        if (amounts[0].value > 0) {
+          results.push({ date: dateISO, description, amount: amounts[0].value });
+        }
+        // Second amount is typically withdrawals (negative)
+        if (amounts[1].value > 0) {
+          results.push({ date: dateISO, description, amount: -amounts[1].value });
+        }
+      } else {
+        // Three or more amounts - last is likely balance, take first two as transactions
+        // First is deposits
+        if (amounts[0].value > 0) {
+          results.push({ date: dateISO, description, amount: amounts[0].value });
+        }
+        // Second is withdrawals/debits
+        if (amounts[1].value > 0) {
+          results.push({ date: dateISO, description, amount: -amounts[1].value });
+        }
+      }
+      
       if (results.length >= 500) break; // safety limit
     }
     return results;
