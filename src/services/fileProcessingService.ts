@@ -629,6 +629,11 @@ Target schema fields:
 - subcategory: Transaction subcategory (optional in source)
 - amount: Transaction amount
 
+**IMPORTANT for files with separate Debit/Credit or Withdrawal/Deposit columns:**
+- If the file has BOTH "Debit" and "Credit" columns, set amountColumn to "Debit/Credit" (the code will handle both)
+- If the file has BOTH "Withdrawal" and "Deposit" columns, set amountColumn to "Withdrawal/Deposit" (the code will handle both)
+- This ensures ALL transactions are imported, not just one column
+
 File content sample:
 ${request.fileContent}
 
@@ -637,7 +642,7 @@ Return ONLY a clean JSON response:
   "mapping": {
     "dateColumn": "column_name_or_index",
     "descriptionColumn": "column_name_or_index", 
-    "amountColumn": "column_name_or_index",
+    "amountColumn": "column_name_or_index OR 'Debit/Credit' OR 'Withdrawal/Deposit'",
     "categoryColumn": "column_name_or_index",
     "subcategoryColumn": "column_name_or_index",
     "notesColumn": "column_name_or_index",
@@ -2276,49 +2281,59 @@ EXAMPLE OUTPUT FORMAT:
   private extractAmount(row: any, column?: string): number | null {
     if (!column || typeof column !== 'string') return null;
     
-    // Handle combined withdrawal/deposit column mapping
-    if (column.toLowerCase().includes('withdrawal') && column.toLowerCase().includes('deposit')) {
-      // Try to find separate Withdrawal and Deposit columns
-      const withdrawalAmount = this.extractAmountFromColumn(row, 'Withdrawal') || 
-                               this.extractAmountFromColumn(row, 'withdrawal');
-      const depositAmount = this.extractAmountFromColumn(row, 'Deposit') || 
-                            this.extractAmountFromColumn(row, 'deposit');
-      
-      // If both have values, prioritize deposit (income)
-      if (depositAmount !== null && depositAmount !== 0) {
-        return depositAmount;
-      }
-      
-      // Otherwise use withdrawal (make it negative for expense)
-      if (withdrawalAmount !== null && withdrawalAmount !== 0) {
-        return withdrawalAmount > 0 ? -withdrawalAmount : withdrawalAmount;
-      }
-      
-      return null;
-    }
+    // ALWAYS check for separate Debit/Credit columns first (common in credit card statements)
+    // This handles cases where CSV has both columns but AI only mapped to one
+    const debitAmount = this.extractAmountFromColumn(row, 'Debit') || 
+                        this.extractAmountFromColumn(row, 'debit');
+    const creditAmount = this.extractAmountFromColumn(row, 'Credit') || 
+                         this.extractAmountFromColumn(row, 'credit');
     
-    // Handle combined debit/credit column mapping
-    if (column.toLowerCase().includes('debit') && column.toLowerCase().includes('credit')) {
-      // Try to find separate Debit and Credit columns
-      const debitAmount = this.extractAmountFromColumn(row, 'Debit') || 
-                          this.extractAmountFromColumn(row, 'debit');
-      const creditAmount = this.extractAmountFromColumn(row, 'Credit') || 
-                           this.extractAmountFromColumn(row, 'credit');
-      
-      // If both have values, prioritize credit (income)
+    // If BOTH columns exist and have values, this is a Debit/Credit format
+    if ((debitAmount !== null || creditAmount !== null) && 
+        (this.hasColumn(row, 'Debit') || this.hasColumn(row, 'debit')) &&
+        (this.hasColumn(row, 'Credit') || this.hasColumn(row, 'credit'))) {
+      // For credit card statements:
+      // - Debit = charges/purchases (negative in our system)
+      // - Credit = payments/returns (positive in our system)
       if (creditAmount !== null && creditAmount !== 0) {
-        return creditAmount;
+        return creditAmount; // Positive for payments/credits
       }
-      
-      // Otherwise use debit (make it negative for expense)
       if (debitAmount !== null && debitAmount !== 0) {
-        return debitAmount > 0 ? -debitAmount : debitAmount;
+        return debitAmount > 0 ? -debitAmount : debitAmount; // Negative for charges
       }
-      
       return null;
     }
     
+    // Check for separate Withdrawal/Deposit columns (common in bank statements)
+    const withdrawalAmount = this.extractAmountFromColumn(row, 'Withdrawal') || 
+                             this.extractAmountFromColumn(row, 'withdrawal');
+    const depositAmount = this.extractAmountFromColumn(row, 'Deposit') || 
+                          this.extractAmountFromColumn(row, 'deposit');
+    
+    if ((withdrawalAmount !== null || depositAmount !== null) &&
+        (this.hasColumn(row, 'Withdrawal') || this.hasColumn(row, 'withdrawal')) &&
+        (this.hasColumn(row, 'Deposit') || this.hasColumn(row, 'deposit'))) {
+      // For bank statements:
+      // - Deposit = money in (positive)
+      // - Withdrawal = money out (negative)
+      if (depositAmount !== null && depositAmount !== 0) {
+        return depositAmount; // Positive for deposits
+      }
+      if (withdrawalAmount !== null && withdrawalAmount !== 0) {
+        return withdrawalAmount > 0 ? -withdrawalAmount : withdrawalAmount; // Negative for withdrawals
+      }
+      return null;
+    }
+    
+    // Fallback to the specified column
     return this.extractAmountFromColumn(row, column);
+  }
+  
+  private hasColumn(row: any, columnName: string): boolean {
+    if (Array.isArray(row)) {
+      return false; // For array rows, we can't check column existence
+    }
+    return row && (row[columnName] !== undefined || row[columnName.toLowerCase()] !== undefined || row[columnName.toUpperCase()] !== undefined);
   }
 
   private extractAmountFromColumn(row: any, column: string): number | null {
