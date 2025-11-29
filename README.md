@@ -277,8 +277,8 @@ This application is configured for the **Azure Static Web Apps Free tier**.
 | App Size | 250 MB (current build ~19 MB) |
 | Staging Environments | 3 |
 | Custom Domains | 2 |
-| APIs | Managed only (we use external Azure Functions) |
-| Authentication | Pre-configured providers (GitHub, Microsoft/AAD) |
+| APIs | Managed only (this app uses separate Azure Functions) |
+| Authentication | Pre-configured providers only (⚠️ no tenant restrictions) |
 | SLA | None |
 
 For more details, see [Azure Static Web Apps hosting plans](https://learn.microsoft.com/en-us/azure/static-web-apps/plans).
@@ -304,13 +304,13 @@ Note: `REACT_APP_AZURE_AD_CLIENT_ID` is no longer required when using the built-
 
 ### 3. Authentication (Free Tier)
 
+> ⚠️ **Security Note**: The free tier cannot restrict authentication to specific tenants or domains. Any user with a Microsoft account can authenticate to your application. If you need tenant restrictions, you must upgrade to the Standard tier.
+
 The free tier uses Azure Static Web Apps' built-in authentication providers:
 - **Microsoft/AAD**: `/.auth/login/aad` - Allows any Microsoft account to sign in
 - **GitHub**: `/.auth/login/github` - Allows GitHub account sign in
 
 No custom Azure AD app registration is required for basic authentication. The built-in providers handle user authentication automatically.
-
-**Limitation**: The free tier cannot restrict authentication to specific tenants or domains. All Microsoft account users can authenticate.
 
 ### 4. Upgrade to Standard Tier (Optional)
 
