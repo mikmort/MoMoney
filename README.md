@@ -57,9 +57,9 @@ The app will open at `http://localhost:3000` and automatically log you in as a t
 - **Styling**: Styled Components
 - **Grid**: AG Grid Community
 - **Charts**: Chart.js + React Chart.js 2
-- **Authentication**: Azure MSAL
+- **Authentication**: Azure Static Web Apps built-in providers (free tier)
 - **AI**: Azure OpenAI (for transaction categorization)
-- **Deployment**: Azure Static Web Apps
+- **Deployment**: Azure Static Web Apps (Free tier)
 
 ## 📂 Project Structure
 
@@ -268,11 +268,27 @@ src/
 
 ## Deployment to Azure Static Web Apps
 
+This application is configured for the **Azure Static Web Apps Free tier**.
+
+### Free Tier Features & Limitations
+
+| Feature | Free Tier Limit |
+|---------|----------------|
+| App Size | 250 MB (current build ~19 MB) |
+| Staging Environments | 3 |
+| Custom Domains | 2 |
+| APIs | Managed only (we use external Azure Functions) |
+| Authentication | Pre-configured providers (GitHub, Microsoft/AAD) |
+| SLA | None |
+
+For more details, see [Azure Static Web Apps hosting plans](https://learn.microsoft.com/en-us/azure/static-web-apps/plans).
+
 ### 1. Create Azure Static Web App
 
 1. In Azure portal, create a new Static Web App
-2. Connect to your GitHub repository
-3. Set build configuration:
+2. **Select the Free plan** when configuring the hosting plan
+3. Connect to your GitHub repository
+4. Set build configuration:
    - Framework: React
    - App location: `/`
    - Build location: `build`
@@ -283,12 +299,29 @@ In the Azure portal, add these application settings:
 - `REACT_APP_AZURE_OPENAI_ENDPOINT`
 - `REACT_APP_AZURE_OPENAI_API_KEY`
 - `REACT_APP_AZURE_OPENAI_DEPLOYMENT`
-- `REACT_APP_AZURE_AD_CLIENT_ID`
 
-### 3. Update Redirect URI
+Note: `REACT_APP_AZURE_AD_CLIENT_ID` is no longer required when using the built-in AAD authentication provider on the free tier.
 
-Update your Azure AD app registration redirect URI to include your production URL:
-- `https://your-app-name.azurestaticapps.net`
+### 3. Authentication (Free Tier)
+
+The free tier uses Azure Static Web Apps' built-in authentication providers:
+- **Microsoft/AAD**: `/.auth/login/aad` - Allows any Microsoft account to sign in
+- **GitHub**: `/.auth/login/github` - Allows GitHub account sign in
+
+No custom Azure AD app registration is required for basic authentication. The built-in providers handle user authentication automatically.
+
+**Limitation**: The free tier cannot restrict authentication to specific tenants or domains. All Microsoft account users can authenticate.
+
+### 4. Upgrade to Standard Tier (Optional)
+
+If you need these features, upgrade to the Standard tier:
+- Custom authentication providers with tenant restrictions
+- Private endpoints (VNet integration)
+- More than 2 custom domains
+- Bring Your Own Azure Functions
+- SLA guarantees
+
+To upgrade, go to Azure Portal → Your Static Web App → Settings → Hosting plan.
 
 ## Development
 
