@@ -36,10 +36,9 @@ describe('AzureOpenAI Service', () => {
 
   beforeEach(() => {
     // Store original environment
-    originalEnv = process.env.REACT_APP_OPENAI_PROXY_URL;
+    originalEnv = process.env.REACT_APP_AI_ENABLED;
     
-    // Set proxy URL to enable the service
-    process.env.REACT_APP_OPENAI_PROXY_URL = '/api/openai/chat/completions';
+    process.env.REACT_APP_AI_ENABLED = 'true';
     
     service = new AzureOpenAIService();
     jest.clearAllMocks();
@@ -48,9 +47,9 @@ describe('AzureOpenAI Service', () => {
   afterEach(() => {
     // Restore original environment
     if (originalEnv !== undefined) {
-      process.env.REACT_APP_OPENAI_PROXY_URL = originalEnv;
+      process.env.REACT_APP_AI_ENABLED = originalEnv;
     } else {
-      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      delete process.env.REACT_APP_AI_ENABLED;
     }
     
     jest.resetAllMocks();
@@ -446,59 +445,88 @@ describe('AzureOpenAI Service', () => {
       expect((testService as any).disabledReason).toBeUndefined();
     });
 
-    it('should use production fallback URL when no environment variables provided', () => {
-      // This test verifies the URL construction logic
+    it('uses the AI flag to disable preview environments without making requests', async () => {
+      process.env.REACT_APP_AI_ENABLED = 'false';
+      expect(await new AzureOpenAIService().testConnection()).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('allocates enough visible output for a full transaction batch', async () => {
+      const results = Array.from({ length: 12 }, () => ({
+        categoryId: 'food-dining', subcategoryId: 'groceries', confidence: 0.9, reasoning: 'Grocery purchase'
+      }));
+      (fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, data: { choices: [{ message: { content: JSON.stringify(results) }, finish_reason: 'stop' }] } })
+      });
+      const actual = await service.classifyTransactionsBatch(Array.from({ length: 12 }, () => ({
+        transactionText: 'Grocery store', amount: -25, date: '2026-10-03', availableCategories: mockCategories
+      })));
+      expect(actual).toHaveLength(12);
+      expect(actual.every(result => result.categoryId === 'food-dining')).toBe(true);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(JSON.parse((fetch as jest.Mock).mock.calls[0][1].body).max_completion_tokens).toBe(2400);
+    });
+
+    it('uses the authenticated same-origin route and ignores stale deployment caches', async () => {
       process.env.NODE_ENV = 'production';
       delete process.env.REACT_APP_OPENAI_PROXY_URL;
       delete process.env.REACT_APP_FUNCTION_BASE_URL;
-
-      // Simulate the URL construction logic from the service
-      const envUrl = '/api/openai/chat/completions';
-      const isAbsolute = /^https?:\/\//i.test(envUrl);
-      const isProd = process.env.NODE_ENV === 'production';
-      const base: string = process.env.REACT_APP_FUNCTION_BASE_URL || '';
-
-      let finalUrl;
-      if (isProd) {
-        if (base) {
-          const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
-          const path = envUrl.startsWith('/') ? envUrl : `/${envUrl}`;
-          finalUrl = `${trimmedBase}${path}`;
-        } else {
-          // Production fallback
-          finalUrl = 'https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/chat/completions';
-        }
-      } else {
-        finalUrl = envUrl;
+      localStorage.setItem('ai:lastSuccessfulDeployment', 'gpt-4o');
+      try {
+        (fetch as jest.Mock).mockResolvedValue({
+          ok: true,
+          json: async () => ({ success: true, data: { model: 'gpt-5.4-mini-2026-03-17', choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }] } })
+        });
+        const productionService = new AzureOpenAIService();
+        expect(fetch).not.toHaveBeenCalled();
+        expect(await productionService.testConnection()).toBe(true);
+        expect(fetch).toHaveBeenCalledWith('/api/openai/chat/completions', expect.objectContaining({
+          credentials: 'same-origin',
+          redirect: 'error'
+        }));
+        const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body);
+        expect(body.deployment).toBe('gpt-5.4-mini');
+        expect(body.max_completion_tokens).toBe(32);
+        expect(body).not.toHaveProperty('max_tokens');
+        expect(body).not.toHaveProperty('temperature');
+        expect((await productionService.getServiceInfo()).model).toBe('gpt-5.4-mini-2026-03-17');
+      } finally {
+        localStorage.removeItem('ai:lastSuccessfulDeployment');
       }
-
-      expect(finalUrl).toBe('https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/chat/completions');
     });
 
-    it('should prefer environment variable over production fallback', () => {
+    it('does not retry authentication failures or fall back to a cross-origin proxy', async () => {
       process.env.NODE_ENV = 'production';
-      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      process.env.REACT_APP_OPENAI_PROXY_URL = 'https://legacy.azurewebsites.net/api/openai/chat/completions';
       process.env.REACT_APP_FUNCTION_BASE_URL = 'https://custom.azurewebsites.net';
+      (fetch as jest.Mock).mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized', text: async () => 'Sign in' });
+      expect(await new AzureOpenAIService().testConnection()).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect((fetch as jest.Mock).mock.calls[0][0]).toBe('/api/openai/chat/completions');
+    });
 
-      // Simulate the URL construction logic
-      const envUrl = '/api/openai/chat/completions';
-      const isProd = process.env.NODE_ENV === 'production';
-      const base = process.env.REACT_APP_FUNCTION_BASE_URL || '';
-
-      let finalUrl;
-      if (isProd) {
-        if (base) {
-          const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
-          const path = envUrl.startsWith('/') ? envUrl : `/${envUrl}`;
-          finalUrl = `${trimmedBase}${path}`;
-        } else {
-          finalUrl = 'https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/chat/completions';
-        }
-      } else {
-        finalUrl = envUrl;
+    it('retries transient failures without switching models', async () => {
+      (fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: false, status: 429, statusText: 'Too Many Requests', text: async () => '' })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true, data: { choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }] } })
+        });
+      expect(await service.testConnection()).toBe(true);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      for (const [, options] of (fetch as jest.Mock).mock.calls) {
+        expect(JSON.parse(options.body).deployment).toBe('gpt-5.4-mini');
       }
+    });
 
-      expect(finalUrl).toBe('https://custom.azurewebsites.net/api/openai/chat/completions');
+    it('rejects truncated text instead of reporting success', async () => {
+      (fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, data: { choices: [{ message: { content: 'OK' }, finish_reason: 'length' }] } })
+      });
+      expect(await service.testConnection()).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(1);
     });
   });
 });
