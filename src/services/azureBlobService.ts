@@ -1,4 +1,5 @@
-import { skipAuthentication } from '../config/devConfig';
+import { mockUser, skipAuthentication } from '../config/devConfig';
+import { defaultCategories } from '../data/defaultCategories';
 import { db } from './db';
 import { captureSnapshot, restoreSnapshot } from './cloudSnapshotService';
 import { notificationService } from './notificationService';
@@ -133,6 +134,60 @@ export class AzureBlobService {
     return result.success;
   }
 
+  // Called before importing App or any services that cache or mutate local data.
+  public async loadOnStartup(): Promise<boolean> {
+    let restored = false;
+    const result = await this.run(async () => {
+      const { current, account } = await this.current();
+      const owner = await db.syncMetadata.get('owner');
+      if (owner && owner.fingerprint !== account) {
+        throw new Error('This local database belongs to another cloud account. Open Settings to export it before downloading this account\'s data.');
+      }
+      const baseline = await db.syncMetadata.get(`cloud:${account}`);
+      if (!current) {
+        if (baseline?.revision) throw new Error('The cloud save is unexpectedly missing. Local data was retained; check Settings before saving.');
+        return 'No cloud save yet.';
+      }
+      const local = await captureSnapshot();
+      const fingerprint = await this.fingerprint(local);
+      const remoteFingerprint = await this.fingerprint(current.data);
+      if (fingerprint === remoteFingerprint) {
+        await db.syncMetadata.put({ id: `cloud:${account}`, revision: current.revision, fingerprint });
+        await db.syncMetadata.put({ id: 'owner', fingerprint: account });
+        return 'Local and cloud data match.';
+      }
+      // Local edits (including deliberate recovery restores) are authoritative until explicitly saved.
+      if (baseline?.revision === current.revision) return 'Keeping local changes.';
+      const onlyDefaults = !local.transactions.length && !local.transactionHistory.length &&
+        (!local.preferences.length || snapshotContent(local.preferences[0]) ===
+          snapshotContent({ ...mockUser.preferences, id: 'default', lastModified: local.preferences[0].lastModified })) &&
+        Object.entries(local.storage).every(([key, value]) => {
+          const rows: unknown = JSON.parse(value || '[]');
+          return snapshotContent(rows) === '[]' ||
+            (key === 'mo-money-categories' && snapshotContent(rows) === snapshotContent(defaultCategories));
+        });
+      const newDevice = !owner && !baseline && onlyDefaults;
+      const unchangedDevice = owner?.fingerprint === account && baseline?.fingerprint === fingerprint;
+      if (!newDevice && !unchangedDevice) {
+        throw new Error('Cloud data differs from unsaved local data. Neither copy was overwritten. Open Settings to export local data, then download the cloud version.');
+      }
+      // Legacy browser data must be reviewed/migrated, not mistaken for an empty device.
+      if (localStorage.getItem('mo-money-transactions') || localStorage.getItem('mo-money-transaction-history')) {
+        throw new Error('Legacy local data needs review. Open Settings to export local data before downloading the cloud version.');
+      }
+      if (fingerprint !== await this.fingerprint(await captureSnapshot())) {
+        throw new Error('Local data changed while loading from the cloud. Reload after closing other Mo Money tabs.');
+      }
+      await restoreSnapshot(current.data);
+      await db.syncMetadata.put({ id: `cloud:${account}`, revision: current.revision, fingerprint: remoteFingerprint });
+      await db.syncMetadata.put({ id: 'owner', fingerprint: account });
+      restored = true;
+      return 'Cloud data loaded.';
+    });
+    if (!result.success) throw new Error(result.message);
+    return restored;
+  }
+
   public async forceDownload(revision?: string): Promise<SyncResult> {
     return this.run(async () => {
       const { current, account } = await this.current();
@@ -146,7 +201,7 @@ export class AzureBlobService {
       this.reloadRequired = true;
       await restoreSnapshot(version.data);
       // Services cache records in memory: prohibit further writes until a full reload.
-      await db.syncMetadata.put({ id: `cloud:${account}`, revision: current?.revision ?? null, fingerprint: await this.fingerprint(version.data) });
+      await db.syncMetadata.put({ id: `cloud:${account}`, revision: current?.revision ?? null, fingerprint: current ? await this.fingerprint(current.data) : undefined });
       await db.syncMetadata.put({ id: 'owner', fingerprint: account });
       return 'Data restored. The previous local copy is retained under Local recovery snapshots. Reload now.';
     });
@@ -171,7 +226,7 @@ export class AzureBlobService {
     if (this.starting) return this.starting;
     this.stopped = false;
     this.starting = (async () => {
-      // Read first. Starting the app never restores or overwrites either copy automatically.
+      // Uploads remain opt-in and always check the remote revision first.
       await this.current();
       if (this.stopped) return;
       this.timer = setInterval(() => { void this.syncToCloud(); }, 30000);

@@ -30,7 +30,7 @@ Data. Clearing browser storage deletes local data and local backups.
 
 ### Protected cloud saves
 
-The old hard-coded storage proxy is no longer used. Cloud sync is opt-in and
+The old hard-coded storage proxy is no longer used. Cloud storage
 requires the versioned API in [`api/`](api/README.md), Microsoft sign-in, and
 `REACT_APP_CLOUD_SYNC_ENABLED=true` at frontend build time. Deploying just the
 frontend does **not** deploy the API. The managed-identity deployment documented
@@ -40,9 +40,16 @@ and linked on October 3, 2026; infrastructure and controlled redeployment
 instructions are in [`infra/`](infra/README.md). Infrastructure is not
 automatically reprovisioned by frontend builds.
 
-In Settings, download your existing cloud save (or upload once for a new
-account), then enable auto-sync. Startup never chooses a winner based on device
-clocks or silently replaces local data. Stale revisions and any removed record
+After sign-in, startup loads your cloud save before displaying accounts or
+transactions. New devices (including browsers with only default settings) load
+automatically, and unchanged linked devices receive newer cloud revisions.
+Unsaved local changes, another account's cache, and interrupted restores are
+never overwritten automatically. Connection failures or conflicts show a
+warning with Retry and Settings actions; local data remains available.
+
+Uploads remain opt-in: in Settings, upload once for a new cloud account, then
+enable auto-sync if desired. Startup downloads do not enable uploads. Startup
+never chooses a winner based on device clocks. Stale revisions and any removed record
 IDs block automatic saves; intentional deletions require explicit confirmation.
 Export local changes before downloading a conflicting cloud version.
 

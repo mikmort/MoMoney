@@ -4,8 +4,9 @@ const mockStartSync = jest.fn();
 const mockStopSync = jest.fn();
 const mockIsAvailable = jest.fn();
 const mockShowAlert = jest.fn();
+const mockLoadOnStartup = jest.fn();
 jest.mock('../services/azureBlobService', () => ({
-  azureBlobService: { startSync: mockStartSync, stopSync: mockStopSync, isAvailable: mockIsAvailable }
+  azureBlobService: { startSync: mockStartSync, stopSync: mockStopSync, isAvailable: mockIsAvailable, loadOnStartup: mockLoadOnStartup }
 }));
 jest.mock('../services/notificationService', () => ({
   notificationService: { showAlert: mockShowAlert }
@@ -17,12 +18,15 @@ beforeEach(() => {
   localStorage.clear();
   mockIsAvailable.mockReturnValue(true);
   mockStartSync.mockResolvedValue(undefined);
+  mockLoadOnStartup.mockResolvedValue(false);
 });
 
-test('first launch does not opt into cloud uploads or download over local data', async () => {
+test('first launch checks for a safe cloud download without opting into uploads', async () => {
+  mockLoadOnStartup.mockResolvedValue(true);
   const { appInitializationService } = await import('../services/appInitializationService');
   const result = await appInitializationService.initialize();
-  expect(result).toMatchObject({ success: true, autosaveEnabled: false, syncPerformed: false });
+  expect(result).toMatchObject({ success: true, autosaveEnabled: false, syncPerformed: true });
+  expect(mockLoadOnStartup).toHaveBeenCalledTimes(1);
   expect(mockStartSync).not.toHaveBeenCalled();
 });
 
@@ -32,6 +36,7 @@ test('concurrent startup calls share initialization and respect a disabled prefe
   const first = appInitializationService.initialize();
   expect(appInitializationService.initialize()).toBe(first);
   await first;
+  expect(mockLoadOnStartup).toHaveBeenCalledTimes(1);
   expect(mockStartSync).not.toHaveBeenCalled();
 });
 
@@ -41,13 +46,28 @@ test('previously enabled sync remains off when cloud is unavailable in local dev
   const { appInitializationService } = await import('../services/appInitializationService');
   expect((await appInitializationService.initialize()).autosaveEnabled).toBe(false);
   expect(mockStartSync).not.toHaveBeenCalled();
+  expect(mockLoadOnStartup).not.toHaveBeenCalled();
 });
 
 test('startup starts the single guarded service rather than a competing upload/download path', async () => {
   localStorage.setItem('mo_money_autosave_enabled', 'true');
+  mockStartSync.mockImplementation(async () => {
+    expect(mockLoadOnStartup).toHaveBeenCalledTimes(1);
+  });
   const { appInitializationService } = await import('../services/appInitializationService');
   expect((await appInitializationService.initialize()).autosaveEnabled).toBe(true);
   expect(mockStartSync).toHaveBeenCalledTimes(1);
+});
+
+test('a failed or conflicting download prevents automatic uploads', async () => {
+  localStorage.setItem('mo_money_autosave_enabled', 'true');
+  mockLoadOnStartup.mockRejectedValue(new Error('Local changes conflict'));
+  const { appInitializationService } = await import('../services/appInitializationService');
+  expect(await appInitializationService.initialize()).toMatchObject({
+    success: false, syncPerformed: false, autosaveEnabled: false, errors: ['Local changes conflict']
+  });
+  expect(mockStartSync).not.toHaveBeenCalled();
+  expect(mockShowAlert).toHaveBeenCalled();
 });
 
 test('connection failures are surfaced and enabling does not claim success', async () => {

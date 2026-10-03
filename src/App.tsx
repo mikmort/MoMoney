@@ -1,17 +1,11 @@
-import React, { Suspense, useEffect } from 'react';
+import React, { Suspense } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
-import { ThemeProvider } from 'styled-components';
-import { skipAuthentication } from './config/devConfig';
 import { ImportStateProvider } from './contexts/ImportStateContext';
-import { NotificationProvider } from './contexts/NotificationContext';
 import { NavigationBlocker } from './components/shared/NavigationBlocker';
-import { appInitializationService } from './services/appInitializationService';
 // Lazy-loaded Components for code splitting
 import Navigation from './components/Layout/Navigation';
-import { AuthWrapper } from './components/Auth/AuthWrapper';
 import DatabaseEventHandler from './components/shared/DatabaseEventHandler';
 import ExchangeRateNotifications from './components/shared/ExchangeRateNotifications';
-import { GlobalStyles, lightTheme } from './styles/globalStyles';
 
 // Lazy load heavy components to reduce initial bundle size
 import { lazyWithRetry } from './utils/lazyWithRetry';
@@ -87,51 +81,13 @@ const router = createBrowserRouter([
 ]);
 
 const App: React.FC = () => {
-  // Initialize the app on startup - DEFERRED for faster initial render
-  useEffect(() => {
-    const initializeApp = async () => {
-      try {
-        console.log('[App] Starting deferred application initialization...');
-        const result = await appInitializationService.initialize();
-        
-        if (result.success) {
-          console.log(`[App] ✅ App initialized successfully. Sync: ${result.syncPerformed}, Autosave: ${result.autosaveEnabled}`);
-        } else {
-          console.error('[App] ❌ App initialization had errors:', result.errors);
-        }
-      } catch (error) {
-        console.error('[App] ❌ App initialization failed:', error);
-      }
-    };
-    
-    // Defer initialization to allow initial render to complete first
-    // This prevents cloud sync operations from blocking the UI
-    const deferredInit = setTimeout(() => {
-      initializeApp();
-    }, 100); // 100ms delay allows initial render to complete
-    
-    // Cleanup timeout on unmount
-    return () => clearTimeout(deferredInit);
-  }, []); // Empty dependency array ensures this runs only once
-
   return (
-    <ThemeProvider theme={lightTheme}>
-      <GlobalStyles />
+    <>
       <DatabaseEventHandler />
       <ImportStateProvider>
-        <NotificationProvider>
-          {skipAuthentication ? (
-            // Development mode - bypass authentication
-            <RouterProvider router={router} future={{ v7_startTransition: true }} />
-          ) : (
-            // Production mode - use Azure Static Web Apps auth
-            <AuthWrapper>
-              <RouterProvider router={router} future={{ v7_startTransition: true }} />
-            </AuthWrapper>
-          )}
-        </NotificationProvider>
+        <RouterProvider router={router} future={{ v7_startTransition: true }} />
       </ImportStateProvider>
-    </ThemeProvider>
+    </>
   );
 };
 

@@ -1,11 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import AppStartup from './AppStartup';
 // Initialize Chart.js components early in the application lifecycle
 import './utils/chartConfig';
 
 // Expose dataService globally for debugging in development
-if (process.env.NODE_ENV === 'development') {
+if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_CLOUD_SYNC_ENABLED !== 'true') {
   import('./services/dataService').then(({ dataService }) => {
     (window as any).dataService = dataService;
     console.log('💡 DataService is available at window.dataService for debugging');
@@ -32,6 +32,6 @@ const root = ReactDOM.createRoot(
 
 root.render(
   <React.StrictMode>
-    <App />
+    <AppStartup />
   </React.StrictMode>
 );

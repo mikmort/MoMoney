@@ -4,8 +4,10 @@ import { captureSnapshot, restoreSnapshot } from '../services/cloudSnapshotServi
 import { notificationService } from '../services/notificationService';
 import { db } from '../services/db';
 import { CloudSnapshot, CloudVersion } from '../utils/cloudSnapshot';
+import { mockUser } from '../config/devConfig';
+import { defaultCategories } from '../data/defaultCategories';
 
-jest.mock('../config/devConfig', () => ({ skipAuthentication: false }));
+jest.mock('../config/devConfig', () => ({ ...jest.requireActual('../config/devConfig'), skipAuthentication: false }));
 jest.mock('../services/cloudSnapshotService');
 jest.mock('../services/dataService', () => ({ dataService: { readyForPersistence: jest.fn(), suspendPersistence: jest.fn() } }));
 jest.mock('../services/notificationService', () => ({ notificationService: { showConfirmation: jest.fn(), showAlert: jest.fn() } }));
@@ -167,4 +169,133 @@ test('switching accounts cannot upload the previous account local cache', async 
   fetchMock.mockResolvedValue(response({ current: null, account: 'bob' }));
   expect((await service.forceUpload()).message).toMatch(/another cloud account/);
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('startup restores a new device including accounts without uploading or suspending caches', async () => {
+  const remote = data();
+  remote.storage['mo-money-accounts'] = JSON.stringify([
+    { id: 'checking', name: 'My Checking', institution: 'Bank', currency: 'USD', type: 'checking', isActive: true }
+  ]);
+  capture.mockResolvedValue(data([]));
+  fetchMock.mockResolvedValue(current(version(remote)));
+  expect(await service.loadOnStartup()).toBe(true);
+  expect(restore).toHaveBeenCalledWith(remote);
+  expect((await db.syncMetadata.get('cloud:alice'))?.revision).toBe('first');
+  expect((await db.syncMetadata.get('owner'))?.fingerprint).toBe('alice');
+  expect(localStorage.getItem('mo_money_autosave_enabled')).toBeNull();
+  expect(fetchMock.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true);
+  const { dataService } = await import('../services/dataService');
+  expect(dataService.suspendPersistence).not.toHaveBeenCalled();
+});
+
+test('default preferences and categories from an earlier empty boot do not block startup loading', async () => {
+  const local = data([]);
+  local.preferences = [{ id: 'default', ...mockUser.preferences, lastModified: '2026-01-01' }];
+  local.storage['mo-money-categories'] = JSON.stringify(defaultCategories);
+  capture.mockResolvedValue(local);
+  fetchMock.mockResolvedValue(current(version()));
+  expect(await service.loadOnStartup()).toBe(true);
+});
+
+test.each(['accounts', 'preferences', 'history', 'categories', 'transactions'])(
+  'startup preserves unlinked custom %s rather than assuming no accounts means no data', async kind => {
+    const local = data([]);
+    if (kind === 'accounts') local.storage['mo-money-accounts'] = JSON.stringify([{ id: 'local' }]);
+    if (kind === 'preferences') local.preferences = [{ id: 'default', ...mockUser.preferences, currency: 'EUR' }];
+    if (kind === 'history') local.transactionHistory = [{ id: 'history' }];
+    if (kind === 'categories') local.storage['mo-money-categories'] = JSON.stringify([{ id: 'custom' }]);
+    if (kind === 'transactions') local.transactions = data().transactions;
+    capture.mockResolvedValue(local);
+    fetchMock.mockResolvedValue(current(version(data(['remote']))));
+    await expect(service.loadOnStartup()).rejects.toThrow('unsaved local data');
+    expect(restore).not.toHaveBeenCalled();
+  }
+);
+
+test('startup refreshes an unchanged linked device when a newer cloud revision exists', async () => {
+  await link();
+  fetchMock.mockResolvedValue(current(version(data(['one', 'remote']), 'second')));
+  expect(await service.loadOnStartup()).toBe(true);
+  expect(restore).toHaveBeenCalledWith(data(['one', 'remote']));
+  expect((await db.syncMetadata.get('cloud:alice'))?.revision).toBe('second');
+});
+
+test('startup does not discard local deletions or edits when the cloud advances', async () => {
+  await link();
+  fetchMock.mockResolvedValue(current(version(data(['one', 'remote']), 'second')));
+  for (const local of [data([]), data(['one', 'local'])]) {
+    capture.mockResolvedValue(local);
+    await expect(service.loadOnStartup()).rejects.toThrow('unsaved local data');
+  }
+  expect(restore).not.toHaveBeenCalled();
+});
+
+test('startup keeps edits against the current revision for subsequent guarded autosave', async () => {
+  await link();
+  capture.mockResolvedValue(data(['one', 'local']));
+  fetchMock.mockResolvedValue(current(version()));
+  expect(await service.loadOnStartup()).toBe(false);
+  expect(restore).not.toHaveBeenCalled();
+});
+
+test('startup links matching data without restoring and does nothing for a new cloud account', async () => {
+  fetchMock.mockResolvedValueOnce(current(null)).mockResolvedValueOnce(current(version()));
+  expect(await service.loadOnStartup()).toBe(false);
+  expect(await db.syncMetadata.get('owner')).toBeUndefined();
+  expect(await service.loadOnStartup()).toBe(false);
+  expect((await db.syncMetadata.get('owner'))?.fingerprint).toBe('alice');
+  expect(restore).not.toHaveBeenCalled();
+});
+
+test('startup rejects account switches and unexpectedly missing saves', async () => {
+  await link();
+  fetchMock.mockResolvedValueOnce(response({ current: version(), account: 'bob' }));
+  await expect(service.loadOnStartup()).rejects.toThrow('another cloud account');
+  fetchMock.mockResolvedValueOnce(current(null));
+  await expect(service.loadOnStartup()).rejects.toThrow('unexpectedly missing');
+  expect(restore).not.toHaveBeenCalled();
+});
+
+test('startup reports offline, invalid responses, and interrupted restores without uploading', async () => {
+  fetchMock.mockRejectedValueOnce(new Error('offline'));
+  await expect(service.loadOnStartup()).rejects.toThrow('offline');
+  fetchMock.mockResolvedValueOnce(response({}));
+  await expect(service.loadOnStartup()).rejects.toThrow('Incomplete cloud response');
+  capture.mockRejectedValueOnce(new Error('An interrupted restore needs recovery'));
+  fetchMock.mockResolvedValueOnce(current(version()));
+  await expect(service.loadOnStartup()).rejects.toThrow('interrupted restore');
+  expect(restore).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true);
+});
+
+test('startup preserves legacy data and rejects local edits made during the cloud read', async () => {
+  capture.mockResolvedValue(data([]));
+  fetchMock.mockResolvedValue(current(version()));
+  localStorage.setItem('mo-money-transactions', '[{"id":"legacy"}]');
+  await expect(service.loadOnStartup()).rejects.toThrow('Legacy local data');
+  localStorage.removeItem('mo-money-transactions');
+  capture.mockResolvedValueOnce(data([])).mockResolvedValueOnce(data(['new-edit']));
+  await expect(service.loadOnStartup()).rejects.toThrow('Local data changed');
+  expect(restore).not.toHaveBeenCalled();
+});
+
+test('failed startup restore does not acknowledge the remote version', async () => {
+  capture.mockResolvedValue(data([]));
+  fetchMock.mockResolvedValue(current(version()));
+  restore.mockRejectedValueOnce(new Error('Storage full'));
+  await expect(service.loadOnStartup()).rejects.toThrow('Storage full');
+  expect(await db.syncMetadata.get('cloud:alice')).toBeUndefined();
+});
+
+test('a deliberate older recovery version is not replaced on next startup', async () => {
+  const remote = data(['one', 'two']);
+  fetchMock.mockResolvedValueOnce(current(version(remote, 'second')))
+    .mockResolvedValueOnce(response(version(data(), 'first')));
+  expect((await service.forceDownload('first')).success).toBe(true);
+  restore.mockClear();
+  service = new AzureBlobService();
+  capture.mockResolvedValue(data());
+  fetchMock.mockResolvedValue(current(version(data(['one', 'two', 'three']), 'third')));
+  await expect(service.loadOnStartup()).rejects.toThrow('unsaved local data');
+  expect(restore).not.toHaveBeenCalled();
 });
