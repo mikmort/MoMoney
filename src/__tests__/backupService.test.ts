@@ -7,6 +7,7 @@ import { notificationService } from '../services/notificationService';
 jest.mock('../services/db');
 jest.mock('../services/simplifiedImportExportService');
 jest.mock('../services/notificationService');
+jest.mock('../services/dataService');
 
 const mockDb = db as jest.Mocked<typeof db>;
 const mockImportExportService = simplifiedImportExportService as jest.Mocked<typeof simplifiedImportExportService>;
@@ -16,6 +17,11 @@ describe('BackupService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    mockDb.transaction = jest.fn().mockImplementation((...args: unknown[]) => {
+      const action = args[args.length - 1];
+      if (typeof action !== 'function') throw new Error('Missing transaction callback');
+      return action();
+    });
     
     // Create refs to mock functions that we can use later
     const mockToArray = jest.fn().mockResolvedValue([]);
@@ -271,6 +277,26 @@ describe('BackupService', () => {
       expect(stats.totalSize).toBe(0);
       expect(stats.lastBackupDate).toBeNull();
       expect(stats.oldestBackupDate).toBeNull();
+    });
+
+    it('retains manual backups and the last populated automatic backup when newer backups are empty', async () => {
+      const metadata = (id: string, createdBy: 'manual' | 'auto', transactionCount: number, day: number) => ({
+        id, createdBy, transactionCount, accountCount: 0, size: 100, version: '1.0',
+        timestamp: `2026-01-${String(day).padStart(2, '0')}T00:00:00Z`
+      });
+      const backups = [
+        metadata('manual', 'manual', 5, 1),
+        metadata('populated', 'auto', 5, 2),
+        metadata('old-empty', 'auto', 0, 3),
+        metadata('empty-1', 'auto', 0, 4),
+        metadata('empty-2', 'auto', 0, 5),
+        metadata('empty-3', 'auto', 0, 6)
+      ];
+      (mockDb.backupMetadata as any)._mockToArray.mockResolvedValue(backups);
+      await backupService.createBackup('manual');
+      expect(mockDb.backupData.delete).toHaveBeenCalledWith('old-empty');
+      expect(mockDb.backupData.delete).not.toHaveBeenCalledWith('manual');
+      expect(mockDb.backupData.delete).not.toHaveBeenCalledWith('populated');
     });
   });
 });

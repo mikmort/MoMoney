@@ -1,12 +1,8 @@
 name: Azure Static Web Apps CI/CD (Gentle Moss)
 
-# Configured for Azure Static Web Apps FREE tier
-# Free tier limitations:
-# - Max 250 MB app size (current build ~19MB)
-# - 3 staging environments
-# - 2 custom domains
-# - Managed APIs only (we use external Azure Functions instead)
-# - Pre-configured auth providers (GitHub, AAD) - no custom registrations
+# Momoney uses Azure Static Web Apps Standard (verified October 3, 2026).
+# This workflow deploys only the frontend. Deploy and link the protected storage
+# Function App separately; see api/README.md. Keep api_location empty for a linked backend.
 # See: https://learn.microsoft.com/en-us/azure/static-web-apps/plans
 
 on:
@@ -34,7 +30,7 @@ jobs:
           lfs: false
 
       # Use optimized Azure SWA action with custom build settings
-      # Configured for free tier: no managed API, uses built-in auth providers
+      # No managed API deployment; the app uses built-in auth providers.
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1

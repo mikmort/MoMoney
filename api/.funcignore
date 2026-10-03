@@ -1,0 +1,4 @@
+test/
+src/
+local.settings.json
+tsconfig.json

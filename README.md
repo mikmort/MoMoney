@@ -18,6 +18,47 @@ npm start
 
 The app will open at `http://localhost:3000` and automatically log you in as a test user.
 
+Use Node.js 22 LTS. Local development now bypasses sign-in by default **only in
+development builds**; it does not connect to cloud storage. Existing explicit
+`REACT_APP_SKIP_AUTH` settings still take precedence. If a local `.env` enables
+production sign-in, set `REACT_APP_SKIP_AUTH=true` and restart. If port 3000 is
+occupied, PowerShell users can run `$env:PORT='3001'; npm start`.
+
+Your data is stored in this browser's IndexedDB and localStorage, separately for
+each origin/port. To move data between devices or ports, use Settings > Export
+Data. Clearing browser storage deletes local data and local backups.
+
+### Protected cloud saves
+
+The old hard-coded storage proxy is no longer used. Cloud sync is opt-in and
+requires the versioned API in [`api/`](api/README.md), Microsoft sign-in, and
+`REACT_APP_CLOUD_SYNC_ENABLED=true` at frontend build time. Deploying just the
+frontend does **not** deploy the API. The managed-identity deployment documented
+there uses a linked Function App and requires **Static Web Apps Standard**.
+The existing `Momoney` Static Web App was verified as Standard on October 3, 2026;
+the protected storage API still needs deployment and configuration. No Azure
+resources are provisioned automatically by these changes.
+
+In Settings, download your existing cloud save (or upload once for a new
+account), then enable auto-sync. Startup never chooses a winner based on device
+clocks or silently replaces local data. Stale revisions and any removed record
+IDs block automatic saves; intentional deletions require explicit confirmation.
+Export local changes before downloading a conflicting cloud version.
+
+Each successful save retains a create-only recovery version on the server.
+Settings > Recovery versions can restore older cloud versions or pre-restore
+local snapshots. Restores disable auto-sync and reload to discard stale service
+caches. A failed/interrupted restore blocks uploads until recovered. Manual local
+backups and the last automatic backup containing transactions are protected from
+automatic pruning. Cloud versions and local recovery snapshots are not
+automatically pruned: monitor storage usage and keep independent exports.
+
+Cloud snapshots preserve transactions, transaction history, stored preferences,
+all accounts (including inactive ones), categories, budgets, rules, and templates.
+Account balance history and transfer links are preserved in their underlying
+records. Live exchange-rate caches, authentication tokens, and UI state are not
+synced.
+
 ### Production Mode (With Microsoft Authentication)
 
 1. **Set up Azure AD App Registration**:
@@ -57,9 +98,9 @@ The app will open at `http://localhost:3000` and automatically log you in as a t
 - **Styling**: Styled Components
 - **Grid**: AG Grid Community
 - **Charts**: Chart.js + React Chart.js 2
-- **Authentication**: Azure Static Web Apps built-in providers (free tier)
+- **Authentication**: Azure Static Web Apps built-in providers
 - **AI**: Azure OpenAI (for transaction categorization)
-- **Deployment**: Azure Static Web Apps (Free tier)
+- **Deployment**: Azure Static Web Apps (Standard tier)
 
 ## 📂 Project Structure
 
@@ -268,25 +309,16 @@ src/
 
 ## Deployment to Azure Static Web Apps
 
-This application is configured for the **Azure Static Web Apps Free tier**.
-
-### Free Tier Features & Limitations
-
-| Feature | Free Tier Limit |
-|---------|----------------|
-| App Size | 250 MB (current build ~19 MB) |
-| Staging Environments | 3 |
-| Custom Domains | 2 |
-| APIs | Managed only (this app uses separate Azure Functions) |
-| Authentication | Pre-configured providers only (⚠️ no tenant restrictions) |
-| SLA | None |
+The existing `Momoney` resource uses **Azure Static Web Apps Standard**, verified
+on October 3, 2026. Standard supports the linked Function App required for the
+protected storage API. The hosting plan alone does not deploy or configure that API.
 
 For more details, see [Azure Static Web Apps hosting plans](https://learn.microsoft.com/en-us/azure/static-web-apps/plans).
 
 ### 1. Create Azure Static Web App
 
 1. In Azure portal, create a new Static Web App
-2. **Select the Free plan** when configuring the hosting plan
+2. **Select the Standard plan** for the protected cloud-storage architecture
 3. Connect to your GitHub repository
 4. Set build configuration:
    - Framework: React
@@ -295,33 +327,27 @@ For more details, see [Azure Static Web Apps hosting plans](https://learn.micros
 
 ### 2. Configure Environment Variables
 
-In the Azure portal, add these application settings:
-- `REACT_APP_AZURE_OPENAI_ENDPOINT`
-- `REACT_APP_AZURE_OPENAI_API_KEY`
-- `REACT_APP_AZURE_OPENAI_DEPLOYMENT`
+Follow [the API deployment instructions](api/README.md) for server-side storage
+settings and frontend build-time cloud flags. Do not put storage credentials or
+API secrets in `REACT_APP_*` variables: those values are bundled into the browser.
 
-Note: `REACT_APP_AZURE_AD_CLIENT_ID` is no longer required when using the built-in AAD authentication provider on the free tier.
+Note: `REACT_APP_AZURE_AD_CLIENT_ID` is not required when using the built-in AAD authentication provider.
 
-### 3. Authentication (Free Tier)
+### 3. Authentication
 
-> ⚠️ **Security Note**: The free tier cannot restrict authentication to specific tenants or domains. Any user with a Microsoft account can authenticate to your application. If you need tenant restrictions, you must upgrade to the Standard tier.
+> ⚠️ **Security Note**: Changing the hosting plan does not automatically restrict sign-in. Configure custom authentication and authorization explicitly if you need tenant or domain restrictions.
 
-The free tier uses Azure Static Web Apps' built-in authentication providers:
+The app uses Azure Static Web Apps' built-in authentication providers:
 - **Microsoft/AAD**: `/.auth/login/aad` - Allows any Microsoft account to sign in
 - **GitHub**: `/.auth/login/github` - Allows GitHub account sign in
 
 No custom Azure AD app registration is required for basic authentication. The built-in providers handle user authentication automatically.
 
-### 4. Upgrade to Standard Tier (Optional)
+### 4. Configure the Linked Storage API
 
-If you need these features, upgrade to the Standard tier:
-- Custom authentication providers with tenant restrictions
-- Private endpoints (VNet integration)
-- More than 2 custom domains
-- Bring Your Own Azure Functions
-- SLA guarantees
-
-To upgrade, go to Azure Portal → Your Static Web App → Settings → Hosting plan.
+The hosting-plan prerequisite is already satisfied. Deploy and link the Function
+App, configure its managed identity and private storage container, and disable
+legacy proxy writes before enabling cloud sync. Follow [api/README.md](api/README.md).
 
 ## Development
 

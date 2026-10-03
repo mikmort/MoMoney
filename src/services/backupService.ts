@@ -15,6 +15,7 @@ class BackupService {
   private readonly MAX_BACKUPS = 3;
   private lastDataChangeTime: Date | null = null;
   private isInitialized = false;
+  private automaticBackupRunning = false;
 
   constructor() {
     this.initialize();
@@ -62,6 +63,8 @@ class BackupService {
   }
 
   private async checkAndCreateBackup(): Promise<void> {
+    if (this.automaticBackupRunning) return;
+    this.automaticBackupRunning = true;
     try {
       await this.ensureInitialized();
 
@@ -83,6 +86,8 @@ class BackupService {
       await this.createBackup('auto');
     } catch (error) {
       backupError('Failed to check/create backup:', error);
+    } finally {
+      this.automaticBackupRunning = false;
     }
   }
 
@@ -110,12 +115,10 @@ class BackupService {
       };
 
       // Store backup data and metadata
-      await db.backupData.add({
-        id: backup.id,
-        data: exportData
+      await db.transaction('rw', db.backupData, db.backupMetadata, async () => {
+        await db.backupData.add({ id: backup.id, data: exportData });
+        await db.backupMetadata.add(backup);
       });
-
-      await db.backupMetadata.add(backup);
 
       // Update last backup time
       this.lastBackupTime = new Date(backup.timestamp);
@@ -146,14 +149,17 @@ class BackupService {
     try {
       const backups = await this.getBackupList();
       
-      if (backups.length > this.MAX_BACKUPS) {
+      const automatic = backups.filter(backup => backup.createdBy === 'auto');
+      if (automatic.length > this.MAX_BACKUPS) {
         // Sort by timestamp, oldest first
-        const sortedBackups = backups.sort((a, b) => 
+        const sortedBackups = automatic.sort((a, b) =>
           new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         );
 
         // Remove oldest backups
-        const toRemove = sortedBackups.slice(0, backups.length - this.MAX_BACKUPS);
+        const lastPopulated = [...sortedBackups].reverse().find(backup => backup.transactionCount > 0);
+        const toRemove = sortedBackups.slice(0, automatic.length - this.MAX_BACKUPS)
+          .filter(backup => backup.id !== lastPopulated?.id);
         
         for (const backup of toRemove) {
           await this.deleteBackup(backup.id);
@@ -244,8 +250,10 @@ class BackupService {
     await this.ensureInitialized();
     
     try {
-      await db.backupData.delete(backupId);
-      await db.backupMetadata.delete(backupId);
+      await db.transaction('rw', db.backupData, db.backupMetadata, async () => {
+        await db.backupData.delete(backupId);
+        await db.backupMetadata.delete(backupId);
+      });
       backupLog('Backup deleted:', backupId);
     } catch (error) {
       backupError('Failed to delete backup:', error);

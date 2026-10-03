@@ -13,6 +13,7 @@ import { useNotification } from '../../contexts/NotificationContext';
 import { UserPreferences, CurrencyExchangeRate } from '../../types';
 import { BackupMetadata } from '../../types/backup';
 import ImportSelectionDialog from './ImportSelectionDialog';
+import { CloudRecovery } from './CloudRecovery';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -465,7 +466,7 @@ const Settings: React.FC = () => {
   }, []);
 
   const loadAutosaveStatus = () => {
-    setIsAutoSyncActive(appInitializationService.isAutosaveEnabled());
+    setIsAutoSyncActive(azureBlobService.isAvailable() && appInitializationService.isAutosaveEnabled());
   };
 
   const loadBlobUrl = async () => {
@@ -852,7 +853,7 @@ const Settings: React.FC = () => {
     const shouldDownload = await showConfirmation(
       'Download data from cloud?\n\n' +
       'This will replace your current local data with the data stored in Azure Blob Storage.\n' +
-      'Make sure you have a backup of your current data before proceeding.\n\n' +
+      'A local recovery snapshot will be kept before anything is replaced.\n\n' +
       'Continue?',
       { 
         title: 'Download from Cloud',
@@ -871,7 +872,7 @@ const Settings: React.FC = () => {
       if (result.success) {
         setCloudSyncStatus('');
         showAlert('success', result.message + '\n\nThe page will refresh to load the restored data.', 'Cloud Download Complete', { autoClose: false });
-        setTimeout(() => window.location.reload(), 3000);
+        window.location.reload();
       } else {
         setCloudSyncStatus('');
         showAlert('error', result.message, 'Cloud Download Failed');
@@ -900,7 +901,7 @@ const Settings: React.FC = () => {
     } catch (error) {
       console.error('Start sync error:', error);
       setCloudSyncStatus('');
-      showAlert('error', 'Failed to start automatic sync. Please check CORS configuration.');
+      showAlert('error', error instanceof Error ? error.message : 'Failed to start automatic sync.');
     }
   };
 
@@ -1201,12 +1202,13 @@ const Settings: React.FC = () => {
         
         <div style={{ marginBottom: '20px' }}>
           <h4>☁️ Cloud Storage</h4>
-          <p>Automatically sync your data to Azure Blob Storage. The app checks for cloud data on startup and syncs with whichever version is newer. Auto-sync is enabled by default and saves changes every 30 seconds.</p>
+          <p>Cloud saves use revision checks, not device clocks. Link this device with an initial upload or download, then enable auto-sync. Conflicts and record deletions pause automatic saves for review. Each cloud save retains a recovery version; startup never replaces local data.</p>
+          {!azureBlobService.isAvailable() && <p role="status">Cloud sync is disabled for this local session. Your data stays in this browser. Cloud use requires sign-in and deployment of the protected storage API.</p>}
           
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
             <Button 
               onClick={handleUploadToCloud}
-              disabled={isUploadingToCloud}
+              disabled={isUploadingToCloud || isDownloadingFromCloud || !azureBlobService.isAvailable()}
               style={{ background: '#0078D4', borderColor: '#0078D4', color: 'white', minWidth: '140px' }}
             >
               {isUploadingToCloud ? 'Uploading...' : '☁️ Upload to Cloud'}
@@ -1214,7 +1216,7 @@ const Settings: React.FC = () => {
 
             <Button 
               onClick={handleDownloadFromCloud}
-              disabled={isDownloadingFromCloud}
+              disabled={isDownloadingFromCloud || isUploadingToCloud || !azureBlobService.isAvailable()}
               style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white', minWidth: '140px' }}
             >
               {isDownloadingFromCloud ? 'Downloading...' : '📥 Download from Cloud'}
@@ -1223,6 +1225,7 @@ const Settings: React.FC = () => {
             {!isAutoSyncActive ? (
               <Button 
                 onClick={handleStartAutoSync}
+                disabled={!azureBlobService.isAvailable()}
                 style={{ background: '#FF9800', borderColor: '#FF9800', color: 'white', minWidth: '140px' }}
               >
                 🔄 Start Auto Sync
@@ -1244,7 +1247,7 @@ const Settings: React.FC = () => {
           )}
 
           <div style={{ marginTop: '12px', fontSize: '14px', color: isAutoSyncActive ? '#4CAF50' : '#666' }}>
-            {isAutoSyncActive ? '🔄 Auto sync active - automatically syncs on startup and every 30 seconds' : '⏸️ Auto sync disabled - use manual buttons to sync'}
+            {isAutoSyncActive ? '🔄 Auto sync enabled - checks every 30 seconds; conflicts or deletions require review' : '⏸️ Auto sync disabled - use manual buttons to sync'}
           </div>
           
           <div style={{ marginTop: '12px', padding: '12px', background: '#f3e5f5', borderRadius: '6px', fontSize: '14px', color: '#7b1fa2' }}>
@@ -1266,9 +1269,10 @@ const Settings: React.FC = () => {
               )}
             </div>
             <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-              💡 Your data is automatically synced to this location every 30 seconds when changes are detected. Manual sync buttons above for immediate upload/download.
+              💡 When enabled, auto-sync checks this protected endpoint every 30 seconds. It never bypasses conflict or deletion safeguards.
             </div>
           </div>
+          <CloudRecovery />
         </div>
         
         <div style={{ marginBottom: '20px' }}>
@@ -1336,7 +1340,7 @@ const Settings: React.FC = () => {
           
           <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
             <h4>🕐 Automatic Backups</h4>
-            <p>Manage automatic version snapshots that are created when you make changes (max 3 backups, 30-minute intervals).</p>
+            <p>Automatic snapshots are created at 30-minute intervals. The latest 3 are retained, plus the last snapshot containing transactions. Manual backups are never automatically pruned.</p>
             
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
               <Button 

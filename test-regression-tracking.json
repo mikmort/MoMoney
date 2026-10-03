@@ -2,13 +2,68 @@
   "version": "1.0.0",
   "description": "Tracking system for automated test regressions - tracks when tests break and whether the fix was in the test or product code",
   "stats": {
-    "totalRegressions": 5,
-    "testBugFixes": 2,
-    "productBugFixes": 3,
-    "testBugPercentage": 40,
-    "productBugPercentage": 60
+    "totalRegressions": 10,
+    "testBugFixes": 5,
+    "productBugFixes": 5,
+    "testBugPercentage": 50,
+    "productBugPercentage": 50
   },
   "regressions": [
+    {
+      "testName": "Cloud test TypeScript fixtures",
+      "testFile": "src\\__tests__\\azureBlobService.test.ts",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Complete Response fixture type and mark startup test as a module for isolatedModules type checking.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791052876463-7p655miry",
+      "timestamp": "2026-10-03T18:41:16.463Z"
+    },
+    {
+      "testName": "Storage authentication request fixture",
+      "testFile": "api\\test\\storageAuth.test.ts",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Provide the required GET method when constructing Azure Functions HttpRequest test fixtures.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791052580462-vqq6y5amh",
+      "timestamp": "2026-10-03T18:36:20.462Z"
+    },
+    {
+      "testName": "Snapshot validator helper scope",
+      "testFile": "src\\utils\\cloudSnapshot.ts",
+      "fixType": "product",
+      "severity": "medium",
+      "description": "Fixed validator helper scope caught by API build and persisted snapshot round-trip tests.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791052580386-5e5g4gdnq",
+      "timestamp": "2026-10-03T18:36:20.386Z"
+    },
+    {
+      "testName": "Cloud snapshot date round trip",
+      "testFile": "src\\__tests__\\cloudSnapshotService.test.ts",
+      "fixType": "product",
+      "severity": "medium",
+      "description": "Normalize equivalent date representations in snapshot comparisons so legacy date-only data does not create false changes after restore.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791052278410-j7yrw93yd",
+      "timestamp": "2026-10-03T18:31:18.410Z"
+    },
+    {
+      "testName": "Backup transaction mocks and WebCrypto setup",
+      "testFile": "src\\__tests__\\azureBlobService.test.ts",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Updated backup mocks to execute atomic transaction callbacks and installed WebCrypto in the Jest environment.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791052278329-t3dma30g7",
+      "timestamp": "2026-10-03T18:31:18.329Z"
+    },
     {
       "testName": "Transaction Categorization AI Test",
       "testFile": "src/__tests__/aiCategorization.test.ts",

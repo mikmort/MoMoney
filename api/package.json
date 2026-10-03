@@ -1,0 +1,25 @@
+{
+  "name": "momoney-storage-api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/api/src/functions/*.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prestart": "npm run build",
+    "start": "func start",
+    "test": "npm run build && node --test dist/api/test/*.test.js"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.11.0",
+    "@azure/identity": "^4.13.0",
+    "@azure/storage-blob": "^12.29.0",
+    "mo-money": "file:.."
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

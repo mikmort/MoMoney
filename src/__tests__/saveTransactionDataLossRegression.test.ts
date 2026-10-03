@@ -27,6 +27,26 @@ describe('Transaction Data Loss Regression Tests', () => {
       (dataService as any).history = {};
     });
 
+    it('rolls back the entire save even when only one of several rows fails', async () => {
+      for (let i = 0; i < 3; i++) {
+        await dataService.addTransaction({
+          date: new Date('2026-01-01'), description: `Original ${i}`, amount: -10,
+          category: 'Food', account: 'Checking', type: 'expense'
+        });
+      }
+      const before = await db.transactions.toArray();
+      const partialFailure = jest.spyOn(db, 'robustBulkPut').mockImplementation(async () => ({
+        successful: 3, failed: 1, errors: ['one row failed']
+      }));
+      try {
+        await expect(dataService.addTransaction({
+          date: new Date('2026-01-01'), description: 'Failed save', amount: -20,
+          category: 'Food', account: 'Checking', type: 'expense'
+        })).rejects.toThrow('Save rolled back');
+        expect(await db.transactions.toArray()).toEqual(before);
+      } finally { partialFailure.mockRestore(); }
+    });
+
     it('should use database transactions to prevent data loss during save', async () => {
       // Add some initial transactions
       const transaction1 = await dataService.addTransaction({

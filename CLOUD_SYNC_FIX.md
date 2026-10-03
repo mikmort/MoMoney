@@ -1,5 +1,9 @@
 # Cloud Sync Fix Summary
 
+> Historical notes for the retired overwrite-only proxy. Current behavior and
+> rollout instructions are in [api/README.md](api/README.md). Do not redeploy the
+> legacy sync path described below.
+
 ## 🐛 Problem Identified
 Your cloud sync was saving data with all `null` values:
 

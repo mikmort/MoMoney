@@ -18,6 +18,8 @@ class DataService {
   private healthCheckFailures = 0; // Track consecutive health check failures
   private needsAnomalyDetection = false; // Track if anomaly detection needs to be re-run
   private internalTransferTypeAuditDone = false; // One-time runtime audit to fix lingering Internal Transfer type mismatches
+  private initializationError: Error | null = null;
+  private persistenceSuspended = false;
   
   // In-memory undo/redo stacks for fast operations during active editing
   private undoStacks: { [transactionId: string]: Transaction[] } = {};
@@ -54,6 +56,9 @@ class DataService {
       
       // Initialize IndexedDB and handle migration
       await initializeDB();
+      if (await db.syncMetadata.get('pending-restore')) {
+        throw new Error('An interrupted restore must be recovered in Settings before editing data.');
+      }
       
       // Load data from IndexedDB
       await this.loadFromDB();
@@ -182,10 +187,8 @@ class DataService {
       txError('[TX] Failed to initialize DataService:', error);
       this.healthCheckFailures++;
       
-      // Fallback to empty state
-      this.transactions = [];
-      this.history = {};
-      this.isInitialized = true;
+      this.initializationError = error instanceof Error ? error : new Error('Database initialization failed.');
+      notificationService.showAlert('error', 'Local data could not be loaded. Saving is blocked to protect your data. Reload or recover an interrupted restore in Settings.');
     } finally {
       // Always clear the initialization flag
       isInitializationInProgress = false;
@@ -249,9 +252,20 @@ class DataService {
   }
 
   private async ensureInitialized(): Promise<void> {
+    if (this.initializationError) throw this.initializationError;
+    if (this.persistenceSuspended) throw new Error('Data has been restored. Reload before editing or saving.');
     if (!this.isInitialized) {
       await this.initialize();
     }
+    if (this.initializationError) throw this.initializationError;
+  }
+
+  public async readyForPersistence(): Promise<void> {
+    await this.ensureInitialized();
+  }
+
+  public suspendPersistence(): void {
+    this.persistenceSuspended = true;
   }
 
   async loadSampleData(): Promise<void> {
@@ -1174,8 +1188,7 @@ class DataService {
       }
     } catch (error) {
       console.error('Failed to load transactions from IndexedDB:', error);
-      this.transactions = [];
-      this.history = {};
+      throw error;
     }
   }
 
@@ -1333,10 +1346,13 @@ class DataService {
   }
 
   private async saveToDB(): Promise<void> {
+    if (this.initializationError) throw this.initializationError;
+    if (this.persistenceSuspended) throw new Error('Reload after restoring data before saving.');
     try {
       // Use atomic database transaction to prevent data loss
       // This ensures either both clear and repopulate succeed, or neither happens
       await db.transaction('rw', [db.transactions], async () => {
+        if (this.persistenceSuspended) throw new Error('Reload after restoring data before saving.');
         // Clear all existing transactions
         await db.transactions.clear();
         
@@ -1348,10 +1364,8 @@ class DataService {
             console.warn(`[TX] Save operation had issues: ${results.successful} successful, ${results.failed} failed`);
             results.errors.forEach(error => console.warn(`[TX] ${error}`));
             
-            // If we have significant failures, throw to rollback the transaction
-            if (results.failed > results.successful) {
-              throw new Error(`Too many save failures: ${results.failed}/${this.transactions.length} failed`);
-            }
+            // Any failed row must roll back the clear as well.
+            throw new Error(`Save rolled back: ${results.failed}/${this.transactions.length} transactions failed`);
           } else {
             console.log(`[TX] Successfully saved ${results.successful} transactions to IndexedDB`);
           }

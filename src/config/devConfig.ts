@@ -1,6 +1,8 @@
 // Development mode configuration
 export const isDevelopmentMode = process.env.NODE_ENV === 'development';
-export const skipAuthentication = process.env.REACT_APP_SKIP_AUTH === 'true';
+export const skipAuthentication = process.env.REACT_APP_SKIP_AUTH === undefined
+  ? isDevelopmentMode
+  : process.env.REACT_APP_SKIP_AUTH.toLowerCase() === 'true';
 
 // Debug logging for development
 if (isDevelopmentMode) {

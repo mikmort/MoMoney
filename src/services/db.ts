@@ -1,6 +1,20 @@
 import Dexie, { Table } from 'dexie';
 import { Transaction, UserPreferences } from '../types';
 import type { BackupMetadata, BackupData } from '../types/backup';
+import type { CloudSnapshot } from '../utils/cloudSnapshot';
+
+export interface RecoverySnapshot {
+  id: string;
+  createdAt: string;
+  data: CloudSnapshot;
+}
+
+export interface SyncMetadata {
+  id: string;
+  revision?: string | null;
+  fingerprint?: string;
+  recoveryId?: string;
+}
 
 // Internal logger helpers: silence in test to avoid Jest "Cannot log after tests are done" noise
 const __IS_TEST__ = process.env.NODE_ENV === 'test';
@@ -67,6 +81,8 @@ export class MoMoneyDB extends Dexie {
   userPreferences!: Table<StoredUserPreferences>;
   backupMetadata!: Table<BackupMetadata>;
   backupData!: Table<BackupData>;
+  recoverySnapshots!: Table<RecoverySnapshot>;
+  syncMetadata!: Table<SyncMetadata>;
 
   constructor() {
     super('MoMoneyDB');
@@ -91,6 +107,11 @@ export class MoMoneyDB extends Dexie {
       userPreferences: 'id, lastModified',
       backupMetadata: 'id, timestamp, createdBy',
       backupData: 'id'
+    });
+
+    this.version(4).stores({
+      recoverySnapshots: 'id, createdAt',
+      syncMetadata: 'id'
     });
 
     // Add lifecycle handlers for robustness
