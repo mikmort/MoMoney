@@ -2,13 +2,24 @@
   "version": "1.0.0",
   "description": "Tracking system for automated test regressions - tracks when tests break and whether the fix was in the test or product code",
   "stats": {
-    "totalRegressions": 10,
-    "testBugFixes": 5,
+    "totalRegressions": 11,
+    "testBugFixes": 6,
     "productBugFixes": 5,
-    "testBugPercentage": 50,
-    "productBugPercentage": 50
+    "testBugPercentage": 55,
+    "productBugPercentage": 45
   },
   "regressions": [
+    {
+      "testName": "Backup paste correction browser check",
+      "testFile": "src\\__tests__\\BackupFilePicker.test.tsx",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Use the textarea accessible role in the manual browser check; a text-content-based label locator included the controlled textarea value after editing.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791060931112-k6ru93wa2",
+      "timestamp": "2026-10-03T20:55:31.112Z"
+    },
     {
       "testName": "Cloud test TypeScript fixtures",
       "testFile": "src\\__tests__\\azureBlobService.test.ts",
