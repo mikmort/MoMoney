@@ -1,5 +1,10 @@
 # Auto-Sync and Boot-Time Synchronization Implementation
 
+The timestamp-based implementation described below is historical. See
+[Cloud sync data safety](CLOUD_SYNC_EMPTY_DATA_FIX.md) for the current
+baseline-based conflict checks, confirmed removals, recovery copies, and required
+storage-proxy conditional-write support.
+
 ## Overview
 This implementation adds automatic cloud synchronization and boot-time data sync functionality to Mo Money app.
 

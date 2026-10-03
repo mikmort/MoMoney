@@ -13,6 +13,8 @@ class DataService {
   private transactions: Transaction[] = [];
   private history: { [transactionId: string]: Array<{ id: string; timestamp: string; data: Transaction; note?: string }> } = {};
   private isInitialized = false;
+  private initializationError: unknown = null;
+  private persistedTransactions: string | null = null;
   private isRunningTransferMatching = false; // Prevent multiple concurrent transfer matching runs
   private healthCheckResults: DBHealthCheck | null = null;
   private healthCheckFailures = 0; // Track consecutive health check failures
@@ -176,16 +178,15 @@ class DataService {
       // }
       
       this.isInitialized = true;
+      this.initializationError = null;
       txLog(`[TX] DataService initialized with ${this.transactions.length} transactions`);
     } catch (error) {
       const txError = (...args: any[]) => { if (process.env.NODE_ENV !== 'test') console.error(...args); };
       txError('[TX] Failed to initialize DataService:', error);
       this.healthCheckFailures++;
       
-      // Fallback to empty state
-      this.transactions = [];
-      this.history = {};
-      this.isInitialized = true;
+      this.initializationError = error;
+      this.isInitialized = false;
     } finally {
       // Always clear the initialization flag
       isInitializationInProgress = false;
@@ -251,6 +252,9 @@ class DataService {
   private async ensureInitialized(): Promise<void> {
     if (!this.isInitialized) {
       await this.initialize();
+    }
+    if (!this.isInitialized || this.initializationError) {
+      throw new Error('Local data could not be loaded safely. Reload or recover a backup before editing.');
     }
   }
 
@@ -1149,6 +1153,7 @@ class DataService {
     try {
       // Load transactions from IndexedDB
       this.transactions = await db.transactions.orderBy('date').toArray();
+      this.persistedTransactions = this.transactionSnapshot(this.transactions);
       
       // Load history from IndexedDB and convert to the expected format
       const historyEntries = await db.transactionHistory.toArray();
@@ -1174,8 +1179,7 @@ class DataService {
       }
     } catch (error) {
       console.error('Failed to load transactions from IndexedDB:', error);
-      this.transactions = [];
-      this.history = {};
+      throw error;
     }
   }
 
@@ -1332,11 +1336,20 @@ class DataService {
     return { fixed: fixedCount, errors };
   }
 
+  private transactionSnapshot(transactions: Transaction[]): string {
+    return JSON.stringify([...transactions].sort((a, b) => a.id.localeCompare(b.id)));
+  }
+
   private async saveToDB(): Promise<void> {
     try {
+      let persistedSnapshot: string | null = null;
       // Use atomic database transaction to prevent data loss
       // This ensures either both clear and repopulate succeed, or neither happens
       await db.transaction('rw', [db.transactions], async () => {
+        const current = this.transactionSnapshot(await db.transactions.toArray());
+        if (this.persistedTransactions === null || current !== this.persistedTransactions) {
+          throw new Error('Stored data changed or was not loaded safely. Reload before saving to avoid overwriting restored data or another tab.');
+        }
         // Clear all existing transactions
         await db.transactions.clear();
         
@@ -1348,17 +1361,16 @@ class DataService {
             console.warn(`[TX] Save operation had issues: ${results.successful} successful, ${results.failed} failed`);
             results.errors.forEach(error => console.warn(`[TX] ${error}`));
             
-            // If we have significant failures, throw to rollback the transaction
-            if (results.failed > results.successful) {
-              throw new Error(`Too many save failures: ${results.failed}/${this.transactions.length} failed`);
-            }
+            throw new Error(`Save rolled back: ${results.failed}/${this.transactions.length} transactions failed`);
           } else {
             console.log(`[TX] Successfully saved ${results.successful} transactions to IndexedDB`);
           }
         } else {
           console.log(`[TX] Successfully cleared all transactions from IndexedDB`);
         }
+        persistedSnapshot = this.transactionSnapshot(await db.transactions.toArray());
       });
+      this.persistedTransactions = persistedSnapshot;
 
       // Notify backup service about data changes (but don't await to avoid blocking saves)
       this.notifyBackupService();
@@ -1484,6 +1496,7 @@ class DataService {
       try { await db.open(); } catch {}
     }
     await db.clearAll();
+    this.persistedTransactions = this.transactionSnapshot([]);
   }
 
   // Anomaly detection methods
@@ -2290,8 +2303,6 @@ class DataService {
             // Update the transaction in place to avoid calling ensureInitialized()
             this.transactions[i] = updatedTransaction;
             
-            // Save to database directly
-            await db.transactions.put(this.transactions[i]);
             fixed++;
           } catch (error) {
             const errorMsg = `Failed to cleanup orphaned matches for transaction ${transaction.id}: ${error}`;
@@ -2302,6 +2313,7 @@ class DataService {
       }
 
       if (fixed > 0) {
+        await this.saveToDB();
         console.log(`[TX] Cleaned up ${fixed} orphaned reimbursementId/transferId references`);
       }
     } catch (error) {

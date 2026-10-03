@@ -2,13 +2,35 @@
   "version": "1.0.0",
   "description": "Tracking system for automated test regressions - tracks when tests break and whether the fix was in the test or product code",
   "stats": {
-    "totalRegressions": 5,
-    "testBugFixes": 2,
-    "productBugFixes": 3,
-    "testBugPercentage": 40,
-    "productBugPercentage": 60
+    "totalRegressions": 7,
+    "testBugFixes": 3,
+    "productBugFixes": 4,
+    "testBugPercentage": 43,
+    "productBugPercentage": 57
   },
   "regressions": [
+    {
+      "testName": "Fresh-browser cloud restore",
+      "testFile": "src/__tests__/cloudSyncSafety.test.ts",
+      "fixType": "product",
+      "severity": "high",
+      "description": "Do not treat built-in categories in an otherwise empty browser as user data that blocks safe cloud recovery.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791050408980-wgrljf7rc",
+      "timestamp": "2026-10-03T18:00:08.980Z"
+    },
+    {
+      "testName": "Cloud sync safety test setup",
+      "testFile": "src/__tests__/cloudSyncSafety.test.ts",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Installed the Node WebCrypto test shim on global rather than an absent jsdom crypto object.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791050298677-ksug5j33y",
+      "timestamp": "2026-10-03T17:58:18.677Z"
+    },
     {
       "testName": "Transaction Categorization AI Test",
       "testFile": "src/__tests__/aiCategorization.test.ts",

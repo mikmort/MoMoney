@@ -1,194 +1,89 @@
-# Cloud Sync Empty Data Fix
+# Cloud sync data safety
 
-## 🔍 Problem Description
+Cloud sync uses the signed-in Azure Static Web Apps `userId`. Development mode
+does not contact cloud storage, and missing authentication never falls back to
+an anonymous or shared account. The first authenticated sync binds this browser's
+existing cache to that account; a different account must use a separate browser
+profile or explicitly export and clear the previous account's local data.
 
-Cloud sync was incorrectly overwriting existing cloud data with empty local data when opening the app in a new browser. The issue occurred because:
+## Sync and conflict behavior
 
-1. **Faulty Local Data Detection**: The app detected "local data" even when localStorage contained only empty arrays or null values
-2. **Artificial Recent Timestamps**: Empty local data was assigned a recent timestamp, making it appear "newer" than legitimate cloud data
-3. **Poor Cloud Timestamp Handling**: Cloud data with missing/corrupted timestamps (showing as 1970-01-01) wasn't handled properly
+- All startup, automatic, and manual sync operations use the same safety checks.
+  Startup sync runs inside authentication, before opening editable pages.
+  Disabling autosave disables startup sync and the 30-second timer.
+- IndexedDB and persisted localStorage collections are read directly, including
+  inactive accounts. Storage errors, malformed records, missing cloud collections,
+  duplicate IDs, and unknown backup versions stop sync instead of becoming empty
+  arrays. Legacy string-valued cloud backups and JSON exports are accepted.
+- SHA-256 fingerprints exclude export timestamps and normalize property and record
+  ordering. A stored, account-specific baseline identifies local-only changes,
+  cloud-only changes, and conflicts. Timestamps never choose a winning copy.
+- A fresh browser restores cloud data. Unchanged copies produce no uploads.
+  Both sides changing, an unknown baseline, or a previously existing blob
+  disappearing pauses automatic sync. Export a local backup before resolving a
+  conflict in Settings; this is not an automatic record-merging system.
+- Uploads that remove any cloud transaction, history entry, account, category,
+  budget, or rule require explicit confirmation through **Upload to Cloud**.
+  Equal row counts do not bypass the check: record IDs are compared.
+  Automatic downloads that remove local records also pause.
+- Before replacement, verified recovery blobs preserve the previous cloud copy
+  and the upload candidate, or the local copy before a download. A failed backup
+  stops the replacement. Uploads are read back and compared before reporting
+  success or advancing the baseline.
+- Restores validate every record before clearing anything. Transactions, history,
+  and preferences are replaced in one IndexedDB transaction; localStorage changes
+  are rolled back on failure. An interrupted-restore marker blocks subsequent
+  sync after a browser crash. Use a fresh browser profile for cloud recovery if
+  this marker remains.
+- Imports or edits during a download cause restoration to abort. Restored pages
+  reload before further sync. Transaction saves reject stale in-memory caches and
+  roll back if even one record fails, rather than committing a partially empty
+  database.
 
-### Debug Log Evidence
-```
-[App Init] Local data timestamp: 2025-09-01T17:46:46.805Z  // Empty data with recent timestamp
-[App Init] Cloud data timestamp: 1970-01-01T00:00:00.000Z  // Corrupted/missing timestamp
-[App Init] Local data is newer - uploading to cloud...     // Wrong decision!
-[Azure Sync] Collected data: 0 transactions, 0 accounts, 0 categories  // Uploading empty data
-```
+## Required storage-proxy support
 
-## ✅ Solution Implemented
+The storage proxy is external to this repository. Its deployment is not changed
+or verified by these client changes. Safe operation requires:
 
-### 1. **Enhanced Local Data Detection** (`getLocalDataTimestamp()`)
-**Before:**
-```typescript
-// If we have any data, assume it was modified recently
-let hasLocalData = false;
-for (const key of dataKeys) {
-  if (localStorage.getItem(key)) {  // Only checked existence
-    hasLocalData = true;
-    break;
-  }
-}
-```
+1. GET responses expose the Azure blob **ETag** header to the browser.
+2. Upload routes forward **If-Match** and **If-None-Match** conditions atomically
+   to Azure Blob Storage and return HTTP 412 when conditions fail. Merely echoing
+   an ETag is not sufficient.
+3. CORS allows these conditional request headers and exposes `ETag`.
+4. Both read routes use 404 only for a missing blob/unsupported route. Network,
+   authentication, server, and parsing errors are not treated as missing data.
+5. The proxy authorizes blob access against the authenticated user's identity.
+   A client-side account ID in a blob name is not server-side authorization.
 
-**After:**
-```typescript
-// Check if we have any MEANINGFUL data (not just empty arrays/objects)
-let hasMeaningfulData = false;
-for (const key of dataKeys) {
-  const value = localStorage.getItem(key);
-  if (value) {
-    try {
-      const parsed = JSON.parse(value);
-      // Check if it's a meaningful data structure
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        hasMeaningfulData = true;
-        break;
-      } else if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-        // For objects like preferences, check if they have meaningful content
-        if (key === 'mo_money_user_preferences') {
-          hasMeaningfulData = true;
-          break;
-        }
-      }
-    } catch (e) {
-      // If it's not JSON, treat it as meaningful data
-      hasMeaningfulData = true;
-      break;
-    }
-  }
-}
+Existing blobs without an exposed ETag cannot be replaced by the client. This
+deliberately favors keeping data over silently using an unsafe overwrite.
+Read-back verification and independent recovery copies provide additional
+protection, but cannot substitute for server-enforced conditional writes.
 
-if (hasMeaningfulData && timestamps.length === 0) {
-  // We have meaningful data but no timestamp - assume it's recent for safety
-  timestamps.push(new Date());
-}
+Enable Azure Blob versioning and blob/container soft delete as a separate
+operational safeguard. See Microsoft's guidance on
+[concurrency](https://learn.microsoft.com/azure/storage/blobs/concurrency-manage)
+and [data protection](https://learn.microsoft.com/azure/storage/blobs/data-protection-overview).
 
-// Return the most recent timestamp, or null if no meaningful data
-return timestamps.length > 0 ? new Date(Math.max(...timestamps.map(d => d.getTime()))) : null;
-```
+## Recovery and scope
 
-### 2. **Smart Cloud Sync Logic** (`performInitialCloudSync()`)
+The current blob is `<userId>-money-save`. Recovery blobs are stored alongside it
+as `<userId>-money-save-recovery-<uuid>`. They are not automatically pruned.
+An operator with authorized storage access can download the desired recovery
+blob. Its version-1 string-valued format can be restored by copying it to the
+account's current blob after preserving the existing head, then using
+**Download from Cloud** in a fresh browser profile. Confirm counts and contents
+before replacement. Do not set a retention policy until a suitable recovery
+window and independent backup policy have been chosen.
 
-Added comprehensive logic to handle various scenarios:
+Sync covers transactions (including transfer links, splits, and currency metadata),
+transaction history, preferences, all accounts, categories, budgets, and rules.
+Derived balance histories, exchange-rate caches, and transfer-match summaries
+are not authoritative sync state; balances and matches are reconstructed from
+transactions/accounts. File attachment metadata is included in transactions,
+but this does not upload attachment file contents.
 
-- **Invalid Cloud Timestamps**: Detects timestamps from epoch (1970-01-01) as corrupted
-- **Meaningful Content Analysis**: Checks if cloud data actually contains real transactions/data
-- **Proper Priority Logic**: Prioritizes meaningful data over timestamps when timestamps are unreliable
-
-**Key improvements:**
-```typescript
-// Special handling for invalid cloud timestamps (epoch time suggests corrupted/missing timestamp)
-const isCloudTimestampValid = cloudTimestamp.getTime() > new Date('2020-01-01').getTime();
-
-// Check if cloud data has meaningful content
-const hasCloudData = this.hasCloudDataMeaningfulContent(cloudData);
-
-console.log(`[App Init] Cloud timestamp valid: ${isCloudTimestampValid}, Cloud has content: ${hasCloudData}, Local has content: ${!!localTimestamp}`);
-
-if (!localTimestamp && (!hasCloudData || !isCloudTimestampValid)) {
-  // Neither local nor cloud data is meaningful - nothing to sync
-  console.log('[App Init] No meaningful data in local or cloud storage - first time user');
-  return true;
-} else if (!localTimestamp && hasCloudData) {
-  // No local data but cloud has meaningful data - download from cloud regardless of timestamp
-  console.log('[App Init] No local data but cloud has content - downloading from cloud...');
-  // ... download logic
-}
-```
-
-### 3. **Cloud Data Content Validation** (`hasCloudDataMeaningfulContent()`)
-
-New method that actually inspects cloud data content:
-
-```typescript
-private hasCloudDataMeaningfulContent(cloudData: any): boolean {
-  try {
-    // Check if cloud data has meaningful transactions
-    if (cloudData.transactions) {
-      const transactions = typeof cloudData.transactions === 'string' 
-        ? JSON.parse(cloudData.transactions) 
-        : cloudData.transactions;
-      if (Array.isArray(transactions) && transactions.length > 0) {
-        return true;
-      }
-    }
-    
-    // Check accounts (beyond defaults)
-    if (cloudData.accounts) {
-      const accounts = typeof cloudData.accounts === 'string'
-        ? JSON.parse(cloudData.accounts)
-        : cloudData.accounts;
-      if (Array.isArray(accounts) && accounts.length > 3) {
-        return true;
-      }
-    }
-    
-    // Similar checks for categories, budgets, rules...
-    return false;
-  } catch (error) {
-    return false;
-  }
-}
-```
-
-### 4. **Improved Upload Logic** (`uploadLocalDataToCloud()`)
-
-Simplified to rely on the improved local data detection:
-
-```typescript
-// Check if we have meaningful local data first
-const localTimestamp = this.getLocalDataTimestamp();
-if (!localTimestamp) {
-  console.log('[App Init] No meaningful local data to upload');
-  return true; // Not an error - just nothing to upload
-}
-```
-
-## 🎯 Scenario Coverage
-
-The fix now correctly handles these scenarios:
-
-| Scenario | Local Data | Cloud Data | Action | Result |
-|----------|------------|------------|---------|---------|
-| **New User** | Empty | Empty | No sync | ✅ No data loss |
-| **Fresh Browser** | Empty | Has data | Download cloud | ✅ Restores data |
-| **Local Changes** | Has data | Empty/Old | Upload local | ✅ Preserves changes |
-| **Cloud Newer** | Old data | Newer data | Download cloud | ✅ Gets latest |
-| **Corrupted Timestamp** | Has data | Has data (bad timestamp) | Upload local | ✅ Fixes corruption |
-
-## 🚀 Expected Behavior After Fix
-
-**New Browser Opening App:**
-```
-[App Init] Local data timestamp: none
-[App Init] Cloud data timestamp: 2025-08-31T15:30:00.000Z
-[App Init] Cloud timestamp valid: true, Cloud has content: true, Local has content: false
-[App Init] No local data but cloud has content - downloading from cloud...
-[App Init] ✅ Successfully synchronized with cloud data (local was empty)
-```
-
-**Result:** Cloud data is preserved and restored to the new browser instead of being overwritten with empty data.
-
-## 📋 Files Modified
-
-- `src/services/appInitializationService.ts`
-  - Enhanced `getLocalDataTimestamp()` with meaningful data detection
-  - Improved `performInitialCloudSync()` with smart timestamp/content logic
-  - Added `hasCloudDataMeaningfulContent()` for cloud data validation
-  - Simplified `uploadLocalDataToCloud()` to use better data detection
-
-## 🧪 Testing
-
-The fix has been validated through:
-
-1. **Build Success**: `npm run build` completed without errors
-2. **Development Server**: Started successfully at http://localhost:3000
-3. **Logic Verification**: All edge cases covered in the new sync logic
-
-## 🔧 Backwards Compatibility
-
-- ✅ Existing users with valid data are unaffected
-- ✅ Normal sync operations continue to work as before
-- ✅ Only improves behavior for edge cases (empty data, corrupted timestamps)
-- ✅ No breaking changes to API or data structures
+An upload is not proof of roaming until the app reports a verified cloud copy.
+Keep a downloaded JSON backup of important imports, especially while resolving
+legacy conflicts or updating the proxy. Never clear a browser cache merely
+because autosave is enabled.

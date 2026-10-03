@@ -1201,12 +1201,12 @@ const Settings: React.FC = () => {
         
         <div style={{ marginBottom: '20px' }}>
           <h4>☁️ Cloud Storage</h4>
-          <p>Automatically sync your data to Azure Blob Storage. The app checks for cloud data on startup and syncs with whichever version is newer. Auto-sync is enabled by default and saves changes every 30 seconds.</p>
+          <p>Sync your signed-in account across devices. Auto-sync checks every 30 seconds and pauses on conflicts or missing records instead of choosing by timestamp. Uploads are verified, and recovery copies are kept before replacing data. Review and confirm Upload to Cloud to remove cloud records. Cloud sync is disabled in development mode.</p>
           
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
             <Button 
               onClick={handleUploadToCloud}
-              disabled={isUploadingToCloud}
+              disabled={isUploadingToCloud || isDownloadingFromCloud}
               style={{ background: '#0078D4', borderColor: '#0078D4', color: 'white', minWidth: '140px' }}
             >
               {isUploadingToCloud ? 'Uploading...' : '☁️ Upload to Cloud'}
@@ -1214,7 +1214,7 @@ const Settings: React.FC = () => {
 
             <Button 
               onClick={handleDownloadFromCloud}
-              disabled={isDownloadingFromCloud}
+              disabled={isDownloadingFromCloud || isUploadingToCloud}
               style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white', minWidth: '140px' }}
             >
               {isDownloadingFromCloud ? 'Downloading...' : '📥 Download from Cloud'}
@@ -1244,7 +1244,7 @@ const Settings: React.FC = () => {
           )}
 
           <div style={{ marginTop: '12px', fontSize: '14px', color: isAutoSyncActive ? '#4CAF50' : '#666' }}>
-            {isAutoSyncActive ? '🔄 Auto sync active - automatically syncs on startup and every 30 seconds' : '⏸️ Auto sync disabled - use manual buttons to sync'}
+            {isAutoSyncActive ? '🔄 Auto sync enabled - checks every 30 seconds; conflicts or storage errors pause changes' : '⏸️ Auto sync disabled - use manual buttons to sync'}
           </div>
           
           <div style={{ marginTop: '12px', padding: '12px', background: '#f3e5f5', borderRadius: '6px', fontSize: '14px', color: '#7b1fa2' }}>
@@ -1266,7 +1266,7 @@ const Settings: React.FC = () => {
               )}
             </div>
             <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-              💡 Your data is automatically synced to this location every 30 seconds when changes are detected. Manual sync buttons above for immediate upload/download.
+              💡 Enabling auto sync is not confirmation of a backup. Use Upload to Cloud to check for a verified cloud copy before clearing local data.
             </div>
           </div>
         </div>

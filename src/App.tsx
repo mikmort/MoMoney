@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
 import { ThemeProvider } from 'styled-components';
 import { skipAuthentication } from './config/devConfig';
@@ -86,34 +86,33 @@ const router = createBrowserRouter([
   },
 ]);
 
-const App: React.FC = () => {
-  // Initialize the app on startup - DEFERRED for faster initial render
+const SynchronizedApp: React.FC = () => {
+  const [ready, setReady] = useState(false);
   useEffect(() => {
+    let active = true;
     const initializeApp = async () => {
       try {
-        console.log('[App] Starting deferred application initialization...');
         const result = await appInitializationService.initialize();
-        
-        if (result.success) {
-          console.log(`[App] ✅ App initialized successfully. Sync: ${result.syncPerformed}, Autosave: ${result.autosaveEnabled}`);
-        } else {
-          console.error('[App] ❌ App initialization had errors:', result.errors);
+        if (!active) return;
+        if (result.restored) {
+          window.location.reload();
+          return;
         }
+        if (!result.success) console.error('[App] Cloud sync needs attention:', result.errors);
+        setReady(true);
       } catch (error) {
-        console.error('[App] ❌ App initialization failed:', error);
+        console.error('[App] Initialization failed:', error);
+        if (active) setReady(true);
       }
     };
-    
-    // Defer initialization to allow initial render to complete first
-    // This prevents cloud sync operations from blocking the UI
-    const deferredInit = setTimeout(() => {
-      initializeApp();
-    }, 100); // 100ms delay allows initial render to complete
-    
-    // Cleanup timeout on unmount
-    return () => clearTimeout(deferredInit);
-  }, []); // Empty dependency array ensures this runs only once
+    void initializeApp();
+    return () => { active = false; };
+  }, []);
 
+  return ready ? <RouterProvider router={router} future={{ v7_startTransition: true }} /> : <LoadingFallback />;
+};
+
+const App: React.FC = () => {
   return (
     <ThemeProvider theme={lightTheme}>
       <GlobalStyles />
@@ -122,11 +121,11 @@ const App: React.FC = () => {
         <NotificationProvider>
           {skipAuthentication ? (
             // Development mode - bypass authentication
-            <RouterProvider router={router} future={{ v7_startTransition: true }} />
+            <SynchronizedApp />
           ) : (
             // Production mode - use Azure Static Web Apps auth
             <AuthWrapper>
-              <RouterProvider router={router} future={{ v7_startTransition: true }} />
+              <SynchronizedApp />
             </AuthWrapper>
           )}
         </NotificationProvider>
