@@ -33,10 +33,9 @@ describe('Anomaly Detection', () => {
 
   beforeEach(() => {
     // Store original environment
-    originalEnv = process.env.REACT_APP_OPENAI_PROXY_URL;
+    originalEnv = process.env.REACT_APP_AI_ENABLED;
     
-    // Set proxy URL to enable the service for most tests
-    process.env.REACT_APP_OPENAI_PROXY_URL = '/api/openai/chat/completions';
+    process.env.REACT_APP_AI_ENABLED = 'true';
     
     service = new AzureOpenAIService();
     jest.clearAllMocks();
@@ -45,9 +44,9 @@ describe('Anomaly Detection', () => {
   afterEach(() => {
     // Restore original environment
     if (originalEnv !== undefined) {
-      process.env.REACT_APP_OPENAI_PROXY_URL = originalEnv;
+      process.env.REACT_APP_AI_ENABLED = originalEnv;
     } else {
-      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      delete process.env.REACT_APP_AI_ENABLED;
     }
     
     jest.resetAllMocks();
@@ -59,8 +58,8 @@ describe('Anomaly Detection', () => {
       const originalNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'development';
       
-      // Clear proxy URL to trigger dev mode fallback
-      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      // Disable AI to trigger the development-only mock.
+      delete process.env.REACT_APP_AI_ENABLED;
       delete process.env.REACT_APP_FUNCTION_BASE_URL;
       
       // Create a new service instance with disabled configuration
@@ -104,7 +103,7 @@ describe('Anomaly Detection', () => {
     it('should handle API failures gracefully', async () => {
       const originalNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
-      process.env.REACT_APP_OPENAI_PROXY_URL = 'http://test.com/api';
+      process.env.REACT_APP_AI_ENABLED = 'true';
 
       // Mock fetch to reject
       (global.fetch as jest.Mock).mockRejectedValue(new Error('API Error'));
@@ -122,7 +121,7 @@ describe('Anomaly Detection', () => {
 
       // Restore environment
       process.env.NODE_ENV = originalNodeEnv;
-      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      delete process.env.REACT_APP_AI_ENABLED;
     });
   });
 
@@ -149,7 +148,7 @@ describe('Anomaly Detection', () => {
       // In development mode, should still work regardless of transaction count
       const originalNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'development';
-      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      delete process.env.REACT_APP_AI_ENABLED;
       delete process.env.REACT_APP_FUNCTION_BASE_URL;
 
       const result = await service.detectAnomalies(request);

@@ -2,6 +2,7 @@
  * Test to verify Settings page displays the correct model name
  */
 import { azureOpenAIService } from '../services/azureOpenAIService';
+import { defaultConfig } from '../config/appConfig';
 
 describe('Settings Model Display', () => {
   test('Azure OpenAI service returns configured deployment name', async () => {
@@ -17,10 +18,7 @@ describe('Settings Model Display', () => {
     expect(typeof serviceInfo.model).toBe('string');
     expect(serviceInfo.model.length).toBeGreaterThan(0);
     
-    // Should match common deployment names
-    expect(['gpt-5-chat', 'gpt-4o', 'gpt-4'].some(name => 
-      serviceInfo.model.includes(name)
-    )).toBe(true);
+    expect(serviceInfo.model).toBe(defaultConfig.azure.openai.deploymentName);
   });
 
   test('Service should be initialized and ready', async () => {

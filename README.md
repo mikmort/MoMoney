@@ -212,13 +212,11 @@ npm install
 
 ### 3. Azure OpenAI Setup
 
-1. Create an Azure OpenAI resource in the Azure portal
-2. Deploy a GPT-4 model (or GPT-3.5-turbo)
-3. Note down:
-   - Endpoint URL
-   - API Key
-   - Deployment name
-   - API version
+1. Use an Azure OpenAI resource with a `gpt-5.4-mini` deployment (version `2026-03-17`).
+2. Configure `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT` on the
+   authenticated Function App in `api/`, not in the browser.
+3. Grant its managed identity **Cognitive Services OpenAI User** on that resource.
+   See [backend setup and model selection](api/README.md#ai-chat-completions).
 
 ### 4. Azure AD App Registration
 
@@ -236,13 +234,11 @@ npm install
    cp .env.example .env
    ```
 
-2. Update `.env` with your Azure credentials:
+2. Update `.env` with non-secret app settings:
    ```env
-   # Azure OpenAI Configuration
-   REACT_APP_AZURE_OPENAI_ENDPOINT=https://your-openai-resource.openai.azure.com/
-   REACT_APP_AZURE_OPENAI_API_KEY=your-api-key
-   REACT_APP_AZURE_OPENAI_DEPLOYMENT=gpt-4
-   REACT_APP_AZURE_OPENAI_API_VERSION=2024-02-15-preview
+   # Disabled for local development; enable only with authenticated API access.
+   REACT_APP_AI_ENABLED=false
+   REACT_APP_AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini
 
    # Azure AD Configuration
    REACT_APP_AZURE_AD_CLIENT_ID=your-client-id
@@ -260,18 +256,16 @@ The application will open at `http://localhost:3000`.
 
 ### Azure OpenAI Proxy Configuration
 
-This app calls an HTTP proxy for Azure OpenAI chat completions. By default, it targets a relative path: `/api/openai/chat/completions`. If you see 404 Not Found on that path during import, configure one of the following:
+AI requests always use the same-origin `/api/openai/chat/completions` route and
+the signed-in SWA session. Deploy the backend before the updated frontend.
+A 404 means the linked backend is missing the AI function; do not work around it
+with an anonymous or cross-origin proxy.
 
-1) Remote Azure Function (recommended)
-- In `.env`, set:
-   - `REACT_APP_OPENAI_PROXY_URL=https://<your-function>.azurewebsites.net/api/openai/chat/completions`
-- Restart `npm start` after updating `.env`.
-
-2) Local dev proxy to a local API
-- Add a CRA proxy file `src/setupProxy.ts` to forward `/api` to your local functions (e.g., http://localhost:7071).
-- Start your local API and then run `npm start`.
-
-When configured correctly, imports will call your proxy and AI features will return results instead of 404s.
+`REACT_APP_AI_ENABLED=false` disables AI in development and PR previews.
+For authenticated local testing, use the SWA emulator with the local Functions
+app; `REACT_APP_FUNCTION_BASE_URL` is only an optional development proxy target.
+Legacy `REACT_APP_OPENAI_PROXY_URL`, client-side credentials/API versions, and
+cached fallback models are no longer used in production.
 
 ## Usage Guide
 
@@ -378,7 +372,7 @@ controlled redeployment without overwriting saved data.
 - ✅ Microsoft Authentication for secure access
 - ✅ HTTPS enforcement in production
 - ✅ Content Security Policy headers
-- ⚠️ Client-side Azure OpenAI calls (consider moving to backend API)
+- AI inference uses the authenticated backend with managed identity; no browser API keys.
 
 ## Contributing
 

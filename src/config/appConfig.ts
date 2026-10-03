@@ -1,11 +1,10 @@
+import { DEFAULT_AI_DEPLOYMENT } from './openAI';
+
 // Configuration for Azure services and application settings
 export interface AppConfig {
   azure: {
     openai: {
-      endpoint: string;
-      apiKey: string;
       deploymentName: string;
-      apiVersion: string;
     };
     /**
      * @deprecated - MSAL configuration no longer used
@@ -23,15 +22,11 @@ export interface AppConfig {
   };
 }
 
-// Default configuration - replace with your actual Azure credentials
+// Azure credentials and model API configuration belong only on the backend.
 export const defaultConfig: AppConfig = {
   azure: {
     openai: {
-      endpoint: process.env.REACT_APP_AZURE_OPENAI_ENDPOINT || 'YOUR_AZURE_OPENAI_ENDPOINT',
-      apiKey: process.env.REACT_APP_AZURE_OPENAI_API_KEY || 'YOUR_AZURE_OPENAI_API_KEY',
-  // Default to widely available deployment; fallback logic will still try alternates
-  deploymentName: process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
-      apiVersion: process.env.REACT_APP_AZURE_OPENAI_API_VERSION || '2024-02-15-preview'
+      deploymentName: process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT || DEFAULT_AI_DEPLOYMENT
     },
     /**
      * @deprecated - MSAL configuration no longer used

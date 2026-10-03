@@ -506,6 +506,7 @@ const Settings: React.FC = () => {
     try {
       const isConnected = await azureOpenAIService.testConnection();
       setConnectionTestResult(isConnected ? 'success' : 'error');
+      if (isConnected) await loadDeploymentInfo();
       
       // Clear the result after 5 seconds
       setTimeout(() => {

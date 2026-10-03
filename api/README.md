@@ -1,4 +1,4 @@
-# Protected cloud storage
+# Protected cloud storage and AI
 
 This Node.js 22 / Azure Functions v4 API replaces the old overwrite-only proxy.
 It is deployed as `func-momoney-prod-4eb0` in Canada Central and linked to the
@@ -78,8 +78,84 @@ data.
 
 SWA permits only one linked backend; preserve any other `/api` functions when
 integrating this API with an existing backend. Linked backends do not work in SWA
-pull-request preview environments. This repository's AI requests use their
-separately configured OpenAI proxy.
+pull-request preview environments. This repository's AI requests also use this authenticated linked backend.
+
+## AI chat completions
+
+The combined API was deployed to `func-momoney-prod-4eb0` on October 3, 2026,
+using the existing `mikmortazureopenai` account in East US and a new
+`gpt-5.4-mini` deployment (`2026-03-17`, GlobalStandard, 10,000 TPM).
+Global processing was explicitly approved. The Function App identity has the
+resource-scoped inference role; existing storage settings and data were preserved.
+Frontend rollout is tracked in `.azure/deployment-plan.md` and the existing
+GitHub Actions workflow; signed-in end-to-end verification is a release check.
+
+`POST /api/openai/chat/completions` accepts `{ deployment, messages,
+max_completion_tokens }` and returns `{ success: true, data }`, where `data` is
+the chat completion including the actual model and token usage. Errors are
+non-2xx `{ success: false, error }`. The old `max_tokens` field is accepted during
+rollout, but only `max_completion_tokens` is sent upstream.
+
+Configure `AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/` and
+`AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini` on the Function App. Grant its existing
+managed identity **Cognitive Services OpenAI User** scoped to that OpenAI
+resource. Keep `AZURE_CLIENT_ID` for the user-assigned identity. Do not add API
+keys to frontend settings. The backend uses the GA `/openai/v1/chat/completions`
+API with Entra authentication; there is no dated preview API version.
+
+AI requires the same verified SWA-linked platform authentication and
+`STORAGE_AUTH_MODE=swa-linked` as storage. This gate does not require a storage
+read or write for inference. Never expose an unprotected endpoint trusting
+caller-supplied identity headers.
+
+### Model selection and costs
+
+GPT-5.4 mini is the default for categorization, statement/schema extraction,
+account identification, and anomaly detection. It is a more balanced choice
+for this mixed workload than a flagship model, while nano deserves a separate
+accuracy evaluation before using it for ambiguous financial records.
+
+Published OpenAI reference prices in USD per million text tokens (October 3,
+2026; Azure region/SKU/contract pricing can differ):
+
+| Model | Input | Output | Fit |
+| --- | ---: | ---: | --- |
+| GPT-5.4 nano | $0.20 | $1.25 | Lowest cost; evaluate on labeled financial examples first |
+| GPT-5.4 mini | $0.75 | $4.50 | Recommended mixed-workload starting point |
+| GPT-5.4 | $2.50 | $15.00 | More expensive; no demonstrated need for this app yet |
+
+At 1,000 input + 200 output tokens per request, mini costs about $0.00165
+($1.65 per 1,000 requests), before Azure-specific pricing, retries, and hosting.
+This is an estimate, not a measured import cost or an accuracy benchmark.
+Existing rules and transaction batching still avoid unnecessary inference.
+
+The server fixes `reasoning_effort=none`, strips sampling parameters, disables
+stored responses, limits requests to 256 KB / 100 messages, and caps generated
+tokens at 16,000. Reasoning is disabled to preserve the small visible-output
+budgets and avoid hidden reasoning charges. Clients cannot request additional
+choices, tools, arbitrary deployments, or expensive reasoning. Truncated,
+filtered, refused, and empty completions are errors, never successful data.
+Only transient client failures are retried; no automatic model escalation or
+persisted fallback deployment can silently alter the cost/quality choice.
+
+Deploy the API and configure/verify the model before publishing the frontend
+with `REACT_APP_AI_ENABLED=true`. Keep it false in PR previews (linked APIs are
+unavailable there). Set `REACT_APP_AZURE_OPENAI_DEPLOYMENT` to the server's
+deployment name if you use an alias. Settings shows the configured deployment
+until a request succeeds, then the returned model version.
+
+Do not reapply `infra/main.bicep` just to change AI configuration: it resets
+storage authentication to its locked rollout state. Update only the two AI app
+settings, add the narrowly scoped role, and deploy the combined API package,
+preserving the existing storage functions/settings and platform authentication.
+Keep legacy OpenAI deployments/functions intact until the new frontend rollout
+is verified. Rate limits are throughput limits, not spending caps; monitor
+Azure token usage and configure a budget alert.
+
+References: [model pricing and capabilities](https://developers.openai.com/api/docs/models/gpt-5.4-mini),
+[Azure pricing](https://azure.microsoft.com/pricing/details/azure-openai/),
+[reasoning parameters](https://learn.microsoft.com/azure/ai-foundry/openai/how-to/reasoning),
+[Azure v1 API](https://learn.microsoft.com/azure/ai-foundry/openai/api-version-lifecycle).
 
 ## Protocol and recovery
 

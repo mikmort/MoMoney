@@ -25,10 +25,9 @@ describe('PII Sanitization in Azure OpenAI Service', () => {
 
   beforeEach(() => {
     // Store original environment
-    originalEnv = process.env.REACT_APP_OPENAI_PROXY_URL;
+    originalEnv = process.env.REACT_APP_AI_ENABLED;
     
-    // Set proxy URL to enable the service
-    process.env.REACT_APP_OPENAI_PROXY_URL = '/api/openai/chat/completions';
+    process.env.REACT_APP_AI_ENABLED = 'true';
     
     service = new AzureOpenAIService();
     jest.clearAllMocks();
@@ -37,9 +36,9 @@ describe('PII Sanitization in Azure OpenAI Service', () => {
   afterEach(() => {
     // Restore original environment
     if (originalEnv !== undefined) {
-      process.env.REACT_APP_OPENAI_PROXY_URL = originalEnv;
+      process.env.REACT_APP_AI_ENABLED = originalEnv;
     } else {
-      delete process.env.REACT_APP_OPENAI_PROXY_URL;
+      delete process.env.REACT_APP_AI_ENABLED;
     }
     
     jest.resetAllMocks();

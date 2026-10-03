@@ -1,52 +1,9 @@
 import { defaultConfig } from '../config/appConfig';
+import { AIProxyRequest, OPENAI_PROXY_PATH } from '../config/openAI';
 import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult, AccountStatementAnalysisRequest, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../types';
 import { sanitizeTransactionForAI, sanitizeFileContent, validateMaskedAccountNumber } from '../utils/piiSanitization';
 
-// OpenAI Proxy configuration
-// Allow overriding the proxy URL via environment variable for production or remote Azure Function usage.
-// Example: REACT_APP_OPENAI_PROXY_URL=https://<your-func>.azurewebsites.net/api/openai/chat/completions
-// In development, we keep it relative to leverage CRA's setupProxy.
-// In production, if it's relative and a base is provided, build an absolute URL to the Azure Function.
-// If no environment variables are provided in production, fall back to the deployed Azure Function.
-const OPENAI_PROXY_URL: string = (() => {
-  const envUrl = (process.env.REACT_APP_OPENAI_PROXY_URL as string | undefined) || '/api/openai/chat/completions';
-  const isAbsolute = /^https?:\/\//i.test(envUrl);
-  if (isAbsolute) return envUrl;
-  
-  const isProd = process.env.NODE_ENV === 'production';
-  const base = (process.env.REACT_APP_FUNCTION_BASE_URL as string | undefined) || '';
-  
-  if (isProd) {
-    if (base) {
-      // Use environment-provided base URL
-      const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
-      const path = envUrl.startsWith('/') ? envUrl : `/${envUrl}`;
-      return `${trimmedBase}${path}`;
-    } else {
-      // Production fallback: use deployed Azure Function for OpenAI proxy
-      return 'https://mortongroupaicred-hugxh8drhqabbphb.canadacentral-01.azurewebsites.net/api/openai/chat/completions';
-    }
-  }
-  
-  return envUrl; // development or no base provided
-})();
-
-// Types for the proxy API
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
-interface OpenAIProxyRequest {
-  deployment: string;
-  messages: ChatMessage[];
-  max_tokens?: number;
-  temperature?: number;
-  top_p?: number;
-  frequency_penalty?: number;
-  presence_penalty?: number;
-  stop?: string[];
-}
+type OpenAIProxyRequest = AIProxyRequest;
 
 interface OpenAIProxyResponse {
   success: boolean;
@@ -75,122 +32,25 @@ interface OpenAIProxyResponse {
 export class AzureOpenAIService {
   private readonly deploymentName: string;
   private initialized = true; // Always initialized since we don't need client setup
-  private readonly fallbackDeployments: string[];
   private readonly messageCharBudget: number;
-  // Cache the last deployment that succeeded so we can prioritize it and avoid initial 502 noise
-  private lastSuccessfulDeployment?: string;
+  private lastResponseModel?: string;
   private disabledReason?: string;
 
   constructor() {
-  this.deploymentName = defaultConfig.azure.openai.deploymentName || 'gpt-5-chat';
-    // Optional comma-separated fallbacks, e.g. "gpt-5-chat,gpt-4o"
-    const envFallback = (process.env.REACT_APP_AZURE_OPENAI_FALLBACK_DEPLOYMENTS || '').split(',').map(s => s.trim()).filter(Boolean);
-    // Ensure we have at least the opposite popular option as a fallback
-  const defaultAlt = this.deploymentName === 'gpt-5-chat' ? ['gpt-4o'] : ['gpt-5-chat'];
-    const merged = [...envFallback, ...defaultAlt].filter((m, idx, arr) => arr.indexOf(m) === idx);
-    // Do not include primary in fallbacks
-    this.fallbackDeployments = merged.filter(m => m && m !== this.deploymentName);
+    this.deploymentName = defaultConfig.azure.openai.deploymentName;
   // Per-message content budget (characters) to keep well under the Azure Function limit
   // Override with REACT_APP_OPENAI_MSG_CHAR_BUDGET if needed
   const envBudget = parseInt(String(process.env.REACT_APP_OPENAI_MSG_CHAR_BUDGET || ''), 10);
   this.messageCharBudget = Number.isFinite(envBudget) && envBudget > 0 ? envBudget : 8000;
-    // Determine if service should be disabled (placeholder config or missing proxy)
-  if (this.isEffectivelyDisabled()) {
-      this.disabledReason = this.computeDisabledReason();
+    if (this.isEffectivelyDisabled()) {
+      this.disabledReason = 'AI is disabled for this environment. Use an authenticated linked backend.';
       console.info(`AzureOpenAIService disabled: ${this.disabledReason}`);
-    } else {
-      // In Jest/test environment skip network validation to avoid timeouts & CORS errors.
-      const isTestEnv = typeof process !== 'undefined' && !!(process as any).env?.JEST_WORKER_ID;
-      if (!isTestEnv) {
-        // Kick off async validation (non-blocking). If primary deployment missing, swap to first available fallback.
-        this.validatePrimaryDeployment();
-      } else {
-        // Test environment: skip network validation but keep AI enabled so mocks & fallback logic work
-      }
     }
-  }
-
-  private computeDisabledReason(): string {
-    const cfg = defaultConfig.azure.openai;
-    const hasProxy = !!(process.env.REACT_APP_OPENAI_PROXY_URL || process.env.REACT_APP_FUNCTION_BASE_URL);
-    const isProd = process.env.NODE_ENV === 'production';
-    
-    // In production, we have a fallback proxy URL, so we always have a proxy available
-    // If proxy exists or we're in production (with fallback) we don't need endpoint/apiKey locally
-    if (!hasProxy && !isProd) {
-      if (!cfg.endpoint || cfg.endpoint.includes('YOUR_AZURE_OPENAI_ENDPOINT')) return 'No proxy and placeholder endpoint';
-      if (!cfg.apiKey || cfg.apiKey.includes('YOUR_AZURE_OPENAI_API_KEY')) return 'No proxy and placeholder api key';
-    }
-    return 'n/a';
   }
 
   private isEffectivelyDisabled(): boolean {
-    const hasProxy = !!(process.env.REACT_APP_OPENAI_PROXY_URL || process.env.REACT_APP_FUNCTION_BASE_URL);
-    const isProd = process.env.NODE_ENV === 'production';
-    
-    // In production, we have a fallback proxy URL, so proxy is always available
-    if (hasProxy || isProd) return false; // proxy handles auth/model routing
-    
-    // Development without proxy: check for direct credentials
-    const cfg = defaultConfig.azure.openai;
-    const placeholderEndpoint = !cfg.endpoint || cfg.endpoint.startsWith('YOUR_');
-    const placeholderKey = !cfg.apiKey || cfg.apiKey.startsWith('YOUR_');
-    return placeholderEndpoint || placeholderKey;
-  }
-
-  // Lightweight probe to detect missing deployment early and switch to fallback to prevent repeated 502s.
-  private async validatePrimaryDeployment() {
-    if (this.disabledReason && this.disabledReason !== 'n/a') return; // skip real disable
-    // Check for persisted successful deployment to skip failed primary
-    try {
-      const persisted = localStorage.getItem('ai:lastSuccessfulDeployment');
-      if (persisted) {
-        this.lastSuccessfulDeployment = persisted;
-        (this as any).deploymentName = persisted;
-        return; // trust persisted working model
-      }
-    } catch {}
-    const primary = this.deploymentName;
-    // If there are no fallbacks, nothing to do.
-    if (!this.fallbackDeployments.length) return;
-    // Try a minimal call that should succeed quickly. We use a very small test prompt.
-    try {
-      const testReq: any = {
-        deployment: primary,
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 1,
-        temperature: 0
-      };
-      const resp = await this.callOpenAIProxy(testReq);
-      if (resp && resp.success) {
-        this.lastSuccessfulDeployment = primary;
-        return;
-      }
-      // If not success treat as failure and attempt fallback below
-    } catch (e: any) {
-      const msg = String(e?.message || '').toLowerCase();
-      const missing = msg.includes('deploymentnotfound') || msg.includes('404');
-      if (!missing) return; // Different error, keep primary
-      // Try fallbacks sequentially until one works; switch permanently.
-      for (const fb of this.fallbackDeployments) {
-        try {
-          const fbReq: any = {
-            deployment: fb,
-            messages: [{ role: 'user', content: 'ping' }],
-            max_tokens: 1,
-            temperature: 0
-          };
-          const fbResp = await this.callOpenAIProxy(fbReq);
-          if (fbResp && fbResp.success) {
-            console.warn(`Primary OpenAI deployment '${primary}' missing. Switching to fallback '${fb}'.`);
-            (this as any).deploymentName = fb; // update primary reference
-            this.lastSuccessfulDeployment = fb;
-            try { localStorage.setItem('ai:lastSuccessfulDeployment', fb); } catch {}
-            break;
-          }
-        } catch { /* try next */ }
-      }
-    }
+    if (process.env.REACT_APP_AI_ENABLED === 'false') return true;
+    return process.env.NODE_ENV !== 'production' && process.env.REACT_APP_AI_ENABLED !== 'true';
   }
 
   // Build a very compact catalog string like: id1:subA|subB;id2:subC
@@ -216,13 +76,18 @@ export class AzureOpenAIService {
   }
 
   private async callOpenAIProxy(request: OpenAIProxyRequest): Promise<OpenAIProxyResponse> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 65000);
     try {
-      const response = await fetch(OPENAI_PROXY_URL, {
+      const response = await fetch(OPENAI_PROXY_PATH, {
         method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'error',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(request),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -239,44 +104,20 @@ export class AzureOpenAIService {
       }
 
       const result: OpenAIProxyResponse = await response.json();
+      const choice = result.data?.choices[0];
+      if (choice?.finish_reason === 'length' || choice?.finish_reason === 'content_filter') {
+        throw new Error(`AI response is incomplete (${choice.finish_reason}).`);
+      }
       return result;
     } catch (error) {
-      // If the proxy URL is relative (e.g., "/api/..."), the dev proxy might not be running.
-      // Retry with absolute Azure Function URL if available.
-      const url = OPENAI_PROXY_URL;
-      const isAbsolute = /^https?:\/\//i.test(url);
-      const base = (process.env.REACT_APP_FUNCTION_BASE_URL as string | undefined) || '';
-      if (!isAbsolute && base) {
-        try {
-          const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base;
-          const path = url.startsWith('/') ? url : `/${url}`;
-          const absoluteUrl = `${trimmedBase}${path}`;
-          const fallbackResp = await fetch(absoluteUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(request),
-          });
-          if (!fallbackResp.ok) {
-            let detail = '';
-            try {
-              const text = await fallbackResp.text();
-              detail = text?.slice(0, 500) || '';
-            } catch {}
-            const dash = detail ? ` | ${detail}` : '';
-            throw new Error(`HTTP ${fallbackResp.status}: ${fallbackResp.statusText}${dash}`);
-          }
-          const result: OpenAIProxyResponse = await fallbackResp.json();
-          return result;
-        } catch (fallbackErr) {
-          console.error('Error calling OpenAI proxy (fallback absolute URL):', fallbackErr);
-        }
-      }
       console.error('Error calling OpenAI proxy:', error);
       throw error;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
-  // Helper: unified retry/backoff + deployment fallback
+  // Retry transient failures without silently switching models or increasing cost.
   private async callOpenAIWithFallback(
     request: Omit<OpenAIProxyRequest, 'deployment'> & { deployment?: string },
     options?: { attemptsPerDeployment?: number; baseBackoffMs?: number }
@@ -298,59 +139,22 @@ export class AzureOpenAIService {
     const attemptsPerDeployment = options?.attemptsPerDeployment ?? 2;
     const base = options?.baseBackoffMs ?? 400;
 
-    // Build deployment preference list: last successful first (if still requested), then requested, then fallbacks
-    const basePrimary = request.deployment || this.deploymentName;
-    const ordered = [
-      this.lastSuccessfulDeployment && this.lastSuccessfulDeployment !== basePrimary ? this.lastSuccessfulDeployment : undefined,
-      basePrimary,
-      ...this.fallbackDeployments
-    ].filter((d, i, arr) => d && arr.indexOf(d) === i) as string[];
-    const deployments = ordered;
-
-    let lastErr: any;
-    for (const dep of deployments) {
-      for (let attempt = 1; attempt <= attemptsPerDeployment; attempt++) {
-        try {
-          const resp = await this.callOpenAIProxy({ ...(request as any), deployment: dep });
-          if (!resp.success) {
-            const err = String(resp.error || '').toLowerCase();
-            const retriable = err.includes('rate') || err.includes('limit') || err.includes('overload') || err.includes('timeout') || err.includes('5');
-            if (retriable && attempt < attemptsPerDeployment) {
-              const wait = base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 150);
-              await new Promise(r => setTimeout(r, wait));
-              continue;
-            }
-            // try next deployment
-            lastErr = new Error(resp.error || 'Proxy returned error');
-          } else {
-            // Record winning deployment to reduce future failures/noise
-            this.lastSuccessfulDeployment = dep;
-            try { localStorage.setItem('ai:lastSuccessfulDeployment', dep); } catch {}
-            return resp;
-          }
-        } catch (e: any) {
-          const msg = String(e?.message || '').toLowerCase();
-          const is429 = msg.includes('http 429');
-          const is5xx = /http\s*5\d\d/.test(msg);
-          const isDeploymentMissing = msg.includes('deploymentnotfound');
-          const retriable = is429 || is5xx || msg.includes('timeout') || msg.includes('fetch') || msg.includes('network');
-          lastErr = e;
-          // Suppress noisy console errors for missing deployment when we'll try a fallback next
-          if (isDeploymentMissing && attempt === 1) {
-            console.warn(`OpenAI deployment '${dep}' not found. Trying fallback...`);
-          }
-          if (retriable && attempt < attemptsPerDeployment) {
-            const wait = base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 200);
-            await new Promise(r => setTimeout(r, wait));
-            continue;
-          }
-          // break to next deployment
-        }
-        // break inner loop to try next deployment
-        break;
+    const deployment = request.deployment || this.deploymentName;
+    for (let attempt = 1; attempt <= attemptsPerDeployment; attempt++) {
+      try {
+        const response = await this.callOpenAIProxy({ ...request, deployment });
+        if (!response.success) throw new Error(response.error || 'AI proxy returned an error.');
+        this.lastResponseModel = response.data?.model;
+        return response;
+      } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : '';
+        const transient = /http (429|5\d\d)/.test(message) ||
+          /timeout|timed out|abort|network|failed to fetch/.test(message);
+        if (!transient || attempt === attemptsPerDeployment) throw error;
+        await new Promise(resolve => setTimeout(resolve, base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 150)));
       }
     }
-    throw lastErr || new Error('All deployments failed');
+    throw new Error('No AI attempts were configured.');
   }
 
   // Constrain AI output to the provided categories/subcategories catalog
@@ -423,8 +227,7 @@ export class AzureOpenAIService {
           { role: 'user', content: `CAT:${categoriesCatalog}` },
           { role: 'user', content: `TX:{"description":"${desc}","amount":${amount},"date":"${date}"}` }
         ],
-        max_tokens: 200,
-        temperature: 0.1
+        max_completion_tokens: 200
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 300 });
@@ -577,8 +380,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
           { role: 'user', content: `CAT:${categoriesCatalog}` },
           { role: 'user', content: `TX:${JSON.stringify(items)}` }
         ],
-  max_tokens: 900,
-        temperature: 0.1
+        max_completion_tokens: Math.max(900, requests.length * 200)
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 600 });
@@ -707,8 +509,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
         messages: [
           { role: 'user', content: 'Hello, please respond with "OK" if you can read this.' }
         ],
-        max_tokens: 10,
-        temperature: 0
+        max_completion_tokens: 32
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 2, baseBackoffMs: 250 });
@@ -731,7 +532,6 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
     options?: {
       maxTokens?: number;
-      temperature?: number;
     }
   ): Promise<any> {
     if (this.disabledReason) {
@@ -740,8 +540,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
     const proxyRequest: OpenAIProxyRequest = {
       deployment: this.deploymentName,
       messages,
-      max_tokens: options?.maxTokens || 500,
-      temperature: options?.temperature || 0.1
+      max_completion_tokens: options?.maxTokens ?? 500
     };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 2, baseBackoffMs: 300 });
@@ -756,7 +555,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
   async getServiceInfo(): Promise<{ status: string; model: string; initialized: boolean }> {
     return {
       status: this.initialized ? 'ready' : 'not initialized',
-      model: this.deploymentName,
+      model: this.lastResponseModel || this.deploymentName,
       initialized: this.initialized
     };
   }
@@ -773,7 +572,7 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
     }
 
     // Development mode fallback - return mock anomalies for testing even if service is disabled
-    if (process.env.NODE_ENV === 'development' && (!process.env.REACT_APP_OPENAI_PROXY_URL && !process.env.REACT_APP_FUNCTION_BASE_URL)) {
+    if (process.env.NODE_ENV === 'development' && this.isEffectivelyDisabled()) {
       console.log('🔧 Development mode: Using mock anomaly detection');
       // Return mock anomaly for demonstration
       const mockAnomalies: AnomalyResult[] = request.transactions.slice(0, 1).map(t => ({
@@ -862,8 +661,7 @@ ${JSON.stringify(transactionData, null, 2)}`;
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: 2000,
-          temperature: 0.2
+          max_completion_tokens: 2000
         };
 
         const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
@@ -889,8 +687,7 @@ ${JSON.stringify(chunk, null, 2)}`;
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }
             ],
-            max_tokens: 2000,
-            temperature: 0.2
+            max_completion_tokens: 2000
           };
 
           try {
@@ -992,8 +789,7 @@ ${JSON.stringify(chunk, null, 2)}`;
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
         messages: [ { role: 'user', content: prompt } ],
-        max_tokens: maxTokens,
-        temperature: 0.1
+        max_completion_tokens: maxTokens
       };
 
       const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 400 });
@@ -1033,8 +829,7 @@ ${JSON.stringify(chunk, null, 2)}`;
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
         messages,
-        max_tokens: maxTokens,
-        temperature: 0.1
+        max_completion_tokens: maxTokens
       };
       const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: opts?.attempts ?? 4, baseBackoffMs: opts?.baseBackoffMs ?? 500 });
       if (!response.success || !response.data) {
@@ -1164,8 +959,7 @@ Extract the account information following the security guidelines.`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 500,
-        temperature: 0.1
+        max_completion_tokens: 500
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 350 });
@@ -1365,8 +1159,7 @@ Detect all accounts in this statement following the security guidelines. If you 
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 800,
-        temperature: 0.1
+        max_completion_tokens: 800
       };
 
       const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 350 });

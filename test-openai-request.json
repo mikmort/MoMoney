@@ -1,11 +1,10 @@
 {
-  "deployment": "gpt-4o",
+  "deployment": "gpt-5.4-mini",
   "messages": [
     {
       "role": "user",
       "content": "Hello, please respond with OK"
     }
   ],
-  "max_tokens": 10,
-  "temperature": 0
+  "max_completion_tokens": 32
 }
