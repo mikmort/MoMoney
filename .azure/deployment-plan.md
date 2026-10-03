@@ -1,6 +1,6 @@
 # GPT model upgrade rollout
 
-Status: Ready for Validation
+Status: Validated
 
 ## 1. Scope
 
@@ -68,6 +68,21 @@ REACT_APP_CLOUD_SYNC_ENABLED=true. PR previews keep AI and cloud sync disabled.
 Require successful PR checks, then verify the main-branch deployment and public
 asset/model configuration. A signed-in Settings connection check remains the
 final end-to-end check.
+
+- All frontend release validation checks pass:
+  - Existing GitHub Actions deployment credentials and pipeline: latest main
+    deployment succeeded; no credential, infrastructure, or RBAC changes.
+  - Latest main integrated, including `d691bf8` backup-picker changes.
+  - Production build with the release flags above: compiled successfully.
+  - AI and backup-picker regression selection: 5 suites, 45 tests passing.
+  - Changed/integrated-file ESLint and `git diff --check`: passed.
+  - Protected API and OpenAI deployment already live; no API package change.
+  - PR CI and the subsequent main deployment are gates enforced during release.
+
+Commands re-run October 3, 2026 for the integrated frontend candidate:
+`npm run build` with production flags; React Scripts Jest with the relative
+testMatch overrides above and `BackupFilePicker` added to testPathPattern;
+ESLint for modified AI/configuration/Settings/backup-picker files.
 
 - All validation checks pass:
   - Core validation: authenticated CLI, existing target/runtime, application build,
