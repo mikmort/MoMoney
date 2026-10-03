@@ -644,36 +644,40 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    if (!file) return;
-
-    try {
-      if (!file.name.toLowerCase().endsWith('.json')) {
-        showAlert('error', 'Please select a valid JSON backup file (.json)');
-        return;
-      }
-      const fileText = await simplifiedImportExportService.readFileAsText(file);
-      const importData = JSON.parse(fileText);
-      
-      // Validate the import data structure
-      if (!importData.version) {
-        showAlert('error', 'Invalid backup file format - missing version information');
-        return;
-      }
-
-      // Store the data and show selection dialog
-      setPendingImportData(importData);
-      setPendingFileName(file.name);
-      setShowImportDialog(true);
-    } catch (error) {
-      console.error('Failed to read import file:', error);
-      showAlert('error', 'Failed to read backup file. Please ensure you selected a valid Mo Money backup file and try again.');
-    } finally {
-      // Clear the file input
-      input.value = '';
+  const handleImportData = async (file: File): Promise<void> => {
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      throw new Error('Choose a Mo Money JSON backup (.json). Bank statements should be imported from Transactions.');
     }
+    let fileText: string;
+    try {
+      fileText = await simplifiedImportExportService.readFileAsText(file);
+    } catch {
+      throw new Error('This file could not be read. Try a local copy, or paste the backup JSON instead.');
+    }
+    let importData: ExportData;
+    try {
+      importData = JSON.parse(fileText.trim());
+    } catch {
+      throw new Error('This is not valid JSON. Choose a Mo Money backup or check the pasted text.');
+    }
+    if (!importData || typeof importData !== 'object' || Array.isArray(importData) ||
+        typeof importData.version !== 'string' || !importData.version) {
+      throw new Error('This is not a Mo Money backup: version information is missing.');
+    }
+    const collections = ['transactions', 'accounts', 'categories', 'rules', 'budgets',
+      'transactionHistory', 'balanceHistory', 'currencyRates', 'transferMatches'] as const;
+    for (const collection of collections) {
+      if (importData[collection] !== undefined && !Array.isArray(importData[collection])) {
+        throw new Error(`This backup has invalid ${collection} data. Nothing has been imported.`);
+      }
+    }
+    if (importData.preferences != null &&
+        (typeof importData.preferences !== 'object' || Array.isArray(importData.preferences))) {
+      throw new Error('This backup has invalid preferences. Nothing has been imported.');
+    }
+    setPendingImportData(importData);
+    setPendingFileName(file.name);
+    setShowImportDialog(true);
   };
 
   const handleImportWithOptions = async (data: ExportData, options: ImportOptions) => {
@@ -1203,7 +1207,7 @@ const Settings: React.FC = () => {
         
         <div style={{ marginBottom: '20px' }}>
           <h4>☁️ Cloud Storage</h4>
-          <p>Cloud saves use revision checks, not device clocks. Link this device with an initial upload or download, then enable auto-sync. Conflicts and record deletions pause automatic saves for review. Each cloud save retains a recovery version; startup never replaces local data.</p>
+          <p>Keep a cloud copy with recovery versions. Changes from another device and deletions require review before saving.</p>
           {!azureBlobService.isAvailable() && <p role="status">Cloud sync is disabled for this local session. Your data stays in this browser. Cloud use requires sign-in and deployment of the protected storage API.</p>}
           
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
@@ -1251,17 +1255,14 @@ const Settings: React.FC = () => {
             {isAutoSyncActive ? '🔄 Auto sync enabled - checks every 30 seconds; conflicts or deletions require review' : '⏸️ Auto sync disabled - use manual buttons to sync'}
           </div>
           
-          <div style={{ marginTop: '12px', padding: '12px', background: '#f3e5f5', borderRadius: '6px', fontSize: '14px', color: '#7b1fa2' }}>
-            <div style={{ marginBottom: '8px' }}>
-              <strong>🔗 Cloud Storage URL:</strong>
-            </div>
-            <div style={{ fontFamily: 'monospace', fontSize: '12px', background: 'white', padding: '6px 8px', borderRadius: '4px', wordBreak: 'break-all', border: '1px solid #e0e0e0' }}>
+          <details style={{ marginTop: '12px', fontSize: '14px' }}>
+            <summary style={{ cursor: 'pointer' }}>Cloud connection details</summary>
+            <div style={{ marginTop: '8px', wordBreak: 'break-all' }}>
               {blobUrl ? (
                 <a 
                   href={blobUrl} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  style={{ color: '#7b1fa2', textDecoration: 'none' }}
                 >
                   {blobUrl}
                 </a>
@@ -1269,11 +1270,14 @@ const Settings: React.FC = () => {
                 <span style={{ color: '#999' }}>Loading URL...</span>
               )}
             </div>
-            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-              💡 When enabled, auto-sync checks this protected endpoint every 30 seconds. It never bypasses conflict or deletion safeguards.
-            </div>
-          </div>
-          <CloudRecovery />
+            <p style={{ color: '#666', marginTop: '4px' }}>
+              Auto-sync checks every 30 seconds when enabled. Startup never replaces local data.
+            </p>
+          </details>
+          <details style={{ marginTop: '12px', fontSize: '14px' }}>
+            <summary style={{ cursor: 'pointer' }}>Recovery options</summary>
+            <CloudRecovery />
+          </details>
         </div>
         
         <div style={{ marginBottom: '20px' }}>
@@ -1281,28 +1285,28 @@ const Settings: React.FC = () => {
           <p>Export all your data to a structured backup file, or restore from a previous backup.</p>
           
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
-            <Button 
+            <Button
+              variant="outline"
               onClick={handleExportData}
               disabled={isExporting}
-              style={{ background: '#2196F3', borderColor: '#2196F3', color: 'white', minWidth: '140px' }}
             >
               {isExporting ? 'Exporting...' : '💾 Export Data'}
             </Button>
 
-            <Button 
+            <Button
+              variant="outline"
               onClick={handleExportToExcel}
               disabled={isExportingExcel}
-              style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white', minWidth: '140px' }}
             >
               {isExportingExcel ? 'Exporting...' : '📊 Export to Excel'}
             </Button>
             
-            <BackupFilePicker disabled={isImporting} onChange={handleImportData} />
+            <BackupFilePicker disabled={isImporting} onFileSelected={handleImportData} />
           </div>
           
-          <div style={{ marginTop: '12px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', fontSize: '14px', color: '#1976d2' }}>
-            <strong>💡 Tip:</strong> Regular backups help protect your financial data. Export files contain ALL your data including transactions, accounts, budgets, categories, rules, balance history, currency rates, and transfer matches. JSON format is structured for compatibility, while Excel format provides multiple sheets for easy analysis.
-          </div>
+          <p style={{ marginTop: '12px', fontSize: '14px', color: '#666' }}>
+            Use JSON backups to restore your data. Excel exports are for analysis.
+          </p>
           
           <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
             <h4>🕐 Automatic Backups</h4>

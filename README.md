@@ -46,10 +46,12 @@ clocks or silently replaces local data. Stale revisions and any removed record
 IDs block automatic saves; intentional deletions require explicit confirmation.
 Export local changes before downloading a conflicting cloud version.
 
-For local JSON backups, Settings > Import Data uses a visible native **Choose
-File** control. Selecting a file opens the import-options dialog; it does not
-replace data until you confirm the import. If an embedded preview cannot display
-native file dialogs, open the same app URL in your regular browser.
+For local JSON backups, Settings > **Import Data** opens an in-page import dialog.
+Browse for a file, drag a JSON backup into the drop area, or expand **Paste JSON
+instead** and paste the file contents. Drop and paste work without an operating
+system file window. All three paths open the same import-options preview; no data
+is replaced until you confirm the import. If the browser blocks its file picker,
+use either alternative instead.
 
 Each successful save retains a create-only recovery version on the server.
 Settings > Recovery versions can restore older cloud versions or pre-restore
