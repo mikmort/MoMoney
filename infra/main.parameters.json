@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "momoney-prod-4eb0" },
+    "location": { "value": "canadacentral" },
+    "sessionId": { "value": "4eb01ebf-caad-4c48-bdba-1242beabddb2" },
+    "deployedBy": { "value": "Mike Morton" },
+    "createdAt": { "value": "2026-10-03T12:29:56.7498488-07:00" },
+    "deployerObjectId": { "value": "ad49f255-98c5-4090-bf98-cbc2a1f4f4bb" },
+    "resourceGroupName": { "value": "rg-momoney-prod-4eb0" },
+    "storageAccountName": { "value": "stmomoneyprod4eb0" },
+    "functionAppName": { "value": "func-momoney-prod-4eb0" },
+    "planName": { "value": "plan-momoney-prod-4eb0" },
+    "identityName": { "value": "id-momoney-prod-4eb0" },
+    "workspaceName": { "value": "log-momoney-prod-4eb0" },
+    "insightsName": { "value": "appi-momoney-prod-4eb0" }
+  }
+}

@@ -1,8 +1,18 @@
 # Protected cloud storage
 
 This Node.js 22 / Azure Functions v4 API replaces the old overwrite-only proxy.
-It has not been deployed by the repository changes. Keep cloud sync disabled
-until the following configuration and checks are complete.
+It is deployed as `func-momoney-prod-4eb0` in Canada Central and linked to the
+existing Standard `Momoney` Static Web App. The private StorageV2 account is
+`stmomoneyprod4eb0`; access uses managed identity. See `infra/README.md` for the
+controlled deployment procedure.
+
+On October 3, 2026, all six legacy save blobs were copied create-only and
+SHA-256 verified, with the original account left intact. Five passed snapshot
+validation; one already had `transactions: null` in the source. That incomplete
+save is preserved and blocked from automatic migration, not treated as an empty
+account. It requires a known-good backup/local export for deliberate recovery.
+The legacy `StorageProxy/blobProxy` function is disabled; other functions were
+not replaced.
 
 ## Build and deploy
 

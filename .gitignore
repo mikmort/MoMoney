@@ -89,3 +89,6 @@ samples/
 
 # TypeScript incremental build info
 tsconfig.tsbuildinfo
+
+# Local Azure deployment state (may include deployment credentials)
+.copilot-azure/

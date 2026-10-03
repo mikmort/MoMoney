@@ -35,15 +35,21 @@ requires the versioned API in [`api/`](api/README.md), Microsoft sign-in, and
 `REACT_APP_CLOUD_SYNC_ENABLED=true` at frontend build time. Deploying just the
 frontend does **not** deploy the API. The managed-identity deployment documented
 there uses a linked Function App and requires **Static Web Apps Standard**.
-The existing `Momoney` Static Web App was verified as Standard on October 3, 2026;
-the protected storage API still needs deployment and configuration. No Azure
-resources are provisioned automatically by these changes.
+The existing `Momoney` Static Web App is Standard. The protected API was deployed
+and linked on October 3, 2026; infrastructure and controlled redeployment
+instructions are in [`infra/`](infra/README.md). Infrastructure is not
+automatically reprovisioned by frontend builds.
 
 In Settings, download your existing cloud save (or upload once for a new
 account), then enable auto-sync. Startup never chooses a winner based on device
 clocks or silently replaces local data. Stale revisions and any removed record
 IDs block automatic saves; intentional deletions require explicit confirmation.
 Export local changes before downloading a conflicting cloud version.
+
+For local JSON backups, Settings > Import Data uses a visible native **Choose
+File** control. Selecting a file opens the import-options dialog; it does not
+replace data until you confirm the import. If an embedded preview cannot display
+native file dialogs, open the same app URL in your regular browser.
 
 Each successful save retains a create-only recovery version on the server.
 Settings > Recovery versions can restore older cloud versions or pre-restore
@@ -345,9 +351,10 @@ No custom Azure AD app registration is required for basic authentication. The bu
 
 ### 4. Configure the Linked Storage API
 
-The hosting-plan prerequisite is already satisfied. Deploy and link the Function
-App, configure its managed identity and private storage container, and disable
-legacy proxy writes before enabling cloud sync. Follow [api/README.md](api/README.md).
+The hosting plan and linked storage API are configured. The legacy blob function
+is disabled; unrelated OpenAI functions remain enabled. Follow
+[api/README.md](api/README.md) and [infra/README.md](infra/README.md) for
+controlled redeployment without overwriting saved data.
 
 ## Development
 

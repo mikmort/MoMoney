@@ -14,6 +14,7 @@ import { UserPreferences, CurrencyExchangeRate } from '../../types';
 import { BackupMetadata } from '../../types/backup';
 import ImportSelectionDialog from './ImportSelectionDialog';
 import { CloudRecovery } from './CloudRecovery';
+import { BackupFilePicker } from './BackupFilePicker';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -644,15 +645,15 @@ const Settings: React.FC = () => {
   };
 
   const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const input = event.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.json')) {
-      showAlert('error', 'Please select a valid JSON backup file (.json)');
-      return;
-    }
-
     try {
+      if (!file.name.toLowerCase().endsWith('.json')) {
+        showAlert('error', 'Please select a valid JSON backup file (.json)');
+        return;
+      }
       const fileText = await simplifiedImportExportService.readFileAsText(file);
       const importData = JSON.parse(fileText);
       
@@ -671,7 +672,7 @@ const Settings: React.FC = () => {
       showAlert('error', 'Failed to read backup file. Please ensure you selected a valid Mo Money backup file and try again.');
     } finally {
       // Clear the file input
-      event.target.value = '';
+      input.value = '';
     }
   };
 
@@ -1296,42 +1297,7 @@ const Settings: React.FC = () => {
               {isExportingExcel ? 'Exporting...' : '📊 Export to Excel'}
             </Button>
             
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <input
-                type="file"
-                accept=".json"
-                onChange={handleImportData}
-                style={{ 
-                  position: 'absolute', 
-                  left: -9999, 
-                  top: -9999,
-                  width: 1,
-                  height: 1,
-                  opacity: 0,
-                  visibility: 'hidden',
-                  pointerEvents: 'none'
-                }}
-                disabled={isImporting}
-                id="import-file-input"
-              />
-              <Button 
-                onClick={() => {
-                  const input = document.getElementById('import-file-input') as HTMLInputElement;
-                  if (input && !isImporting) {
-                    input.click();
-                  }
-                }}
-                disabled={isImporting}
-                style={{ 
-                  background: '#2196F3', 
-                  borderColor: '#2196F3', 
-                  color: 'white', 
-                  minWidth: '140px'
-                }}
-              >
-                {isImporting ? 'Importing...' : '📁 Import Data'}
-              </Button>
-            </div>
+            <BackupFilePicker disabled={isImporting} onChange={handleImportData} />
           </div>
           
           <div style={{ marginTop: '12px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', fontSize: '14px', color: '#1976d2' }}>
