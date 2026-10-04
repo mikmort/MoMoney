@@ -119,7 +119,7 @@ describe('AzureOpenAI Service', () => {
 
       expect(result.categoryId).toBe('uncategorized');
       expect(result.confidence).toBe(0.1);
-      expect(result.reasoning).toBe('Failed to classify using AI - using fallback');
+      expect(result.error?.code).toBe('invalid_response');
     });
 
     it('should handle network timeout scenarios', async () => {
@@ -141,7 +141,7 @@ describe('AzureOpenAI Service', () => {
 
       expect(result.categoryId).toBe('uncategorized');
       expect(result.confidence).toBe(0.1);
-      expect(result.reasoning).toBe('Failed to classify using AI - using fallback');
+      expect(result.error).toBeDefined();
     });
 
     it('should preserve category validation even with complex AI responses', async () => {
@@ -271,7 +271,7 @@ describe('AzureOpenAI Service', () => {
 
       expect(result.categoryId).toBe('uncategorized');
       expect(result.confidence).toBe(0.1);
-      expect(result.reasoning).toBe('Failed to classify using AI - using fallback');
+      expect(result.error).toBeDefined();
     });
 
     it('should return fallback when OpenAI proxy returns error', async () => {
@@ -297,7 +297,7 @@ describe('AzureOpenAI Service', () => {
 
       expect(result.categoryId).toBe('uncategorized');
       expect(result.confidence).toBe(0.1);
-      expect(result.reasoning).toBe('Failed to classify using AI - using fallback');
+      expect(result.error).toBeDefined();
     });
 
     it('should return fallback when response content is invalid JSON', async () => {
@@ -329,7 +329,7 @@ describe('AzureOpenAI Service', () => {
 
       expect(result.categoryId).toBe('uncategorized');
       expect(result.confidence).toBe(0.1);
-      expect(result.reasoning).toBe('Failed to classify using AI - using fallback');
+      expect(result.error?.code).toBe('invalid_response');
     });
 
     it('should handle markdown code blocks in AI response', async () => {
@@ -508,7 +508,7 @@ describe('AzureOpenAI Service', () => {
 
     it('retries transient failures without switching models', async () => {
       (fetch as jest.Mock)
-        .mockResolvedValueOnce({ ok: false, status: 429, statusText: 'Too Many Requests', text: async () => '' })
+        .mockResolvedValueOnce({ ok: false, status: 429, statusText: 'Too Many Requests', text: async () => '', headers: new Headers({ 'Retry-After': '0' }) })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({ success: true, data: { choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }] } })

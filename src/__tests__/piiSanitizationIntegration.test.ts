@@ -1,5 +1,5 @@
 import { AzureOpenAIService } from '../services/azureOpenAIService';
-import { AIClassificationRequest } from '../types';
+import { AIClassificationRequest, Category } from '../types';
 
 // Mock the fetch function
 global.fetch = jest.fn();
@@ -7,10 +7,11 @@ global.fetch = jest.fn();
 describe('PII Sanitization in Azure OpenAI Service', () => {
   let service: AzureOpenAIService;
   let originalEnv: any;
-  const mockCategories = [
+  const mockCategories: Category[] = [
     {
       id: 'food-dining',
       name: 'Food & Dining',
+      type: 'expense',
       subcategories: [
         { id: 'restaurants', name: 'Restaurants' },
         { id: 'groceries', name: 'Groceries' }
@@ -19,6 +20,7 @@ describe('PII Sanitization in Azure OpenAI Service', () => {
     {
       id: 'uncategorized',
       name: 'Uncategorized',
+      type: 'expense',
       subcategories: []
     }
   ];

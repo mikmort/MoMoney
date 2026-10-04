@@ -112,7 +112,7 @@ describe('Transaction Deletion Unmatching', () => {
         }
       ];
 
-      const addedTransactions = [];
+      const addedTransactions: Transaction[] = [];
       for (const tx of transactions) {
         addedTransactions.push(await dataService.addTransaction(tx));
       }

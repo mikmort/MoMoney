@@ -61,6 +61,7 @@ describe('Account Management Critical Path Tests', () => {
           name: accountData.name,
           institution: accountData.institution,
           type: 'checking',
+          currency: 'USD',
           isActive: true
         });
         
@@ -91,6 +92,7 @@ describe('Account Management Critical Path Tests', () => {
           name: specialCharacters[i],
           institution: 'Test Bank',
           type: 'checking',
+          currency: 'USD',
           isActive: true
         });
 

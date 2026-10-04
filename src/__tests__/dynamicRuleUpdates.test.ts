@@ -61,7 +61,7 @@ describe('Dynamic Rule Updates During Import', () => {
     expect(rules.length).toBe(0);
     
     // All transactions should have AI-assigned confidence (0.6), not rule confidence (1.0)
-    result.forEach(transaction => {
+    result.forEach((transaction: Transaction) => {
       expect(transaction.confidence).toBe(0.6);
       expect(transaction.reasoning).toBe('Uncertain categorization');
     });

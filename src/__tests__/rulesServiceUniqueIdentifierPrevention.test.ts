@@ -112,7 +112,7 @@ describe('RulesService Unique Identifier Prevention', () => {
           );
           rulesCreated++;
         } catch (error) {
-          console.log(`Edge case "${description}" was rejected: ${error.message}`);
+          console.log(`Edge case "${description}" was rejected: ${error instanceof Error ? error.message : String(error)}`);
           // Some edge cases might be rejected, that's OK
         }
       }

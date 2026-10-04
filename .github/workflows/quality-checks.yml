@@ -12,6 +12,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  api_checks:
+    runs-on: ubuntu-latest
+    name: API Build and Test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+      - name: Install API dependencies
+        run: npm ci --prefix api --no-audit --no-fund --ignore-scripts
+      - name: Build and test API
+        run: npm --prefix api test
+
   quality_checks:
     runs-on: ubuntu-latest
     name: Lint and Test
@@ -36,6 +51,7 @@ jobs:
             --prefer-offline \
             --no-audit \
             --no-fund \
+            --omit=optional \
             --ignore-scripts
         env:
           CI: true
@@ -48,6 +64,12 @@ jobs:
         run: npm test
         env:
           CI: true
+
+      - name: Check date-boundary regressions outside UTC
+        run: npm test -- --runInBand --testPathPattern='reportsFilteringComprehensive|setBalanceModal'
+        env:
+          CI: true
+          TZ: America/Los_Angeles
 
   # Optional: Type checking in parallel
   type_check:

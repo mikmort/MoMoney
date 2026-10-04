@@ -2,6 +2,8 @@ import { defaultConfig } from '../config/appConfig';
 import { AIProxyRequest, OPENAI_PROXY_PATH } from '../config/openAI';
 import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult, AccountStatementAnalysisRequest, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../types';
 import { sanitizeTransactionForAI, sanitizeFileContent, validateMaskedAccountNumber } from '../utils/piiSanitization';
+import { buildClassificationMessages, classificationItem } from '../utils/classificationPrompt';
+import { AIRequestError, classificationError, isAIErrorCode, parseRetryAfter } from '../utils/aiRequestErrors';
 
 type OpenAIProxyRequest = AIProxyRequest;
 
@@ -35,6 +37,8 @@ export class AzureOpenAIService {
   private readonly messageCharBudget: number;
   private lastResponseModel?: string;
   private disabledReason?: string;
+  private requestQueue: Promise<void> = Promise.resolve();
+  private retryNotBefore = 0;
 
   constructor() {
     this.deploymentName = defaultConfig.azure.openai.deploymentName;
@@ -53,28 +57,6 @@ export class AzureOpenAIService {
     return process.env.NODE_ENV !== 'production' && process.env.REACT_APP_AI_ENABLED !== 'true';
   }
 
-  // Build a very compact catalog string like: id1:subA|subB;id2:subC
-  private buildCompactCatalog(categories: Array<{ id: string; name: string; subcategories?: Array<{ id: string; name: string }> }>): string {
-    return categories
-      .map(c => {
-        const subs = (c.subcategories || []).map(s => s.id).join('|');
-        return subs ? `${c.id}:${subs}` : `${c.id}`;
-      })
-      .join(';');
-  }
-
-  // Estimate per-message sizes (catalog and items are sent as separate user messages)
-  private estimateBatchMessageLengths(
-    compactCatalog: string,
-    items: Array<{ index: number; description: string; amount: number; date: string }>
-  ): { catalogLen: number; itemsLen: number; maxLen: number } {
-    const catalogMsg = `CAT:${compactCatalog}`;
-    const itemsMsg = `TX:${JSON.stringify(items)}`;
-    const catalogLen = catalogMsg.length + 120; // buffer for instructions and JSON overhead
-    const itemsLen = itemsMsg.length + 120;
-    return { catalogLen, itemsLen, maxLen: Math.max(catalogLen, itemsLen) };
-  }
-
   private async callOpenAIProxy(request: OpenAIProxyRequest): Promise<OpenAIProxyResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 65000);
@@ -91,22 +73,26 @@ export class AzureOpenAIService {
       });
 
       if (!response.ok) {
-        // Try to include proxy error details in the thrown error to aid debugging
-        let detail = '';
+        let code = response.status === 429 ? 'rate_limit' :
+          response.status === 401 || response.status === 403 ? 'authentication' :
+          response.status >= 500 ? 'unavailable' : 'invalid_request';
+        let retryAfterMs = parseRetryAfter(response.headers?.get('retry-after-ms'), response.headers?.get('retry-after'));
         try {
-          const text = await response.text();
-          detail = text?.slice(0, 500) || '';
+          const body = JSON.parse(await response.text());
+          if (isAIErrorCode(body.code)) code = body.code;
+          if (typeof body.retryAfterMs === 'number' && Number.isFinite(body.retryAfterMs) && body.retryAfterMs >= 0) {
+            retryAfterMs = Math.max(retryAfterMs ?? 0, body.retryAfterMs);
+          }
         } catch {
-          // ignore
+          // Authentication gateways can return HTML instead of the API's JSON error.
         }
-        const dash = detail ? ` | ${detail}` : '';
-        throw new Error(`HTTP ${response.status}: ${response.statusText}${dash}`);
+        throw new AIRequestError(isAIErrorCode(code) ? code : 'invalid_request', response.status, retryAfterMs);
       }
 
       const result: OpenAIProxyResponse = await response.json();
       const choice = result.data?.choices[0];
       if (choice?.finish_reason === 'length' || choice?.finish_reason === 'content_filter') {
-        throw new Error(`AI response is incomplete (${choice.finish_reason}).`);
+        throw new AIRequestError(choice.finish_reason === 'length' ? 'truncated' : 'refused');
       }
       return result;
     } catch (error) {
@@ -119,6 +105,15 @@ export class AzureOpenAIService {
 
   // Retry transient failures without silently switching models or increasing cost.
   private async callOpenAIWithFallback(
+    request: Omit<OpenAIProxyRequest, 'deployment'> & { deployment?: string },
+    options?: { attemptsPerDeployment?: number; baseBackoffMs?: number }
+  ): Promise<OpenAIProxyResponse> {
+    const operation = this.requestQueue.then(() => this.callOpenAIWithRetries(request, options));
+    this.requestQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async callOpenAIWithRetries(
     request: Omit<OpenAIProxyRequest, 'deployment'> & { deployment?: string },
     options?: { attemptsPerDeployment?: number; baseBackoffMs?: number }
   ): Promise<OpenAIProxyResponse> {
@@ -142,19 +137,33 @@ export class AzureOpenAIService {
     const deployment = request.deployment || this.deploymentName;
     for (let attempt = 1; attempt <= attemptsPerDeployment; attempt++) {
       try {
+        const waitMs = this.retryNotBefore - Date.now();
+        if (waitMs > 120000) throw new AIRequestError('rate_limit', 429, waitMs);
+        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
         const response = await this.callOpenAIProxy({ ...request, deployment });
         if (!response.success) throw new Error(response.error || 'AI proxy returned an error.');
         this.lastResponseModel = response.data?.model;
         return response;
       } catch (error) {
-        const message = error instanceof Error ? error.message.toLowerCase() : '';
-        const transient = /http (429|5\d\d)/.test(message) ||
-          /timeout|timed out|abort|network|failed to fetch/.test(message);
-        if (!transient || attempt === attemptsPerDeployment) throw error;
-        await new Promise(resolve => setTimeout(resolve, base * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 150)));
+        const failure = classificationError(error);
+        const transient = ['rate_limit', 'unavailable', 'network'].includes(failure.code);
+        const backoff = Math.max(base, failure.code === 'rate_limit' ? 60000 : 1000) * Math.pow(2, attempt - 1);
+        const delay = Math.max(failure.retryAfterMs ?? 0, failure.retryAfterMs === undefined ? backoff : 0) +
+          Math.floor(Math.random() * 150);
+        if (transient) this.retryNotBefore = Math.max(this.retryNotBefore, Date.now() + delay);
+        if (!transient || attempt === attemptsPerDeployment || delay > 120000) throw failure;
       }
+
     }
     throw new Error('No AI attempts were configured.');
+  }
+
+  private failedClassification(error: unknown): AIClassificationResponse {
+    const failure = classificationError(error);
+    return {
+      categoryId: 'uncategorized', confidence: 0.1, reasoning: failure.message,
+      error: { code: failure.code, message: failure.message, retryAfterMs: failure.retryAfterMs }
+    };
   }
 
   // Constrain AI output to the provided categories/subcategories catalog
@@ -197,9 +206,7 @@ export class AzureOpenAIService {
     const startTime = Date.now();
     if (this.disabledReason) {
       return {
-        categoryId: 'uncategorized',
-        confidence: 0.1,
-        reasoning: `AI disabled: ${this.disabledReason}`,
+        ...this.failedClassification(new AIRequestError('disabled')),
         proxyMetadata: { model: this.deploymentName, processingTime: 0, keyTokens: [] }
       };
     }
@@ -210,24 +217,11 @@ export class AzureOpenAIService {
     request.date || ''
   );
   const desc = sanitized.description.slice(0, 250);
-  const amount = Number.isFinite(request.amount as any) ? (request.amount as number) : 0;
-  const date = sanitized.date.slice(0, 40);
     try {
-      // Build an explicit catalog of allowed categories/subcategories (IDs only) for the model
-  const categoriesCatalog = this.buildCompactCatalog(request.availableCategories as any);
-
-  const systemPrompt = `Classify one financial transaction. Use ONLY ids from the catalog. Reply with a single JSON object with fields: categoryId, subcategoryId (or null), confidence (0-1), reasoning. If unsure: categoryId="uncategorized", confidence<=0.3.`;
-
-  
-
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `CAT:${categoriesCatalog}` },
-          { role: 'user', content: `TX:{"description":"${desc}","amount":${amount},"date":"${date}"}` }
-        ],
-        max_completion_tokens: 200
+        messages: buildClassificationMessages([request], false, this.messageCharBudget),
+        max_completion_tokens: 300
       };
 
   const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 300 });
@@ -277,9 +271,7 @@ export class AzureOpenAIService {
       console.error('Error classifying transaction:', error);
       
       return {
-        categoryId: 'uncategorized',
-        confidence: 0.1,
-        reasoning: 'Failed to classify using AI - using fallback',
+        ...this.failedClassification(error),
         proxyMetadata: {
           model: this.deploymentName,
           processingTime: Date.now() - startTime,
@@ -294,38 +286,19 @@ export class AzureOpenAIService {
     requests: AIClassificationRequest[]
   ): Promise<AIClassificationResponse[]> {
     if (this.disabledReason) {
-      return requests.map(() => ({ categoryId: 'uncategorized', confidence: 0.05, reasoning: `AI disabled: ${this.disabledReason}` }));
+      return requests.map(() => this.failedClassification(new AIRequestError('disabled')));
     }
     if (!requests.length) return [];
     // Dynamically size chunks to stay under proxy message size limits
-    const categories = requests[0].availableCategories as any;
-  const compactCatalog = this.buildCompactCatalog(categories);
-
   const results: AIClassificationResponse[] = [];
   const safeThreshold = this.messageCharBudget; // per-message chars budget (below server limit)
     let i = 0;
     while (i < requests.length) {
       // Start with a reasonable max and shrink until under threshold
       let size = Math.min(12, requests.length - i);
-      let items: Array<{ index: number; description: string; amount: number; date: string }>;
       while (size > 0) {
-        items = [];
-        for (let j = 0; j < size; j++) {
-          const r = requests[i + j];
-          const sanitized = sanitizeTransactionForAI(
-            r.transactionText || '',
-            r.amount as number,
-            r.date || ''
-          );
-          items.push({
-            index: j,
-            description: sanitized.description.slice(0, 250),
-            amount: Number.isFinite(r.amount as any) ? (r.amount as number) : 0,
-            date: sanitized.date.slice(0, 40)
-          });
-        }
-    const { maxLen } = this.estimateBatchMessageLengths(compactCatalog, items);
-    if (maxLen <= safeThreshold) break;
+        const items = requests.slice(i, i + size).map(classificationItem);
+        if (`TX:${JSON.stringify(items)}`.length <= safeThreshold) break;
         size--;
       }
       if (size === 0) size = 1; // always make progress
@@ -334,52 +307,25 @@ export class AzureOpenAIService {
       const chunkResults = await this.classifyTransactionsBatchChunk(slice);
       results.push(...chunkResults);
       i += size;
+      const failure = chunkResults.find(result => result.error);
+      if (failure) {
+        results.push(...requests.slice(i).map(() => ({ ...failure })));
+        break;
+      }
     }
     return results;
   }
 
   // Internal: classify a small chunk with retries and robust parsing
   private async classifyTransactionsBatchChunk(
-    requests: AIClassificationRequest[],
-    attempt = 1
+    requests: AIClassificationRequest[]
   ): Promise<AIClassificationResponse[]> {
     try {
   const categories = requests[0].availableCategories;
-  const categoriesCatalog = this.buildCompactCatalog(categories as any);
-
-      // Sanitize items
-      const items = requests.map((r, idx) => {
-        const sanitized = sanitizeTransactionForAI(
-          r.transactionText || '',
-          r.amount as number,
-          r.date || ''
-        );
-        return {
-          index: idx,
-          description: sanitized.description.slice(0, 250),
-          amount: Number.isFinite(r.amount as any) ? (r.amount as number) : 0,
-          date: sanitized.date.slice(0, 40)
-        };
-      });
-
-  const systemPrompt = `Classify transactions. Return a JSON array the same length and order as input. Fields per item: categoryId, subcategoryId (or null), confidence (0-1), reasoning.
-
-CRITICAL: Distinguish transfers from bank fees carefully:
-- TRANSFERS: ACH transfer, wire transfer, transfer to/from accounts, automatic payment, mobile transfer, Zelle, account-to-account moves
-- BANK FEES: overdraft fee, maintenance fee, ATM fee, NSF fee, wire fee, service charge
-- If description contains "transfer", "ACH", "automatic payment", "move", or "between accounts" WITHOUT fee keywords → use "internal-transfer"
-- If description contains "fee", "charge", "overdraft", "NSF", "maintenance" → use appropriate fee category
-- For round dollar amounts with transfer keywords → likely transfers, not fees
-
-Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
 
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `CAT:${categoriesCatalog}` },
-          { role: 'user', content: `TX:${JSON.stringify(items)}` }
-        ],
+        messages: buildClassificationMessages(requests, true, this.messageCharBudget),
         max_completion_tokens: Math.max(900, requests.length * 200)
       };
 
@@ -414,39 +360,33 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
 
       let parsed: any[] | null = tryParseArray(cleaned);
       if (!parsed) {
-        console.warn('Batch parse failed (no JSON array found). Falling back to per-item classification.');
-        const singles: AIClassificationResponse[] = [];
-        for (const r of requests) {
-          try {
-            singles.push(await this.classifyTransaction(r));
-          } catch {
-            singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Single fallback failed' });
-          }
-        }
-        return singles;
+        throw new AIRequestError('invalid_response');
       }
 
-      // Length reconcile
-      if (parsed.length !== requests.length) {
-        if (parsed.every(p => typeof p?.index === 'number')) parsed.sort((a, b) => (a.index as number) - (b.index as number));
-        const results: AIClassificationResponse[] = [];
-        for (let i = 0; i < requests.length; i++) {
-          const p = parsed[i];
-          if (p) {
-            const categoryId = (p.categoryId || p.category || 'uncategorized') as string;
-            const subcategoryId = (p.subcategoryId || p.subcategory || null) as string | null;
-            const confidence = typeof p.confidence === 'number' ? p.confidence : 0.5;
-            const reasoning = (p.reasoning || 'AI classification') as string;
-            results.push(this.constrainToCatalog({ categoryId, subcategoryId, confidence, reasoning }, categories as any));
-          } else {
-            try {
-              results.push(await this.classifyTransaction(requests[i]));
-            } catch {
-              results.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Missing batch item' });
-            }
+      // An indexed response must never be assigned to transactions by its array position.
+      if (parsed.some(p => p?.index !== undefined)) {
+        const indexed = new Map<number, typeof parsed[number]>();
+        for (const p of parsed) {
+          if (!Number.isInteger(p?.index) || p.index < 0 || p.index >= requests.length || indexed.has(p.index)) {
+            throw new Error('AI batch returned invalid or duplicate transaction indexes.');
           }
+          indexed.set(p.index, p);
         }
-        return results;
+        return requests.map((request, index) => {
+          const p = indexed.get(index);
+          return p
+            ? this.constrainToCatalog({
+              categoryId: p.categoryId || p.category || 'uncategorized',
+              subcategoryId: p.subcategoryId || p.subcategory || null,
+              confidence: p.confidence,
+              reasoning: p.reasoning
+            }, request.availableCategories)
+            : this.failedClassification(new AIRequestError('invalid_response'));
+        });
+      }
+      // Without indexes, a partial response cannot safely be correlated.
+      if (parsed.length !== requests.length) {
+        throw new Error('AI batch returned a partial response without transaction indexes.');
       }
 
       // 1:1 normalization
@@ -459,43 +399,9 @@ Use ONLY ids from catalog. If unsure use categoryId="uncategorized".`;
         };
         return this.constrainToCatalog(normalized, categories as any);
       });
-    } catch (error: any) {
-      // Smarter fallback logic based on error type
-      const msg = String(error?.message || '');
-      const is5xx = /HTTP\s*5\d\d/i.test(msg);
-      const is429 = /HTTP\s*429/i.test(msg) || /too many requests/i.test(msg);
-      const is400 = /HTTP\s*400/i.test(msg) || /bad request/i.test(msg);
-
-      // Backoff a bit on 429
-      if ((is5xx || is429) && attempt < 3) {
-        const backoffMs = 500 * attempt + Math.floor(Math.random() * 400);
-        await new Promise((r) => setTimeout(r, backoffMs));
-        // On repeated 429, shrink to singles to reduce payload pressure
-        if (is429 && requests.length > 1) {
-          const results: AIClassificationResponse[] = [];
-          for (const r of requests) {
-            try {
-              results.push(await this.classifyTransaction(r));
-            } catch {
-              results.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: 'Rate-limited fallback' });
-            }
-          }
-          return results;
-        }
-        return this.classifyTransactionsBatchChunk(requests, attempt + 1);
-      }
-
-      // For 400s (often payload/format issues), fall back to singles for safety
+    } catch (error) {
       console.error('Error in batch classification chunk:', error);
-      const singles: AIClassificationResponse[] = [];
-      for (const r of requests) {
-        try {
-          singles.push(await this.classifyTransaction(r));
-        } catch {
-          singles.push({ categoryId: 'uncategorized', confidence: 0.1, reasoning: is400 ? 'Bad request fallback' : 'Batch chunk failed' });
-        }
-      }
-      return singles;
+      return requests.map(() => this.failedClassification(error));
     }
   }
 

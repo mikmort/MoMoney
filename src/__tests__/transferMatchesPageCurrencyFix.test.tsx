@@ -95,6 +95,10 @@ describe('TransferMatchesPage Currency Validation', () => {
 
     // Mock useTransferMatching hook
     mockUseTransferMatching.mockReturnValue({
+      matches: [],
+      lastMatchResult: null,
+      findManualTransferMatches: jest.fn(),
+      countUnmatchedTransfers: jest.fn().mockReturnValue(0),
       isLoading: false,
       error: null,
       findTransferMatches: jest.fn(),

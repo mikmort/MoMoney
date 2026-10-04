@@ -141,7 +141,7 @@ describe('CSV Re-import Duplicates Issue (Issue #407)', () => {
     // Step 3: Simulate app reload by re-initializing dataService
     // Force re-initialization to simulate app reload
     (dataService as any).isInitialized = false;
-    await dataService.ensureInitialized();
+    await dataService.getAllTransactions();
 
     // Step 4: Verify transactions are still deleted after "reload"
     allTransactions = await dataService.getAllTransactions();

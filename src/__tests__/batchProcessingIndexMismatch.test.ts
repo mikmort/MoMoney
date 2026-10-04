@@ -85,13 +85,14 @@ describe('Batch Processing Index Mismatch Bug', () => {
     console.log('\n🔄 Simulating auto-rule creation from batch results...');
     
     // Create rule for Netflix (index 1) with high confidence  
-    await rulesService.createAutoRuleFromAI(
+    const suggestion = await rulesService.createAutoRuleFromAI(
       'Checking Account',
       'Netflix', 
       'Entertainment',
       'Streaming Services',
       0.89
     );
+    await rulesService.updateRule(suggestion.id, { isActive: true });
 
     console.log('Created auto-rule for Netflix');
 

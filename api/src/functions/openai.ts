@@ -4,6 +4,13 @@ import { AIChatMessage, DEFAULT_AI_DEPLOYMENT, MAX_AI_COMPLETION_TOKENS } from '
 import { isRecord } from '../../../src/utils/cloudSnapshot';
 import { StorageError } from '../snapshotStore';
 import { userIdentity } from './storage';
+import { AIErrorCode, parseRetryAfter } from '../../../src/utils/aiRequestErrors';
+
+export class AIUpstreamError extends StorageError {
+  constructor(status: number, message: string, public code: AIErrorCode, public retryAfterMs?: number) {
+    super(status, message);
+  }
+}
 
 interface CompletionRequest {
   model: string;
@@ -46,7 +53,9 @@ export function completionRequest(body: unknown): CompletionRequest {
   return { model: deployment, messages, max_completion_tokens: tokens, reasoning_effort: 'none', stream: false, store: false };
 }
 
-export async function completeWithAzure(request: CompletionRequest): Promise<unknown> {
+export async function completeWithAzure(
+  request: Omit<CompletionRequest, 'reasoning_effort'> & { reasoning_effort?: 'none' }
+): Promise<unknown> {
   const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
   if (!endpoint) throw new StorageError(503, 'AI is not configured on the server.');
   const url = new URL(endpoint);
@@ -63,7 +72,16 @@ export async function completeWithAzure(request: CompletionRequest): Promise<unk
   });
   if (!response.ok) {
     // Never echo upstream bodies: they can contain prompts or service configuration.
-    if (response.status === 429) throw new StorageError(429, 'AI rate limit reached. Please retry later.');
+    if (response.status === 429) {
+      const delay = parseRetryAfter(response.headers.get('retry-after-ms'), response.headers.get('retry-after')) ?? 60000;
+      throw new AIUpstreamError(429, 'AI rate limit reached. Please retry later.', 'rate_limit', delay);
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new AIUpstreamError(502, 'Azure AI authentication failed. Check the backend identity and deployment access.', 'upstream_auth');
+    }
+    if (response.status === 400 || response.status === 404) {
+      throw new AIUpstreamError(400, 'Azure AI rejected the request or deployment configuration.', 'invalid_request');
+    }
     throw new StorageError(502, `Azure AI request failed (HTTP ${response.status}).`);
   }
   return response.json();
@@ -88,8 +106,8 @@ export function createOpenAIHandler(complete: (request: CompletionRequest) => Pr
       }
       const choice: unknown = data.choices[0];
       if (!isRecord(choice) || !isRecord(choice.message)) throw new StorageError(502, 'AI returned an invalid completion.');
-      if (choice.finish_reason === 'length') throw new StorageError(422, 'AI response was truncated. Try a smaller batch or document.');
-      if (choice.message.refusal || choice.finish_reason === 'content_filter') throw new StorageError(422, 'AI could not process this request.');
+      if (choice.finish_reason === 'length') throw new AIUpstreamError(422, 'AI response was truncated. Try a smaller batch or document.', 'truncated');
+      if (choice.message.refusal || choice.finish_reason === 'content_filter') throw new AIUpstreamError(422, 'AI could not process this request.', 'refused');
       if (choice.finish_reason !== 'stop' || typeof choice.message.content !== 'string' || !choice.message.content.trim()) {
         throw new StorageError(502, 'AI returned no complete text response.');
       }
@@ -97,7 +115,15 @@ export function createOpenAIHandler(complete: (request: CompletionRequest) => Pr
     } catch (error) {
       const message = error instanceof StorageError ? error.message : 'AI unavailable. Please retry later.';
       context.error('AI request failed', message);
-      return { headers, status: error instanceof StorageError ? error.status : 503, jsonBody: { success: false, error: message } };
+      const status = error instanceof StorageError ? error.status : 503;
+      const code: AIErrorCode = error instanceof AIUpstreamError ? error.code :
+        status === 401 || status === 403 ? 'authentication' :
+        status >= 500 ? 'unavailable' : 'invalid_request';
+      const retryAfterMs = error instanceof AIUpstreamError ? error.retryAfterMs : undefined;
+      return {
+        headers: { ...headers, ...(retryAfterMs !== undefined ? { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } : {}) },
+        status, jsonBody: { success: false, error: message, code, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) }
+      };
     }
   };
 }

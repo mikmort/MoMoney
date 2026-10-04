@@ -169,7 +169,7 @@ describe('Multiple File Account Creation Logic', () => {
     // Mock for single file that gets auto-created
     mockDetectMultipleAccounts.mockResolvedValueOnce({
       success: true,
-      accounts: [{ id: 'auto-created-account', name: 'Auto Created Account' }]
+      accounts: [{ id: 'auto-created-account', name: 'Auto Created Account', type: 'checking', institution: 'Test Bank', currency: 'USD', isActive: true }]
     });
 
     const result = await accountManagementService.detectMultipleAccountsFromStatement(file);

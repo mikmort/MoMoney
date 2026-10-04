@@ -6,7 +6,7 @@ describe('Transfer Funds Sign Issue - Issue #536', () => {
 
   beforeEach(async () => {
     fileProcessingService = new FileProcessingService();
-    await dataService.initialize();
+    await dataService.getAllTransactions();
   });
 
   afterEach(async () => {
@@ -52,8 +52,7 @@ describe('Transfer Funds Sign Issue - Issue #536', () => {
 
     // All transfers should be positive (funds coming in)
     transferTransactions.forEach((tx, idx) => {
-      expect(tx.amount).toBeGreaterThan(0, 
-        `Transfer ${idx + 1} (${tx.description}) should be positive but got ${tx.amount}`);
+      expect(tx.amount).toBeGreaterThan(0);
     });
 
     // Note: In test environment, transfer detection rules are skipped, so they won't be 

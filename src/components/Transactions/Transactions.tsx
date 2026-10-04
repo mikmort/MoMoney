@@ -22,6 +22,7 @@ import { FileImport } from './FileImport';
 import { TransactionSplitManager } from '../shared/TransactionSplitManager';
 import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
+import { canRerunAI, rerunUncategorizedTransactions } from '../../services/recategorizationService';
 import { rulesService } from '../../services/rulesService';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { receiptProcessingService } from '../../services/receiptProcessingService';
@@ -856,6 +857,8 @@ const Transactions: React.FC = () => {
   // Anomaly detection state
   const [anomalies, setAnomalies] = useState<AnomalyResult[]>([]);
   const [isAnomalyDetectionLoading, setIsAnomalyDetectionLoading] = useState(false);
+  const [aiRerunProgress, setAiRerunProgress] = useState<{ completed: number; total: number } | null>(null);
+  const aiRerunInProgress = useRef(false);
   const [showAnomalyResults, setShowAnomalyResults] = useState(false);
   
   // Remove duplicates state
@@ -2318,6 +2321,10 @@ const Transactions: React.FC = () => {
 
         // Check if this is a low-confidence fallback result from AI service failure
         // These occur when the AI service times out or fails, and we shouldn't apply them
+        if (result.error) {
+          showAlert('warning', result.error.message, 'AI Classification Failed');
+          return;
+        }
         if (result.confidence <= 0.1 && (
           result.categoryId === 'uncategorized' || 
           result.reasoning?.includes('fallback') || 
@@ -2642,75 +2649,41 @@ const Transactions: React.FC = () => {
   };
 
   const handleAutoCategorizeUncategorized = async () => {
+    if (aiRerunInProgress.current) return;
+    aiRerunInProgress.current = true;
     try {
-      // Find all uncategorized transactions
-      const uncategorizedTransactions = transactions.filter(t => t.category === 'Uncategorized');
-      
-      if (uncategorizedTransactions.length === 0) {
-        showAlert('info', 'No uncategorized transactions found!');
+      let visibleTransactions = filteredTransactions;
+      if (gridApi?.forEachNodeAfterFilterAndSort) {
+        visibleTransactions = [];
+        gridApi.forEachNodeAfterFilterAndSort((node: { data?: Transaction }) => {
+          if (node.data) visibleTransactions.push(node.data);
+        });
+      }
+      const candidates = visibleTransactions.filter(canRerunAI);
+      if (!candidates.length) {
+        showAlert('info', 'No unverified, unsplit Uncategorized transactions are visible.');
         return;
       }
-
-      const confirmMessage = `Found ${uncategorizedTransactions.length} uncategorized transaction(s). Do you want to auto-categorize them using AI?`;
-      const confirmed = await showConfirmation(confirmMessage, {
-        title: 'Auto-Categorize Transactions',
-        confirmText: 'Auto-Categorize',
+      const confirmed = await showConfirmation(
+        `Re-run AI for ${candidates.length} visible Uncategorized transaction(s)? Current filters are respected. Verified, split, and already categorized transactions will not be changed. Rate-limit waits may take a minute or more.`,
+        {
+        title: 'Re-run AI',
+        confirmText: 'Re-run AI',
         cancelText: 'Cancel'
       });
-      if (!confirmed) {
-        return;
-      }
-
-      console.log(`🤖 Starting AI categorization for ${uncategorizedTransactions.length} transactions...`);
-
-      // Process transactions in batches to avoid overwhelming the AI service
-      for (const transaction of uncategorizedTransactions) {
-        try {
-          const [result] = await azureOpenAIService.classifyTransactionsBatch([
-            {
-              transactionText: transaction.description,
-              amount: transaction.amount,
-              date: transaction.date.toISOString(),
-              availableCategories: categories,
-            },
-          ]);
-
-          // Map returned ids to display names using categories
-          const idToNameCategory = new Map(categories.map(c => [c.id, c.name]));
-          const subMap = new Map<string, { name: string; parentId: string }>();
-          categories.forEach(c => (c.subcategories || []).forEach(s => subMap.set(s.id, { name: s.name, parentId: c.id })));
-
-          let categoryName = idToNameCategory.get(result.categoryId) || (result.categoryId || 'Uncategorized');
-          let subName: string | undefined = result.subcategoryId ? subMap.get(result.subcategoryId)?.name : undefined;
-
-          // Update the transaction with AI suggested category
-          const updates: Partial<Transaction> = {
-            category: categoryName,
-            subcategory: subName,
-            confidence: result.confidence,
-            reasoning: result.reasoning,
-            aiProxyMetadata: result.proxyMetadata,
-            isVerified: false,
-          };
-
-          const note = `AI Auto-Categorize: Uncategorized → ${updates.category}${updates.subcategory ? ' → ' + updates.subcategory : ''}`;
-          await dataService.updateTransaction(transaction.id, updates, note);
-
-          console.log(`✅ Categorized: ${transaction.description} → ${categoryName}${subName ? ' → ' + subName : ''}`);
-        } catch (error) {
-          console.error(`❌ Failed to categorize transaction: ${transaction.description}`, error);
-        }
-      }
-
-      // Refresh the transactions list
-      const updatedTransactions = await dataService.getAllTransactions();
-      setTransactions(updatedTransactions);
-      // Note: Don't set filteredTransactions here - let the useEffect with applyFilters handle filtering
-
-      showAlert('success', `Successfully auto-categorized ${uncategorizedTransactions.length} transaction(s)!`, 'Auto-Categorization Complete');
+      if (!confirmed) return;
+      const result = await rerunUncategorizedTransactions(candidates, categories, (completed, total) => {
+        setAiRerunProgress({ completed, total });
+      });
+      setTransactions(await dataService.getAllTransactions());
+      const message = `${result.categorized} categorized; ${result.unresolved} still uncategorized; ${result.failed} failed; ${result.skipped} skipped; ${result.notAttempted} not attempted.${result.errors.length ? `\n${result.errors.join('\n')}` : ''}`;
+      showAlert(result.failed || result.notAttempted ? 'warning' : result.unresolved ? 'info' : 'success', message, 'AI Re-run Complete');
     } catch (error) {
-      console.error('Auto-categorization failed:', error);
-      showAlert('error', 'Failed to auto-categorize transactions. Please try again.');
+      console.error('AI re-run failed:', error);
+      showAlert('error', 'AI re-run could not complete. Previously saved results are retained.');
+    } finally {
+      aiRerunInProgress.current = false;
+      setAiRerunProgress(null);
     }
   };
 
@@ -2969,7 +2942,7 @@ const Transactions: React.FC = () => {
     },
     {
       icon: '🤖',
-      label: 'Auto Categorize',
+      label: aiRerunProgress ? 'Re-running AI...' : 'Re-run AI for Uncategorized',
       onClick: handleAutoCategorizeUncategorized
     },
     {
@@ -2989,6 +2962,11 @@ const Transactions: React.FC = () => {
       <PageHeader>
         <h1>Transactions</h1>
         <FlexBox gap="12px">
+          {(filteredTransactions.some(canRerunAI) || aiRerunProgress) && (
+            <Button variant="outline" onClick={handleAutoCategorizeUncategorized} disabled={!!aiRerunProgress}>
+              {aiRerunProgress ? `Re-running AI (${aiRerunProgress.completed}/${aiRerunProgress.total})` : 'Re-run AI'}
+            </Button>
+          )}
           <Button 
             variant="outline" 
             onClick={() => navigate('/rules')}

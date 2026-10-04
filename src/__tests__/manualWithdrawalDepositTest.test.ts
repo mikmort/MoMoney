@@ -5,6 +5,7 @@
  */
 
 import { fileProcessingService } from '../services/fileProcessingService';
+import { Category, Subcategory } from '../types';
 
 describe('Manual Test for Withdrawal/Deposit Fix', () => {
   it('should successfully extract transactions when using direct method calls with proper schema mapping', async () => {
@@ -42,8 +43,8 @@ describe('Manual Test for Withdrawal/Deposit Fix', () => {
     };
     
     // Test the processTransactions method with the corrected schema mapping
-    const categories = []; // Simplified for this test
-    const subcategories = [];
+    const categories: Category[] = [];
+    const subcategories: Subcategory[] = [];
     
     const transactions = await fileService.processTransactions(
       'test-file',
