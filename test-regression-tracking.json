@@ -2,13 +2,24 @@
   "version": "1.0.0",
   "description": "Tracking system for automated test regressions - tracks when tests break and whether the fix was in the test or product code",
   "stats": {
-    "totalRegressions": 16,
-    "testBugFixes": 8,
+    "totalRegressions": 17,
+    "testBugFixes": 9,
     "productBugFixes": 8,
-    "testBugPercentage": 50,
-    "productBugPercentage": 50
+    "testBugPercentage": 53,
+    "productBugPercentage": 47
   },
   "regressions": [
+    {
+      "testName": "aiBatchPersistence undo preservation",
+      "testFile": "src/__tests__/aiBatchPersistence.test.ts",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Corrected new test to call existing undoTransactionEdit API; full 674-test suite now passes.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791132887309-xqz5hv7s6",
+      "timestamp": "2026-10-04T16:54:47.309Z"
+    },
     {
       "testName": "setBalanceModal historical date",
       "testFile": "src/__tests__/setBalanceModal.test.tsx",

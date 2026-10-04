@@ -1,6 +1,33 @@
 import { AIChatMessage } from '../config/openAI';
 import { AIClassificationRequest } from '../types';
 import { sanitizeTransactionForAI } from './piiSanitization';
+import { AI_TOKENS_PER_MINUTE, estimateAIRequestTokens } from '../services/aiRequestScheduler';
+
+export const MAX_CLASSIFICATION_BATCH_SIZE = 32;
+export const classificationOutputTokens = (count: number) => Math.max(900, count * 200);
+
+export function planClassificationBatches(requests: AIClassificationRequest[], messageCharBudget = 8000): AIClassificationRequest[][] {
+  const batches: AIClassificationRequest[][] = [];
+  for (let offset = 0; offset < requests.length;) {
+    let size = Math.min(MAX_CLASSIFICATION_BATCH_SIZE, requests.length - offset);
+    while (size > 0) {
+      const batch = requests.slice(offset, offset + size);
+      try {
+        const messages = buildClassificationMessages(batch, true, messageCharBudget);
+        if (estimateAIRequestTokens(messages, classificationOutputTokens(size)) <= AI_TOKENS_PER_MINUTE * 0.9) {
+          batches.push(batch);
+          offset += size;
+          break;
+        }
+      } catch (error) {
+        if (size === 1) throw error;
+      }
+      size--;
+    }
+    if (!size) throw new Error('The category catalog and transaction exceed the AI token budget.');
+  }
+  return batches;
+}
 
 export const CLASSIFICATION_GUIDANCE = `Classify financial transactions by their economic purpose and merchant, not by the payment method.
 Use the catalog names, descriptions and keywords as context, but return ONLY catalog ids. Select the most specific supported subcategory belonging to the chosen category.
@@ -30,16 +57,19 @@ export function buildClassificationMessages(
   const output = batch
     ? 'Return a JSON array with one result per transaction. Include its input index exactly once. Fields: index, categoryId, subcategoryId (or null), confidence (0-1), reasoning.'
     : 'Return one JSON object. Fields: categoryId, subcategoryId (or null), confidence (0-1), reasoning.';
-  const messages: AIChatMessage[] = [{ role: 'system', content: `${CLASSIFICATION_GUIDANCE}\n${output}` }];
+  const messages: AIChatMessage[] = [{
+    role: 'system',
+    content: `${CLASSIFICATION_GUIDANCE}\nCatalog format: CAT:[[categoryId,name,type,description,[[subcategoryId,name,description,keywords],...]],...]. Empty descriptions/keywords mean unspecified.\n${output}`
+  }];
   // Send complete catalog entries in separate messages instead of discarding their meaning to fit a batch.
   let entries: string[] = [];
   for (const category of requests[0].availableCategories) {
-    const entry = JSON.stringify({
-      id: category.id, name: category.name, type: category.type, description: category.description,
-      subcategories: (category.subcategories || []).map(sub => ({
-        id: sub.id, name: sub.name, description: sub.description, keywords: sub.keywords
-      }))
-    });
+    const entry = JSON.stringify([
+      category.id, category.name, category.type, category.description || '',
+      (category.subcategories || []).map(sub => [
+        sub.id, sub.name, sub.description || '', sub.keywords || []
+      ])
+    ]);
     if (`CAT:[${entry}]`.length > messageCharBudget) {
       throw new Error(`Category ${category.id} exceeds the AI message budget.`);
     }

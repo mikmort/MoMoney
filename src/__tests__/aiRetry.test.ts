@@ -70,6 +70,29 @@ describe('AI retry pacing and failure transparency', () => {
     expect(await result).toBe(true);
   });
 
+  it('allows a second real service request to start before the first completes when quota permits', async () => {
+    const resolvers: Array<(value: unknown) => void> = [];
+    (fetch as jest.Mock).mockImplementation(() => new Promise(resolve => resolvers.push(resolve)));
+    const service = new AzureOpenAIService();
+    const first = service.classifyTransactionsBatch([{ ...inputs(1)[0], availableCategories: [] }]);
+    const second = service.classifyTransactionsBatch([{ ...inputs(1)[0], availableCategories: [] }]);
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(6000);
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const response = {
+      ok: true,
+      json: async () => ({ success: true, data: { choices: [{
+        message: { content: '[{"index":0,"categoryId":"uncategorized","confidence":0.2}]' }, finish_reason: 'stop'
+      }] } })
+    };
+    resolvers[1](response);
+    resolvers[0](response);
+    expect((await first)[0].error).toBeUndefined();
+    expect((await second)[0].error).toBeUndefined();
+  });
+
   it.each([
     [401, 'authentication'], [502, 'upstream_auth'], [400, 'invalid_request'],
     [422, 'truncated'], [422, 'refused']

@@ -141,6 +141,20 @@ Confirmed rules and transaction batching still avoid unnecessary inference.
 
 ### Classification quality and recovery
 
+CSV files with recognizable date, description and amount headers are mapped
+locally before calling AI. Transaction Date takes precedence over Post Date,
+and reordered columns do not change their meaning. If an unknown CSV schema
+cannot be determined by AI, import fails explicitly instead of assuming the
+first three columns are date/description/amount. Amount parsing requires a
+complete monetary value; merchant names beginning with numbers and date strings
+are not accepted as amounts.
+
+This prevents the Chase layout (`Transaction Date,Post Date,Description,...,Amount`)
+from using Post Date as the description and a numeric merchant prefix as income
+when schema AI is unavailable. Existing saved transactions are not rewritten.
+Correct affected rows against the original statement; rerunning categorization
+alone cannot repair a wrong description or amount.
+
 Classification now sends category/subcategory names, descriptions and keyword
 hints alongside IDs. Complete catalog entries are packed into bounded messages.
 Single and batch requests share merchant-first instructions: ACH, autopay,
@@ -162,8 +176,35 @@ so concurrent manual edits are preserved. The result distinguishes categorized,
 still unresolved, failed, skipped and not-attempted rows. Failures retain a
 specific reason rather than claiming that classification succeeded.
 
+Re-run uses two workers, with a shared admission scheduler allowing at most
+two in-flight AI requests. Starts are spaced at least six seconds apart and
+reserve estimated prompt tokens plus the maximum completion budget against a
+rolling 10,000-token / 10-request-per-minute allowance. Each retry reserves a
+new request; quota reservations are not refunded based on billed usage.
+These conservative limits match the last verified deployment quota and are
+client-instance limits, not a global limiter across users or browser tabs.
+Azure's actual quota accounting can differ, so Retry-After remains authoritative.
+
+Classification batches contain up to 32 rows, shrinking to fit the 8,000-character
+message budget and a 9,000 estimated-token request budget. Catalog tuples retain
+all IDs, names, descriptions and keyword hints without repeating JSON field names.
+For 100 short transactions using the default catalog, this plans five requests
+instead of the former nine. This is a request-count measurement, not a measured
+production latency improvement. Large prompts may still require sequential
+admission under the token quota; parallelism never bypasses the allowance.
+
+Completed batches are saved once each, serially, while the other worker can
+continue AI processing. Per-transaction persistent history and undo remain
+enabled. AI metadata is retained for AI-origin batch updates; manual category
+edits still clear it. Optimistic snapshots are checked both before history
+persistence and immediately before applying results. Unrelated expense updates
+do not rerun transfer matching just because a transfer exists elsewhere.
+The UI reports active batches, saving, request-slot waits and quota/cooldown
+countdowns. On failure, no additional batches are scheduled; the two workers'
+already scheduled requests may complete and their outcomes are accounted for.
+
 The backend forwards Azure `retry-after-ms` / `Retry-After` delays, and the
-client serializes requests and honors the shared cooldown. Without a delay,
+client honors a shared cooldown. Without a delay,
 429 retries wait at least one minute with exponential backoff and jitter.
 Retries are bounded (three classification attempts); delays over two minutes
 are surfaced for manual retry rather than waiting indefinitely. Exhausted

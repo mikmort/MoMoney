@@ -1,4 +1,5 @@
-import { buildClassificationMessages } from '../utils/classificationPrompt';
+import { buildClassificationMessages, classificationOutputTokens, planClassificationBatches } from '../utils/classificationPrompt';
+import { estimateAIRequestTokens } from '../services/aiRequestScheduler';
 import { defaultCategories } from '../data/defaultCategories';
 import { AzureOpenAIService } from '../services/azureOpenAIService';
 import { rulesService } from '../services/rulesService';
@@ -30,15 +31,21 @@ describe('Classification context and correlation', () => {
   it('sends names, descriptions and keywords for every category in budgeted messages', () => {
     const messages = buildClassificationMessages([request()], true);
     const catalog = messages.filter(message => message.content.startsWith('CAT:'))
-      .flatMap(message => JSON.parse(message.content.slice(4)));
+      .flatMap(message => JSON.parse(message.content.slice(4)))
+      .map(([id, name, type, description, subs]: [string, string, string, string, [string, string, string, string[]][]]) => ({
+        id, name, type, description,
+        subcategories: subs.map(([subId, subName, subDescription, keywords]) => ({
+          id: subId, name: subName, description: subDescription, keywords
+        }))
+      }));
     expect(catalog).toHaveLength(defaultCategories.length);
-    expect(catalog.find(category => category.id === 'entertainment').subcategories).toContainEqual(
+    expect(catalog.find(category => category.id === 'entertainment')?.subcategories).toContainEqual(
       expect.objectContaining({ name: 'Streaming Services', keywords: expect.arrayContaining(['spotify']) })
     );
-    expect(catalog.find(category => category.id === 'transportation').subcategories).toContainEqual(
+    expect(catalog.find(category => category.id === 'transportation')?.subcategories).toContainEqual(
       expect.objectContaining({ name: 'Fuel/Gas', keywords: expect.arrayContaining(['shell']) })
     );
-    expect(catalog.find(category => category.id === 'food').subcategories).toContainEqual(
+    expect(catalog.find(category => category.id === 'food')?.subcategories).toContainEqual(
       expect.objectContaining({ name: 'Restaurants', description: 'Dining out' })
     );
     expect(messages.every(message => message.content.length <= 8000)).toBe(true);
@@ -55,7 +62,20 @@ describe('Classification context and correlation', () => {
     const messages = buildClassificationMessages([input], false);
     const payload = JSON.parse(messages[messages.length - 1].content.slice(3));
     expect(payload.description).toBe('Restaurant "Krebsegaa" \\ purchase [EMAIL]');
-    expect(messages[1].content).toContain('"name":"Dining out"');
+    expect(messages[1].content).toContain('"s-opaque","Dining out","Restaurant meals",["restaurant"]');
+  });
+
+  it('reduces default-catalog requests by at least a third while respecting token and message budgets', () => {
+    const inputs = Array.from({ length: 100 }, () => request());
+    const batches = planClassificationBatches(inputs);
+    expect(batches.length).toBeLessThanOrEqual(6); // Previously ceil(100 / 12) = 9 requests.
+    expect(batches.flat()).toEqual(inputs);
+    for (const batch of batches) {
+      const messages = buildClassificationMessages(batch, true);
+      expect(batch.length).toBeLessThanOrEqual(32);
+      expect(estimateAIRequestTokens(messages, classificationOutputTokens(batch.length))).toBeLessThanOrEqual(9000);
+      expect(messages.every(message => message.content.length <= 8000)).toBe(true);
+    }
   });
 
   it('rejects oversized catalog entries explicitly rather than dropping category context', () => {

@@ -797,39 +797,44 @@ class DataService {
     id: string;
     updates: Partial<Transaction>;
     note?: string;
+    expectedTransaction?: Transaction;
   }>, options?: {
     skipHistory?: boolean; // Skip individual history snapshots for performance
+    source?: 'ai';
   }): Promise<Transaction[]> {
     await this.ensureInitialized();
     
     const updatedTransactions: Transaction[] = [];
     const skipHistory = options?.skipHistory || false;
+    let transferTypeChanged = false;
     
     // Process all updates in memory first
     for (const update of updates) {
-      const index = this.transactions.findIndex(t => t.id === update.id);
+      let index = this.transactions.findIndex(t => t.id === update.id);
       if (index === -1) continue;
       
       const current = this.transactions[index];
-      
-      // Add current state to undo stack before making changes
-      this.addToUndoStack(update.id, { ...current });
-      
-      // Clear redo stack when making a new change
-      this.clearRedoStack(update.id);
+      const expected = update.expectedTransaction ? JSON.stringify(update.expectedTransaction) : undefined;
+      if (expected !== undefined && JSON.stringify(current) !== expected) continue;
       
       // Record a snapshot of the current transaction before updating (persistent history)
       // Skip for batch operations to improve performance
       if (!skipHistory) {
         await this.addHistorySnapshot(current.id, current, update.note);
       }
+      // History persistence yields to manual edits/deletions. Recheck immediately
+      // before applying an AI result, not just when the response arrives.
+      index = this.transactions.findIndex(t => t.id === update.id);
+      if (index === -1 || (expected !== undefined && JSON.stringify(this.transactions[index]) !== expected)) continue;
+      this.addToUndoStack(update.id, { ...current });
+      this.clearRedoStack(update.id);
 
       // Check if category or subcategory is being changed - if so, remove AI confidence
       const isCategoryChange = ('category' in update.updates && update.updates.category !== current.category) ||
                               ('subcategory' in update.updates && update.updates.subcategory !== current.subcategory);
       
       let finalUpdates = { ...update.updates };
-      if (isCategoryChange) {
+      if (isCategoryChange && options?.source !== 'ai') {
         // Remove AI confidence fields when user manually changes category
         finalUpdates = {
           ...finalUpdates,
@@ -871,6 +876,7 @@ class DataService {
         ...finalUpdates,
         lastModifiedDate: new Date(),
       };
+      transferTypeChanged ||= (current.type === 'transfer') !== (this.transactions[index].type === 'transfer');
       
       updatedTransactions.push(this.transactions[index]);
     }
@@ -878,8 +884,8 @@ class DataService {
     // Save to database only once after all updates
     if (updatedTransactions.length > 0) {
       // Check if any transactions were changed to/from transfer type
-      const shouldRunTransferMatching = updatedTransactions.some(tx => tx.type === 'transfer') ||
-                                       this.transactions.some(tx => tx.type === 'transfer');
+      const shouldRunTransferMatching = options?.source === 'ai' ? transferTypeChanged :
+        updatedTransactions.some(tx => tx.type === 'transfer') || this.transactions.some(tx => tx.type === 'transfer');
       
       if (shouldRunTransferMatching && !this.isRunningTransferMatching) {
         console.log(`[TX] Running transfer matching after batch update of ${updatedTransactions.length} transactions`);
