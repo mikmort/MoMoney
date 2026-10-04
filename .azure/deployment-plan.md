@@ -1,8 +1,49 @@
-# Category matching and AI recovery rollout
+# Optimized AI re-run and CSV parsing rollout
 
 Status: Validated
 
-## Current release: October 4, 2026
+## Current release: October 4, 2026 (frontend optimization)
+
+User requested deployment of the optimized re-run path and investigation of an
+incorrect imported CSV row. Recipe: CI/CD frontend-only release through the
+existing Static Web Apps workflow after green PR checks and merge to main.
+Target remains `Momoney`, `Momoney_group-8b40`, subscription
+`8cf05593-3360-4741-b3e8-ccc6f4f61290`, public hostname
+`gentle-moss-087d9321e.1.azurestaticapps.net`.
+
+No backend handler, API contract, model, quota, identity, RBAC, authentication,
+infrastructure or stored financial-data change is required. The deployed
+backend already provides the retry headers and error codes used by this client.
+Do not redeploy the backend or run the storage provisioning/migration.
+
+Changes: quota-aware bounded concurrency, adaptive classification batches,
+compact catalog tuples retaining all semantic hints, guarded batched saves,
+processing/wait/saving progress, local CSV header mapping and complete-value
+amount validation. Unknown CSV schemas fail explicitly when AI cannot map them.
+The deployment workflow isolates push and PR concurrency groups so PR cleanup
+cannot cancel a production release.
+
+### Current validation steps
+
+- All validation checks pass:
+  - Core: production frontend build with authentication/AI/cloud enabled,
+    full frontend tests, TypeScript, production-source lint, shared API tests.
+  - Docker: not applicable; static web frontend build.
+  - Infrastructure validate/what-if/policy changes: not applicable; no resources,
+    regions, SKUs, networks, settings or roles are being changed.
+  - Role verification: existing workflow uses its existing deployment credential;
+    no role additions. Preserve the linked backend and its authentication.
+  - GitHub PR checks and production deployment must succeed.
+  - Verify published JS contains optimized progress and CSV safeguards.
+
+### Rollback
+
+Revert the frontend change through a PR and let the existing main workflow
+redeploy. Do not modify financial records to roll back application code.
+Incorrect historical rows require a deliberate correction against source data;
+this release does not attempt a data migration.
+
+## Historical release: October 4, 2026 (backend recovery)
 
 User approved repairing CI/tests, merging after checks, and deploying both
 frontend and backend. Subscription and existing Function App were explicitly
@@ -107,6 +148,32 @@ For a frontend rollback, revert the frontend release commit through a PR and
 let the existing workflow redeploy main; do not revert or migrate stored data.
 
 ## 7. Validation proof
+
+### Optimization and CSV release: October 4, 2026
+
+- Full frontend React Scripts Jest suite with Windows-compatible testMatch:
+  132 suites / 687 tests passing.
+- `npx tsc --noEmit --pretty false`: passes.
+- Production-source ESLint: passes.
+- `npm run build` with `CI=true`, `REACT_APP_SKIP_AUTH=false`,
+  `REACT_APP_AI_ENABLED=true`, `REACT_APP_CLOUD_SYNC_ENABLED=true`,
+  `GENERATE_SOURCEMAP=false`: passes.
+- `npm --prefix api test`: 24 tests pass. Diff against current production
+  confirms no backend handler or infrastructure changes.
+- Existing CI quality gates pass on `d4c24f0`: full tests/lint, TypeScript and
+  API checks. Preview and final production release remain monitored gates.
+- Synthetic parser regressions cover posting-date/description confusion,
+  numeric merchant prefixes, signed amounts, reordered headers, split debit/
+  credit fields, and unavailable schema AI.
+- Local-only source validation: 180 CSV rows, 180 valid monetary values, zero
+  date-like descriptions. No private source data is included in test fixtures.
+- Prior local optimization browser check: 37 synthetic rows classified using
+  two mocked calls; quota countdown shown; all 36 newly seeded rows retained
+  original history and AI metadata. No real inference or financial edits.
+- Remote main at `b916039` exactly matches the previously verified release
+  snapshot. It was merged into this follow-up without changing the tested tree.
+- Backend deployment is unnecessary; its code and production settings are
+  unchanged by this release.
 
 ### Recovery release: October 4, 2026
 

@@ -22,7 +22,7 @@ import { FileImport } from './FileImport';
 import { TransactionSplitManager } from '../shared/TransactionSplitManager';
 import { getEffectiveCategory } from '../../utils/transactionUtils';
 import { azureOpenAIService } from '../../services/azureOpenAIService';
-import { canRerunAI, rerunUncategorizedTransactions } from '../../services/recategorizationService';
+import { AIRerunProgress, canRerunAI, rerunUncategorizedTransactions } from '../../services/recategorizationService';
 import { rulesService } from '../../services/rulesService';
 import { currencyDisplayService } from '../../services/currencyDisplayService';
 import { receiptProcessingService } from '../../services/receiptProcessingService';
@@ -857,7 +857,7 @@ const Transactions: React.FC = () => {
   // Anomaly detection state
   const [anomalies, setAnomalies] = useState<AnomalyResult[]>([]);
   const [isAnomalyDetectionLoading, setIsAnomalyDetectionLoading] = useState(false);
-  const [aiRerunProgress, setAiRerunProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [aiRerunProgress, setAiRerunProgress] = useState<AIRerunProgress | null>(null);
   const aiRerunInProgress = useRef(false);
   const [showAnomalyResults, setShowAnomalyResults] = useState(false);
   
@@ -2672,9 +2672,7 @@ const Transactions: React.FC = () => {
         cancelText: 'Cancel'
       });
       if (!confirmed) return;
-      const result = await rerunUncategorizedTransactions(candidates, categories, (completed, total) => {
-        setAiRerunProgress({ completed, total });
-      });
+      const result = await rerunUncategorizedTransactions(candidates, categories, setAiRerunProgress);
       setTransactions(await dataService.getAllTransactions());
       const message = `${result.categorized} categorized; ${result.unresolved} still uncategorized; ${result.failed} failed; ${result.skipped} skipped; ${result.notAttempted} not attempted.${result.errors.length ? `\n${result.errors.join('\n')}` : ''}`;
       showAlert(result.failed || result.notAttempted ? 'warning' : result.unresolved ? 'info' : 'success', message, 'AI Re-run Complete');
@@ -2987,6 +2985,17 @@ const Transactions: React.FC = () => {
           />
         </FlexBox>
       </PageHeader>
+
+      {aiRerunProgress && (
+        <p role="status" aria-live="polite">
+          {aiRerunProgress.completed}/{aiRerunProgress.total} processed.
+          {aiRerunProgress.processing > 0 && ` Processing ${aiRerunProgress.processing} AI batch(es).`}
+          {aiRerunProgress.saving && ' Saving results and undo history.'}
+          {aiRerunProgress.waiting > 0 && (aiRerunProgress.waitMs > 0
+            ? ` Waiting for ${aiRerunProgress.cooldown ? 'rate-limit cooldown' : 'quota'}: ${Math.ceil(aiRerunProgress.waitMs / 1000)}s.`
+            : ' Waiting for an available AI request slot.')}
+        </p>
+      )}
 
       {renderReimbursementPanel()}
 

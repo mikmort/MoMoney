@@ -2,8 +2,9 @@ import { defaultConfig } from '../config/appConfig';
 import { AIProxyRequest, OPENAI_PROXY_PATH } from '../config/openAI';
 import { AIClassificationRequest, AIClassificationResponse, AnomalyDetectionRequest, AnomalyDetectionResponse, AnomalyResult, AccountStatementAnalysisRequest, AccountStatementAnalysisResponse, MultipleAccountAnalysisResponse } from '../types';
 import { sanitizeTransactionForAI, sanitizeFileContent, validateMaskedAccountNumber } from '../utils/piiSanitization';
-import { buildClassificationMessages, classificationItem } from '../utils/classificationPrompt';
+import { buildClassificationMessages, classificationOutputTokens, planClassificationBatches } from '../utils/classificationPrompt';
 import { AIRequestError, classificationError, isAIErrorCode, parseRetryAfter } from '../utils/aiRequestErrors';
+import { AIProgressListener, AIRequestScheduler, estimateAIRequestTokens } from './aiRequestScheduler';
 
 type OpenAIProxyRequest = AIProxyRequest;
 
@@ -37,8 +38,7 @@ export class AzureOpenAIService {
   private readonly messageCharBudget: number;
   private lastResponseModel?: string;
   private disabledReason?: string;
-  private requestQueue: Promise<void> = Promise.resolve();
-  private retryNotBefore = 0;
+  private readonly requestScheduler = new AIRequestScheduler();
 
   constructor() {
     this.deploymentName = defaultConfig.azure.openai.deploymentName;
@@ -106,16 +106,14 @@ export class AzureOpenAIService {
   // Retry transient failures without silently switching models or increasing cost.
   private async callOpenAIWithFallback(
     request: Omit<OpenAIProxyRequest, 'deployment'> & { deployment?: string },
-    options?: { attemptsPerDeployment?: number; baseBackoffMs?: number }
+    options?: { attemptsPerDeployment?: number; baseBackoffMs?: number; onProgress?: AIProgressListener }
   ): Promise<OpenAIProxyResponse> {
-    const operation = this.requestQueue.then(() => this.callOpenAIWithRetries(request, options));
-    this.requestQueue = operation.then(() => undefined, () => undefined);
-    return operation;
+    return this.callOpenAIWithRetries(request, options);
   }
 
   private async callOpenAIWithRetries(
     request: Omit<OpenAIProxyRequest, 'deployment'> & { deployment?: string },
-    options?: { attemptsPerDeployment?: number; baseBackoffMs?: number }
+    options?: { attemptsPerDeployment?: number; baseBackoffMs?: number; onProgress?: AIProgressListener }
   ): Promise<OpenAIProxyResponse> {
     // In test environment, check if fetch is mocked - if so, use the mocked behavior
     if (process.env.NODE_ENV === 'test') {
@@ -136,10 +134,10 @@ export class AzureOpenAIService {
 
     const deployment = request.deployment || this.deploymentName;
     for (let attempt = 1; attempt <= attemptsPerDeployment; attempt++) {
+      const release = await this.requestScheduler.acquire(
+        estimateAIRequestTokens(request.messages, request.max_completion_tokens ?? 1000), options?.onProgress
+      );
       try {
-        const waitMs = this.retryNotBefore - Date.now();
-        if (waitMs > 120000) throw new AIRequestError('rate_limit', 429, waitMs);
-        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
         const response = await this.callOpenAIProxy({ ...request, deployment });
         if (!response.success) throw new Error(response.error || 'AI proxy returned an error.');
         this.lastResponseModel = response.data?.model;
@@ -150,8 +148,10 @@ export class AzureOpenAIService {
         const backoff = Math.max(base, failure.code === 'rate_limit' ? 60000 : 1000) * Math.pow(2, attempt - 1);
         const delay = Math.max(failure.retryAfterMs ?? 0, failure.retryAfterMs === undefined ? backoff : 0) +
           Math.floor(Math.random() * 150);
-        if (transient) this.retryNotBefore = Math.max(this.retryNotBefore, Date.now() + delay);
+        if (transient) this.requestScheduler.defer(delay);
         if (!transient || attempt === attemptsPerDeployment || delay > 120000) throw failure;
+      } finally {
+        release();
       }
 
     }
@@ -283,33 +283,27 @@ export class AzureOpenAIService {
 
   // New: batch classification to reduce API calls and speed up imports
   async classifyTransactionsBatch(
-    requests: AIClassificationRequest[]
+    requests: AIClassificationRequest[],
+    onProgress?: AIProgressListener
   ): Promise<AIClassificationResponse[]> {
     if (this.disabledReason) {
       return requests.map(() => this.failedClassification(new AIRequestError('disabled')));
     }
     if (!requests.length) return [];
-    // Dynamically size chunks to stay under proxy message size limits
-  const results: AIClassificationResponse[] = [];
-  const safeThreshold = this.messageCharBudget; // per-message chars budget (below server limit)
-    let i = 0;
-    while (i < requests.length) {
-      // Start with a reasonable max and shrink until under threshold
-      let size = Math.min(12, requests.length - i);
-      while (size > 0) {
-        const items = requests.slice(i, i + size).map(classificationItem);
-        if (`TX:${JSON.stringify(items)}`.length <= safeThreshold) break;
-        size--;
-      }
-      if (size === 0) size = 1; // always make progress
-
-      const slice = requests.slice(i, i + size);
-      const chunkResults = await this.classifyTransactionsBatchChunk(slice);
+    const results: AIClassificationResponse[] = [];
+    let batches: AIClassificationRequest[][];
+    try {
+      batches = planClassificationBatches(requests, this.messageCharBudget);
+    } catch (error) {
+      console.error('Cannot size classification request:', error);
+      return requests.map(() => this.failedClassification(new AIRequestError('invalid_request')));
+    }
+    for (const batch of batches) {
+      const chunkResults = await this.classifyTransactionsBatchChunk(batch, onProgress);
       results.push(...chunkResults);
-      i += size;
       const failure = chunkResults.find(result => result.error);
       if (failure) {
-        results.push(...requests.slice(i).map(() => ({ ...failure })));
+        results.push(...requests.slice(results.length).map(() => ({ ...failure })));
         break;
       }
     }
@@ -318,7 +312,8 @@ export class AzureOpenAIService {
 
   // Internal: classify a small chunk with retries and robust parsing
   private async classifyTransactionsBatchChunk(
-    requests: AIClassificationRequest[]
+    requests: AIClassificationRequest[],
+    onProgress?: AIProgressListener
   ): Promise<AIClassificationResponse[]> {
     try {
   const categories = requests[0].availableCategories;
@@ -326,10 +321,10 @@ export class AzureOpenAIService {
       const proxyRequest: OpenAIProxyRequest = {
         deployment: this.deploymentName,
         messages: buildClassificationMessages(requests, true, this.messageCharBudget),
-        max_completion_tokens: Math.max(900, requests.length * 200)
+        max_completion_tokens: classificationOutputTokens(requests.length)
       };
 
-  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 600 });
+  const response = await this.callOpenAIWithFallback(proxyRequest, { attemptsPerDeployment: 3, baseBackoffMs: 600, onProgress });
       if (!response.success || !response.data) throw new Error(response.error || 'No response from OpenAI proxy');
 
       const responseContent = response.data.choices[0]?.message?.content;

@@ -11,6 +11,7 @@ import { currencyDisplayService } from './currencyDisplayService';
 import { userPreferencesService } from './userPreferencesService';
 import { sanitizeFileContent } from '../utils/piiSanitization';
 import { v4 as uuidv4 } from 'uuid';
+import { detectCSVSchema, parseStatementAmount } from '../utils/csvSchema';
 
 export interface FileProcessingResult {
   file: StatementFile;
@@ -601,11 +602,23 @@ export class FileProcessingService {
   }
 
   private async getAISchemaMapping(fileContent: string, fileType: StatementFile['fileType']): Promise<AISchemaMappingResponse> {
+    if (fileType === 'csv') {
+      const mapping = detectCSVSchema(fileContent);
+      if (mapping) {
+        return { mapping, confidence: 1, reasoning: 'Mapped explicit CSV column headers locally.', suggestions: [] };
+      }
+    }
+    const fallbackMapping = () => {
+      if (fileType === 'csv' && fileContent.trim()) {
+        throw new Error('Could not determine the CSV date, description and amount columns. Use a CSV with explicit headers or retry when AI is available; positional guessing was not applied.');
+      }
+      return this.getDefaultSchemaMapping(fileType);
+    };
     try {
       // Bypass AI for PDF schema mapping – we know the extracted structure (date, description, amount)
       if (fileType === 'pdf' || process.env.REACT_APP_DISABLE_AI === 'true') {
         console.log('🛑 Skipping AI schema mapping (PDF or AI disabled) – using built-in PDF mapping');
-        return this.getDefaultSchemaMapping(fileType);
+        return fallbackMapping();
       }
       // Get a sample of the file content for AI analysis
       const sampleContent = this.getSampleContent(fileContent, fileType);
@@ -664,11 +677,11 @@ Return ONLY a clean JSON response:
         return aiResponse;
       } catch (parseError) {
         console.warn('Failed to parse AI schema mapping response:', parseError);
-        return this.getDefaultSchemaMapping(fileType);
+        return fallbackMapping();
       }
     } catch (error) {
       console.warn('AI schema mapping failed, using default:', error);
-      return this.getDefaultSchemaMapping(fileType);
+      return fallbackMapping();
     }
   }
 
@@ -2308,30 +2321,11 @@ EXAMPLE OUTPUT FORMAT:
 
   private extractAmountFromColumn(row: any, column: string): number | null {
     const value = this.getColumnValue(row, column);
-    if (!value) return null;
-
-    try {
-      const valueStr = String(value).trim();
-      
-      // Handle European number format (e.g., "500.000,00")
-      if (/^-?[\d.]+,\d+$/.test(valueStr)) {
-        const cleanAmount = valueStr
-          .replace(/\./g, '')
-          .replace(',', '.');
-        const amount = parseFloat(cleanAmount);
-        return isNaN(amount) ? null : amount;
-      }
-      
-      // Handle standard US format
-      const cleanAmount = valueStr
-        .replace(/[$,\s]/g, '')
-        .replace(/[()]/g, '');
-      
-      const amount = parseFloat(cleanAmount);
-      return isNaN(amount) ? null : amount;
-    } catch {
-      return null;
+    const amount = parseStatementAmount(value);
+    if (amount === null && value !== undefined && value !== null && String(value).trim()) {
+      console.warn(`Invalid amount in mapped column "${column}"; verify the statement schema.`);
     }
+    return amount;
   }
 
   private getColumnValue(row: any, column: string): any {
@@ -2341,12 +2335,13 @@ EXAMPLE OUTPUT FORMAT:
     } else {
       // Handle object case - row is an object with column names as keys
       // Try the column as a direct key first (e.g., "Date")
-      if (row[column] !== undefined) {
-        return row[column];
-      }
+      if (row[column] !== undefined) return row[column];
+      const normalizedColumn = column.trim().toLowerCase();
+      const matchingKey = Object.keys(row).find(key => key.replace(/^\uFEFF/, '').trim().toLowerCase() === normalizedColumn);
+      if (matchingKey !== undefined) return row[matchingKey];
       
       // If column is a numeric string, try to match it to object keys by position
-      const index = parseInt(column);
+      const index = /^\d+$/.test(column) ? Number(column) : NaN;
       if (!isNaN(index)) {
         const keys = Object.keys(row);
         if (index < keys.length) {

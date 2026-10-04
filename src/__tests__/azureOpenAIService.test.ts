@@ -1,5 +1,6 @@
 import { AzureOpenAIService } from '../services/azureOpenAIService';
 import { AIClassificationRequest } from '../types';
+import { AIRequestScheduler } from '../services/aiRequestScheduler';
 
 // Mock the fetch function
 global.fetch = jest.fn();
@@ -35,6 +36,8 @@ describe('AzureOpenAI Service', () => {
   ];
 
   beforeEach(() => {
+    // Timing is exercised by aiRetry and aiRequestScheduler tests.
+    jest.spyOn(AIRequestScheduler.prototype, 'acquire').mockResolvedValue(() => {});
     // Store original environment
     originalEnv = process.env.REACT_APP_AI_ENABLED;
     
@@ -53,6 +56,7 @@ describe('AzureOpenAI Service', () => {
     }
     
     jest.resetAllMocks();
+    jest.restoreAllMocks();
   });
 
   describe('Financial Edge Cases', () => {
