@@ -19,6 +19,8 @@ describe('Internal Transfer Type Import Fix', () => {
       id: 'test-account-id',
       name: 'Test Account',
       type: 'checking',
+      institution: 'Test Bank',
+      isActive: true,
       currency: 'USD'
     });
   });
@@ -56,7 +58,8 @@ describe('Internal Transfer Type Import Fix', () => {
       {
         dateColumn: 'date',
         descriptionColumn: 'description', 
-        amountColumn: 'amount'
+        amountColumn: 'amount',
+        hasHeaders: true, skipRows: 0, dateFormat: 'YYYY-MM-DD', amountFormat: 'negative for debits'
       },
       defaultCategories,
       [], // subcategories
@@ -108,7 +111,8 @@ describe('Internal Transfer Type Import Fix', () => {
       {
         dateColumn: 'date',
         descriptionColumn: 'description',
-        amountColumn: 'amount'
+        amountColumn: 'amount',
+        hasHeaders: true, skipRows: 0, dateFormat: 'YYYY-MM-DD', amountFormat: 'negative for debits'
       },
       defaultCategories,
       [],
@@ -156,7 +160,8 @@ describe('Internal Transfer Type Import Fix', () => {
       {
         dateColumn: 'date',
         descriptionColumn: 'description',
-        amountColumn: 'amount'
+        amountColumn: 'amount',
+        hasHeaders: true, skipRows: 0, dateFormat: 'YYYY-MM-DD', amountFormat: 'negative for debits'
       },
       defaultCategories,
       [],

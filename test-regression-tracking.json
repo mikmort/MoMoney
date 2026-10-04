@@ -2,13 +2,35 @@
   "version": "1.0.0",
   "description": "Tracking system for automated test regressions - tracks when tests break and whether the fix was in the test or product code",
   "stats": {
-    "totalRegressions": 14,
-    "testBugFixes": 7,
-    "productBugFixes": 7,
+    "totalRegressions": 16,
+    "testBugFixes": 8,
+    "productBugFixes": 8,
     "testBugPercentage": 50,
     "productBugPercentage": 50
   },
   "regressions": [
+    {
+      "testName": "setBalanceModal historical date",
+      "testFile": "src/__tests__/setBalanceModal.test.tsx",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Use a local calendar-date fixture for a local-date display assertion so it is portable across time zones.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791106140852-r38viojg4",
+      "timestamp": "2026-10-04T09:29:00.852Z"
+    },
+    {
+      "testName": "reportsFilteringComprehensive monthly trends",
+      "testFile": "src/__tests__/reportsFilteringComprehensive.test.ts",
+      "fixType": "product",
+      "severity": "medium",
+      "description": "Full suite exposed UTC month-key parsing shifting month labels west of UTC; construct local month boundaries instead.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791106140775-0tg4xg7vp",
+      "timestamp": "2026-10-04T09:29:00.775Z"
+    },
     {
       "testName": "AI retry parser and failure recovery suites",
       "testFile": "src/services/azureOpenAIService.ts",

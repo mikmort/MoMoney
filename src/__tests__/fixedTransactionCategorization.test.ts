@@ -3,6 +3,7 @@ import { rulesService } from '../services/rulesService';
 import { azureOpenAIService } from '../services/azureOpenAIService';
 import { defaultCategories } from '../data/defaultCategories';
 import { accountManagementService } from '../services/accountManagementService';
+import { Transaction } from '../types';
 
 describe('Fixed Transaction Categorization', () => {
   let fileProcessingService: FileProcessingService;
@@ -16,6 +17,7 @@ describe('Fixed Transaction Categorization', () => {
       id: 'test-checking',
       name: 'Test Checking', 
       type: 'checking' as const,
+      isActive: true,
       currency: 'USD',
       institution: 'Test Bank',
       balance: 1000
@@ -96,7 +98,7 @@ describe('Fixed Transaction Categorization', () => {
       // Verify all transactions are properly categorized
       expect(result).toHaveLength(3);
       
-      result.forEach((transaction, index) => {
+      result.forEach((transaction: Transaction, index: number) => {
         console.log(`Transaction ${index + 1}:`);
         console.log(`  Description: "${transaction.description}"`);
         console.log(`  Category: "${transaction.category}"`);
@@ -105,7 +107,7 @@ describe('Fixed Transaction Categorization', () => {
         console.log(`  Reasoning: "${transaction.reasoning || 'none'}"`);
 
         // High confidence transactions should NOT be "Uncategorized"
-        if (transaction.confidence >= 0.8) {
+        if (transaction.confidence !== undefined && transaction.confidence >= 0.8) {
           expect(transaction.category).not.toBe('Uncategorized');
         }
 
@@ -197,8 +199,8 @@ describe('Fixed Transaction Categorization', () => {
       // Verify both transactions are properly categorized
       expect(result).toHaveLength(2);
       
-      const spotify = result.find(t => t.description === 'Spotify USA');
-      const netflix = result.find(t => t.description === 'Netflix');
+      const spotify = result.find((t: Transaction) => t.description === 'Spotify USA');
+      const netflix = result.find((t: Transaction) => t.description === 'Netflix');
       
       expect(spotify).toBeDefined();
       expect(netflix).toBeDefined();

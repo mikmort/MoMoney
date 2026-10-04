@@ -1,5 +1,6 @@
 import { simplifiedImportExportService } from '../services/simplifiedImportExportService';
 import { db } from '../services/db';
+import { mockUser } from '../config/devConfig';
 
 // Mock IndexedDB for testing
 import FDBFactory from 'fake-indexeddb/lib/FDBFactory';
@@ -42,6 +43,7 @@ describe('ImportExportService', () => {
 
     // Add test preferences
     const testPreferences = {
+      ...mockUser.preferences,
       currency: 'USD',
       dateFormat: 'MM/dd/yyyy' as const,
       theme: 'light' as const
@@ -101,7 +103,7 @@ describe('ImportExportService', () => {
     };
 
     // Import data
-    const result = await simplifiedImportExportService.importData(importData);
+    const result = await simplifiedImportExportService.importData(JSON.parse(JSON.stringify(importData)));
 
     // Verify import result
     expect(result.transactions).toBe(1);
@@ -142,6 +144,7 @@ describe('ImportExportService', () => {
     await db.transactions.add(originalTransaction);
 
     const originalPreferences = {
+      ...mockUser.preferences,
       currency: 'CAD',
       dateFormat: 'yyyy-MM-dd' as const,
       theme: 'auto' as const

@@ -119,7 +119,7 @@ describe('End-to-End ACH DEBIT and Withdrawal Processing', () => {
           amount: testCase.amount,
           category: 'Uncategorized',
           account: 'Checking Account',
-          type: testCase.amount > 0 ? 'income' : 'expense' as const,
+          type: testCase.amount > 0 ? 'income' as const : 'expense' as const,
           isVerified: false,
           originalText: testCase.description
         };

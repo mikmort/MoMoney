@@ -188,7 +188,7 @@ describe('Data Integrity Regression Tests', () => {
         transactionHistory: []
       };
 
-      const result = await simplifiedImportExportService.importData(oldVersionData);
+      const result = await simplifiedImportExportService.importData(JSON.parse(JSON.stringify(oldVersionData)));
 
       expect(result.transactions).toBe(1);
 
@@ -238,7 +238,7 @@ describe('Data Integrity Regression Tests', () => {
         blockchainSync: { lastSync: '2025-06-01' }
       };
 
-      const result = await simplifiedImportExportService.importData(futureVersionData);
+      const result = await simplifiedImportExportService.importData(JSON.parse(JSON.stringify(futureVersionData)));
 
       expect(result.transactions).toBe(1);
 
@@ -342,7 +342,7 @@ describe('Data Integrity Regression Tests', () => {
         transactionHistory: []
       };
 
-      const result = await simplifiedImportExportService.importData(exportData);
+      const result = await simplifiedImportExportService.importData(JSON.parse(JSON.stringify(exportData)));
       expect(result.transactions).toBe(2);
 
       // Verify both transactions imported

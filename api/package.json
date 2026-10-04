@@ -16,8 +16,7 @@
   "dependencies": {
     "@azure/functions": "^4.11.0",
     "@azure/identity": "^4.13.0",
-    "@azure/storage-blob": "^12.29.0",
-    "mo-money": "file:.."
+    "@azure/storage-blob": "^12.29.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

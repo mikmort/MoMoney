@@ -5,6 +5,7 @@
 
 import { fileProcessingService } from '../services/fileProcessingService';
 import Papa from 'papaparse';
+import { Category, Subcategory } from '../types';
 
 describe('CSV Debit/Credit Integration Test (Issue #449)', () => {
   it('should process a CSV file with separate Debit and Credit columns from end to end', async () => {
@@ -41,8 +42,8 @@ describe('CSV Debit/Credit Integration Test (Issue #449)', () => {
     };
     
     // Test the processTransactions method with the debit/credit schema mapping
-    const categories = []; // Simplified for this test
-    const subcategories = [];
+    const categories: Category[] = [];
+    const subcategories: Subcategory[] = [];
     
     const transactions = await fileService.processTransactions(
       'test-file',

@@ -423,7 +423,8 @@ class ReportsService {
         const totalSpending = expenseTransactions.reduce((sum, t) => sum + (-t.amount), 0); // Flip sign for expenses
         const totalIncome = incomeTransactions.reduce((sum, t) => sum + t.amount, 0);
 
-        const date = new Date(monthKey + '-01');
+        const [monthYear, monthNumber] = monthKey.split('-').map(Number);
+        const date = new Date(monthYear, monthNumber - 1, 1);
         const month = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         const year = date.getFullYear();
 

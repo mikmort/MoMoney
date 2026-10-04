@@ -24,6 +24,16 @@ npm --prefix api test
 npm --prefix api run build
 ```
 
+The API has standalone dependencies; do not add a `file:..` dependency on the
+frontend. It creates a link to the whole checkout and can accidentally include
+unrelated source or local configuration in the deployment ZIP. The packaging
+script rejects dependency links before archiving.
+
+CI runs the full retained frontend suite, TypeScript checks, and API tests.
+Frontend CI omits optional native dependencies when installation scripts are
+disabled, preventing a half-installed `canvas` binary from breaking jsdom.
+Date-boundary regressions also run in America/Los_Angeles, not just UTC.
+
 Deploy the **api directory including its dist output and production dependencies**
 to a Node.js 22 Azure Function App using your approved deployment process.
 `dist` contains both the handler and the shared snapshot validator compiled from

@@ -13,7 +13,7 @@ describe('SetBalanceModal', () => {
     balance: 1000,
     isActive: true,
     historicalBalance: 800,
-    historicalBalanceDate: new Date('2024-01-01')
+    historicalBalanceDate: new Date(2024, 0, 1)
   };
 
   const mockProps = {

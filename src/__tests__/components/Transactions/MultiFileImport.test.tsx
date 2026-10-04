@@ -33,12 +33,12 @@ describe('MultiFileImport', () => {
       refreshAccounts: jest.fn(),
       updateAccount: jest.fn(),
       deleteAccount: jest.fn(),
-      setDefaultAccount: jest.fn()
+      getAccount: jest.fn()
     });
 
     mockUseImportState.mockReturnValue({
       isImporting: false,
-      currentFileName: null,
+      importingFileName: null,
       setIsImporting: mockSetIsImporting
     });
 

@@ -47,8 +47,8 @@ const mockDataService = dataService as jest.Mocked<typeof dataService>;
 const mockUserPreferencesService = userPreferencesService as jest.Mocked<typeof userPreferencesService>;
 
 const mockCategories = [
-  { id: 'food', name: 'Food & Dining', type: 'expense' as const, icon: '🍽️' },
-  { id: 'transport', name: 'Transportation', type: 'expense' as const, icon: '🚗' }
+  { id: 'food', name: 'Food & Dining', type: 'expense' as const, icon: '🍽️', subcategories: [] },
+  { id: 'transport', name: 'Transportation', type: 'expense' as const, icon: '🚗', subcategories: [] }
 ];
 
 const renderWithProviders = (component: React.ReactElement) => {
@@ -71,16 +71,16 @@ describe('Add Transaction Button', () => {
     mockDataService.getAllTransactions.mockResolvedValue([]);
     mockDataService.getTransactionsWithoutTransfers.mockResolvedValue([]);
     mockDataService.getCollapsedTransfers.mockResolvedValue([]);
-    mockDataService.getUndoRedoStatus.mockResolvedValue({ canUndo: false, canRedo: false });
-    mockDataService.addTransaction.mockResolvedValue(true);
-    mockDataService.updateTransaction.mockResolvedValue(true);
+    mockDataService.getUndoRedoStatus.mockResolvedValue({ canUndo: false, canRedo: false, undoStackSize: 0, redoStackSize: 0 });
+    mockDataService.addTransaction.mockImplementation(async transaction => ({ ...transaction, id: 'new-transaction' }));
+    mockDataService.updateTransaction.mockResolvedValue(null);
     
     // Setup userPreferencesService mocks
     mockUserPreferencesService.getCurrencyOptions.mockReturnValue([
       { value: 'USD', label: 'US Dollar', symbol: '$' },
       { value: 'EUR', label: 'Euro', symbol: '€' }
     ]);
-    mockUserPreferencesService.getDefaultCurrency.mockReturnValue('USD');
+    mockUserPreferencesService.getDefaultCurrency.mockResolvedValue('USD');
     
     // Set up hook mocks
     mockUseCategoriesManager.mockReturnValue({
@@ -99,10 +99,20 @@ describe('Add Transaction Button', () => {
       matches: [],
       findMatches: jest.fn(),
       applyMatches: jest.fn(),
+      createManualMatch: jest.fn(),
       filterNonReimbursed: (transactions: any[]) => transactions
     });
 
     mockUseTransferMatching.mockReturnValue({
+      isLoading: false,
+      error: null,
+      matches: [],
+      lastMatchResult: null,
+      findTransferMatches: jest.fn(),
+      findManualTransferMatches: jest.fn(),
+      applyTransferMatches: jest.fn(),
+      unmatchTransfers: jest.fn(),
+      manuallyMatchTransfers: jest.fn(),
       getUnmatchedTransfers: jest.fn(() => []),
       countUnmatchedTransfers: jest.fn(() => 0),
       getMatchedTransfers: jest.fn(() => [])
@@ -110,12 +120,15 @@ describe('Add Transaction Button', () => {
 
     mockUseAccountManagement.mockReturnValue({
       accounts: [
-        { id: 'checking', name: 'Checking Account', type: 'checking' as const },
-        { id: 'savings', name: 'Savings Account', type: 'savings' as const }
+        { id: 'checking', name: 'Checking Account', type: 'checking' as const, institution: 'Test Bank', currency: 'USD', isActive: true },
+        { id: 'savings', name: 'Savings Account', type: 'savings' as const, institution: 'Test Bank', currency: 'USD', isActive: true }
       ],
       addAccount: jest.fn(),
       deleteAccount: jest.fn(),
       updateAccount: jest.fn(),
+      getAccount: jest.fn(),
+      detectAccount: jest.fn(),
+      refreshAccounts: jest.fn(),
       isLoading: false,
       error: null
     });

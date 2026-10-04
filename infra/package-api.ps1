@@ -12,6 +12,8 @@ try {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing API package input: $path" }
   }
   if (Test-Path -LiteralPath $Destination) { throw 'Destination already exists; use a new package name.' }
+  $links = Get-ChildItem -LiteralPath 'api\node_modules' -Recurse -Attributes ReparsePoint
+  if ($links) { throw 'API dependencies contain links outside the package. Restore standalone API dependencies before packaging.' }
   Compress-Archive -LiteralPath 'api\host.json','api\package.json','api\dist','api\node_modules' -DestinationPath $Destination -CompressionLevel Optimal
   Write-Output "API package created: $Destination"
 } finally {

@@ -18,6 +18,7 @@ describe('Transaction Categorization Regression Bug', () => {
       id: 'test-checking',
       name: 'Test Checking',
       type: 'checking' as const,
+      isActive: true,
       currency: 'USD',
       institution: 'Test Bank',
       balance: 1000
