@@ -1,6 +1,54 @@
-# GPT model upgrade rollout
+# Category matching and AI recovery rollout
 
 Status: Validated
+
+## Current release: October 4, 2026
+
+User approved repairing CI/tests, merging after checks, and deploying both
+frontend and backend. Subscription and existing Function App were explicitly
+confirmed. Backend recipe: AZCLI code-only ZIP deployment. Frontend recipe:
+existing CI/CD on merge to main. Do not reprovision infrastructure, change
+app settings/identity/model, or access financial save blobs.
+
+Targets: `func-momoney-prod-4eb0` in `rg-momoney-prod-4eb0`, Canada Central,
+subscription `8cf05593-3360-4741-b3e8-ccc6f4f61290`; existing Momoney Static Web App.
+Retain the current deployment ZIP from the dedicated `deployment` container
+before publishing a replacement. Preserve storage and OpenAI routes and their
+platform authentication.
+
+Current changes: meaningful category catalogs, merchant-first classification,
+confirmed AI rules, paced retries with explicit errors, filtered Re-run AI,
+CI fixture repair, a local-month label correction, and standalone API packaging.
+Two redundant test files were removed: one asserted hard-coded Spotify responses;
+the other sorted its mock grid itself and had no-op sort/selection handlers.
+Meaningful catalog, service, UI, import and financial tests are retained.
+
+### Current validation proof
+
+- All validation checks pass:
+  - Core validation: authenticated Azure CLI; existing target Running on Node 22;
+    production frontend build with auth/AI/cloud enabled; TypeScript and
+    production-source lint pass; full retained suite 129 suites / 662 tests;
+    API build and 24 tests pass.
+  - Template validation/what-if: not applicable to this code-only update; the
+    existing storage provisioning template must not be reapplied.
+  - Docker build: not applicable to Node ZIP deployment.
+  - Azure policy: confirm existing-resource code-only deployment; no region,
+    SKU, network, resource or RBAC changes.
+  - Package inspection, rollback retention, platform auth verification and
+    live role checks pass.
+  - GitHub PR quality checks and preview deployment pass for `15d44c3`.
+
+Local validation completed October 4, 2026: `npx tsc --noEmit`,
+React Scripts full Jest suite with Windows-compatible testMatch overrides,
+production-source ESLint, `npm --prefix api test`, and production `npm run build`.
+The live application identity retains its scoped Cognitive Services OpenAI User
+and storage roles. Interactive-user inference access remains unavailable and is
+not being broadened.
+
+## Historical GPT model upgrade rollout (October 3)
+
+The following sections record the preceding deployment, not the scope of this update.
 
 ## 1. Scope
 
@@ -59,6 +107,39 @@ For a frontend rollback, revert the frontend release commit through a PR and
 let the existing workflow redeploy main; do not revert or migrate stored data.
 
 ## 7. Validation proof
+
+### Recovery release: October 4, 2026
+
+- `npx tsc --noEmit --pretty false`: passes across production and tests.
+- Full React Scripts Jest suite: 129 suites / 662 tests pass. The separate
+  America/Los_Angeles date-boundary selection passes 15 tests.
+- Production-source ESLint with the CI warning threshold: passes.
+- `npm run build` with `CI=true`, `REACT_APP_SKIP_AUTH=false`,
+  `REACT_APP_AI_ENABLED=true`, `REACT_APP_CLOUD_SYNC_ENABLED=true` and
+  `GENERATE_SOURCEMAP=false`: passes.
+- `npm --prefix api test`: 24 tests pass, including retry delays, error codes,
+  authentication, payload bounds and storage regression checks.
+- GitHub Quality Checks for `15d44c3`: frontend lint/full tests, TypeScript,
+  and API build/tests pass. PR preview deployment `37192656682` also passes.
+- Azure REST confirms the existing Function App is Running, Node 22, with its
+  original user-assigned identity and blob-based deployment container.
+- Platform authentication: enabled, authentication required, linked SWA provider
+  enabled. Storage remains `swa-linked`; endpoint/model/client identity and
+  container settings are unchanged.
+- Live RBAC confirms the original scoped OpenAI inference role and storage
+  roles. No role or infrastructure change is included in the deployment.
+- Subscription-scope policy assignment query returned no assignments. This
+  code-only release changes no regions, SKUs, networking or resources.
+- `infra/package-api.ps1` produced the standalone API ZIP. Archive inspection
+  confirms both function handlers and shared modules, with no `.env`,
+  `local.settings.json`, `.git` or frontend dependency link.
+- Rollback package copied read-only from `deployment/released-package.zip`,
+  SHA-256 `CDAA5D909BCA6F10A966E65A7618581DC7103202766619B2F825A1040F3F8FCE`.
+- New package SHA-256:
+  `39823F543538CA89062CA328AE4E604DC88CEEC03E6FB3D721621049E6128D6B`.
+  Both archives remain in session artifacts, outside the repository.
+- Storage Bicep validate/what-if and Docker build are not applicable: this is
+  an existing Node ZIP application update, not infrastructure provisioning.
 
 ### Frontend release gate
 
@@ -137,6 +218,27 @@ Final validation (October 3, 2026, 21:22 UTC):
   and model constants, production dependencies, and no local settings/.env.
 
 ## 8. Deployment results
+
+### Recovery backend release: October 4, 2026
+
+- Code-only Flex ZIP deployment succeeded using `az functionapp deployment source
+  config-zip --build-remote false`; no infrastructure deployment was performed.
+- Function App remains Running on Node 22. Both `openai/chat/completions` and
+  `storage/{action}` are registered.
+- Downloaded the released package from the dedicated deployment container.
+  Azure repacked the ZIP, so the archive checksum differs; all 10,599 file names
+  and file-content SHA-256 hashes exactly match the validated local package.
+  Released archive SHA-256:
+  `4D12DDC8501E14296FF6DB8478B46EA3F52F90F5C19DAC549F6A882EBDC73CAA`.
+- Storage mode/container/account, AI endpoint/deployment, identity and live RBAC
+  assignments are unchanged.
+- Anonymous same-origin AI access redirects to login (302); direct backend
+  access is denied (401). No financial records were accessed during verification.
+- Signed-in production classification remains a user-session verification;
+  no authentication bypass or new interactive-user inference role was used.
+- Frontend release follows after this rollout record's PR checks pass and merge.
+
+### Historical release results: October 3, 2026
 
 - Backend ZIP deployment succeeded on October 3, 2026.
 - Both `openai` (`openai/chat/completions`) and `storage` (`storage/{action}`)
