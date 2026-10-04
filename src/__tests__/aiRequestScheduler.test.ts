@@ -1,7 +1,10 @@
 import { AIRequestScheduler } from '../services/aiRequestScheduler';
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
-beforeEach(() => jest.useFakeTimers());
+beforeEach(() => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-01-15T12:00:00.000Z'));
+});
 afterEach(() => jest.useRealTimers());
 
 it('permits two overlapping requests but never a third, with paced starts', async () => {
