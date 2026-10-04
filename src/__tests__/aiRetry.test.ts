@@ -18,6 +18,7 @@ describe('AI retry pacing and failure transparency', () => {
     process.env.REACT_APP_AI_ENABLED = 'true';
     global.fetch = jest.fn();
     jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-15T12:00:00.000Z'));
     jest.spyOn(Math, 'random').mockReturnValue(0);
   });
   afterEach(() => {
