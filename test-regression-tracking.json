@@ -2,13 +2,46 @@
   "version": "1.0.0",
   "description": "Tracking system for automated test regressions - tracks when tests break and whether the fix was in the test or product code",
   "stats": {
-    "totalRegressions": 11,
-    "testBugFixes": 6,
-    "productBugFixes": 5,
-    "testBugPercentage": 55,
-    "productBugPercentage": 45
+    "totalRegressions": 14,
+    "testBugFixes": 7,
+    "productBugFixes": 7,
+    "testBugPercentage": 50,
+    "productBugPercentage": 50
   },
   "regressions": [
+    {
+      "testName": "AI retry parser and failure recovery suites",
+      "testFile": "src/services/azureOpenAIService.ts",
+      "fixType": "product",
+      "severity": "medium",
+      "description": "Validation caught a misplaced retry helper method during implementation; moved it to class scope and re-ran 72 focused tests successfully.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791104688044-a7etqr7xc",
+      "timestamp": "2026-10-04T09:04:48.044Z"
+    },
+    {
+      "testName": "batchRuleMatching and batchProcessingIndexMismatch",
+      "testFile": "src/__tests__/batchRuleMatching.test.ts",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Updated old expectations for user-approved behavior: new AI rules require confirmation before reuse; index test explicitly enables its fixture.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791103776430-uvojpcqi0",
+      "timestamp": "2026-10-04T08:49:36.430Z"
+    },
+    {
+      "testName": "classificationQuality: wire transfer fee",
+      "testFile": "src/__tests__/classificationQuality.test.ts",
+      "fixType": "product",
+      "severity": "medium",
+      "description": "New regression caught a missing explicit wire transfer fee match; added bank-specific pattern.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1791103776358-sef5eq7aw",
+      "timestamp": "2026-10-04T08:49:36.358Z"
+    },
     {
       "testName": "Backup paste correction browser check",
       "testFile": "src\\__tests__\\BackupFilePicker.test.tsx",

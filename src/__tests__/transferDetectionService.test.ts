@@ -7,6 +7,7 @@ jest.mock('../services/rulesService', () => ({
   rulesService: {
     getAllRules: jest.fn(),
     addRule: jest.fn(),
+    updateRule: jest.fn(),
   }
 }));
 
@@ -59,7 +60,7 @@ describe('TransferDetectionService', () => {
 
       expect(result.isLikelyTransfer).toBe(true);
       expect(result.confidence).toBeGreaterThan(0.5);
-      expect(result.reasons).toContain('Contains transfer keywords: automatic payment');
+      expect(result.reasons).toContain('Contains transfer keywords: automatic payment to credit card');
     });
 
     it('should NOT identify bank fees as transfers', () => {
@@ -81,7 +82,7 @@ describe('TransferDetectionService', () => {
       expect(result.reasons).toContain('Contains bank fee keywords');
     });
 
-    it('should identify wire transfers', () => {
+    it('should leave wire transfers without own-account evidence for classification', () => {
       const transaction = {
         date: new Date('2024-01-01'),
         description: 'WIRE TRANSFER - REF #12345',
@@ -95,18 +96,16 @@ describe('TransferDetectionService', () => {
 
       const result = transferDetectionService.analyzeTransaction(transaction);
 
-      expect(result.isLikelyTransfer).toBe(true);
-      expect(result.confidence).toBeGreaterThan(0.7);
+      expect(result.isLikelyTransfer).toBe(false);
       expect(result.reasons).toEqual(
         expect.arrayContaining([
-          expect.stringContaining('Contains transfer keywords:'),
           'Contains reference number',
           'Round dollar amount'
         ])
       );
     });
 
-    it('should identify Zelle transfers', () => {
+    it('should not assume Zelle payments are internal transfers', () => {
       const transaction = {
         date: new Date('2024-01-01'),
         description: 'ZELLE PAYMENT TO JOHN DOE',
@@ -120,9 +119,7 @@ describe('TransferDetectionService', () => {
 
       const result = transferDetectionService.analyzeTransaction(transaction);
 
-      expect(result.isLikelyTransfer).toBe(true);
-      expect(result.confidence).toBeGreaterThan(0.5);
-      expect(result.reasons).toContain('Contains transfer keywords: zelle');
+      expect(result.isLikelyTransfer).toBe(false);
     });
   });
 

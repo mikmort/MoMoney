@@ -1702,12 +1702,8 @@ EXAMPLE OUTPUT FORMAT:
             const transaction = currentChunk[i];
             const ai = res[i];
             
-            // Check if this transaction requires higher confidence due to ACH DEBIT or withdrawal patterns
-            const needsHighConfidence = this.requiresHigherConfidence(transaction.description);
-            const confidenceThreshold = needsHighConfidence ? 0.9 : 0.8;
-            
-            // Auto-create rule from AI classification if confidence is high enough
-            if (ai.confidence >= confidenceThreshold && 
+            // Confident AI results become inactive suggestions until the user confirms them.
+            if (ai.confidence >= 0.8 &&
                 ai.categoryId && 
                 ai.categoryId !== 'Uncategorized' && 
                 ai.categoryId !== 'uncategorized') {
@@ -1724,17 +1720,15 @@ EXAMPLE OUTPUT FORMAT:
                   ai.confidence
                 );
                 autoRulesCreatedThisBatch++;
-                console.log(`📋 Auto-created rule from batch ${batchNumber}: ${transaction.description} → ${categoryName} (${needsHighConfidence ? '90%' : '80%'} threshold)`);
+                console.log(`📋 Suggested rule from batch ${batchNumber}: ${transaction.description} → ${categoryName}`);
               } catch (error) {
                 console.warn('Failed to create auto-rule from AI classification:', error);
               }
-            } else if (needsHighConfidence && ai.confidence < 0.9) {
-              console.log(`📋 Skipping auto-rule creation for ACH DEBIT/withdrawal transaction due to insufficient confidence: ${Math.round(ai.confidence * 100)}% < 90%`);
             }
           }
           
           if (autoRulesCreatedThisBatch > 0) {
-            console.log(`📋 Created ${autoRulesCreatedThisBatch} auto-rules from batch ${batchNumber} - these will be available for subsequent batches`);
+            console.log(`📋 Suggested ${autoRulesCreatedThisBatch} rules from batch ${batchNumber} for user review`);
           }
           
           // Store results with correlation keys for final transaction creation
@@ -1877,37 +1871,23 @@ EXAMPLE OUTPUT FORMAT:
       const categoryName = idToNameCategory.get(validCategoryId) || 'Uncategorized';
       const subName = validSubcategoryId ? (idToNameSub.get(validSubcategoryId)?.name) : undefined;
 
-      // Special handling for ACH DEBIT and withdrawal transactions - require 90% confidence
-      const needsHighConfidence = this.requiresHigherConfidence(transaction.description);
-      let finalCategoryName = categoryName;
-      let finalSubName = subName;
-      let finalConfidence = ai.confidence;
-
-      if (needsHighConfidence && ai.confidence < 0.9) {
-        // For ACH DEBIT and withdrawal transactions with < 90% confidence, leave uncategorized
-        finalCategoryName = 'Uncategorized';
-        finalSubName = undefined;
-        finalConfidence = ai.confidence; // Keep original confidence for transparency
-        console.log(`⚠️ ACH DEBIT/Withdrawal transaction requires 90% confidence, but AI returned ${Math.round(ai.confidence * 100)}% - leaving uncategorized: "${transaction.description}"`);
-      }
-
       // Note: Auto-rule creation now happens immediately after each batch (above) for better availability
 
       // Prepare the corrected transaction data
       let correctedTransaction = { ...transaction };
       
       // Ensure transaction type consistency with special categories (same logic as dataService)
-      if (finalCategoryName === 'Internal Transfer') {
+      if (categoryName === 'Internal Transfer') {
         correctedTransaction.type = 'transfer';
-      } else if (finalCategoryName === 'Asset Allocation') {
+      } else if (categoryName === 'Asset Allocation') {
         correctedTransaction.type = 'asset-allocation';
       }
 
       const newTransaction = {
         ...correctedTransaction,
-        category: finalCategoryName,
-        subcategory: finalSubName,
-        confidence: finalConfidence,
+        category: categoryName,
+        subcategory: subName,
+        confidence: ai.confidence,
         reasoning: ai.reasoning,
         id: uuidv4(),
         addedDate: new Date(),
@@ -1916,7 +1896,7 @@ EXAMPLE OUTPUT FORMAT:
       transactions.push(newTransaction);
       
       if (transactions.length <= 2) {
-        console.log(`  AI-processed ${transactions.length}: ID=${newTransaction.id}, Final category: ${finalCategoryName}`);
+        console.log(`  AI-processed ${transactions.length}: ID=${newTransaction.id}, Final category: ${categoryName}`);
       }
     }
 
@@ -1931,16 +1911,6 @@ EXAMPLE OUTPUT FORMAT:
     }
     
     return transactions;
-  }
-
-  /**
-   * Check if a transaction description contains ACH DEBIT or withdrawal patterns
-   * that require higher confidence thresholds for AI categorization
-   */
-  private requiresHigherConfidence(description: string): boolean {
-    const lowerDesc = description.toLowerCase();
-    return lowerDesc.includes('ach debit') || 
-           (lowerDesc.includes('withdrawal') && !lowerDesc.includes('atm withdrawal') && !lowerDesc.includes('cash withdrawal'));
   }
 
   /**

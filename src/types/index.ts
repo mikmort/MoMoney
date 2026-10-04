@@ -200,6 +200,7 @@ export interface AIClassificationRequest {
 }
 
 export interface AIClassificationResponse {
+  error?: { code: import('../utils/aiRequestErrors').AIErrorCode; message: string; retryAfterMs?: number };
   categoryId: string;
   subcategoryId?: string;
   confidence: number;

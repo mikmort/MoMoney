@@ -7,36 +7,26 @@ import { rulesService } from './rulesService';
  */
 class TransferDetectionService {
   private readonly transferKeywords = [
-    // ACH and electronic transfers
-    'ach transfer', 'ach credit', 'ach payment',
-    'electronic transfer', 'wire transfer', 'bank transfer',
-    
-    // Internal transfers
-    'transfer to', 'transfer from', 'internal transfer', 
-    'account transfer', 'between accounts',
-    
-    // Payment types commonly used for transfers
-    'automatic payment', 'auto payment', 'autopay',
-    'online transfer', 'mobile transfer', 'zelle',
-    
-    // ATM and deposit patterns (excluding generic 'withdrawal')
-    'atm withdrawal', 'cash withdrawal',
-    'atm deposit', 'cash deposit', 'deposit',
-    
-    // Specific transfer patterns
-    'transfer', 'tfr', 'xfer', 'move money',
-    'payment transfer', 'fund transfer',
-    
-    // Bank-specific patterns
-    'quickpay', 'popmoney', 'clearxchange'
+    'internal transfer', 'account transfer', 'between accounts',
+    'transfer to savings', 'transfer from savings',
+    'transfer to checking', 'transfer from checking',
+    'automatic payment to credit card', 'credit card payment',
+    'atm withdrawal', 'cash withdrawal', 'atm deposit', 'cash deposit'
+  ];
+
+  private readonly legacyTransferKeywords = [
+    'ach transfer', 'ach credit', 'ach payment', 'electronic transfer', 'wire transfer',
+    'bank transfer', 'transfer to', 'transfer from', 'automatic payment', 'auto payment',
+    'autopay', 'online transfer', 'mobile transfer', 'zelle', 'deposit', 'transfer', 'tfr',
+    'xfer', 'move money', 'payment transfer', 'fund transfer', 'quickpay', 'popmoney', 'clearxchange'
   ];
 
   private readonly bankFeeKeywords = [
     // Actual bank fees that should NOT be transfers
     'overdraft fee', 'nsf fee', 'insufficient funds',
-    'maintenance fee', 'monthly fee', 'service charge',
-    'atm fee', 'foreign transaction fee', 'wire fee',
-    'late fee', 'returned item', 'stop payment'
+    'maintenance fee',
+    'atm fee', 'foreign transaction fee', 'wire fee', 'wire transfer fee',
+    'returned item', 'stop payment'
   ];
 
   /**
@@ -46,6 +36,22 @@ class TransferDetectionService {
     console.log('🔄 Initializing transfer detection rules...');
     
     let rulesCreated = 0;
+    const savedRules = await rulesService.getAllRules();
+    for (const rule of savedRules) {
+      const keyword = rule.name.replace(/^Transfer Detection: /, '');
+      // Retire only recognizable, untouched built-in rules, never user-customized conditions/actions.
+      if (this.legacyTransferKeywords.includes(keyword) &&
+          rule.name === `Transfer Detection: ${keyword}` &&
+          rule.description === `Auto-generated rule to detect transfer transactions containing "${keyword}"` &&
+          rule.priority === 10 && rule.isActive &&
+          rule.createdDate.getTime() === rule.lastModifiedDate.getTime() &&
+          rule.conditions.length === 1 && rule.conditions[0].field === 'description' &&
+          rule.conditions[0].operator === 'contains' && rule.conditions[0].value === keyword &&
+          rule.action.categoryId === 'internal-transfer' && rule.action.transactionType === 'transfer') {
+        await rulesService.updateRule(rule.id, { isActive: false });
+        console.info(`Disabled overly broad built-in transfer rule: ${rule.name}`);
+      }
+    }
     
     // Create rules for each transfer keyword pattern
     for (const keyword of this.transferKeywords) {
@@ -71,8 +77,8 @@ class TransferDetectionService {
             conditions: [
               {
                 field: 'description',
-                operator: 'contains',
-                value: keyword,
+                operator: 'regex',
+                value: `\\b${keyword.replace(/\s+/g, '\\s+')}\\b`,
                 caseSensitive: false
               }
             ],
@@ -96,16 +102,30 @@ class TransferDetectionService {
     // Create a rule to prevent misclassification of bank fees
     try {
       const existingRules = await rulesService.getAllRules();
+      const bankFeePattern = this.bankFeeKeywords.map(keyword => keyword.replace(/\s+/g, '\\s+')).join('|');
+      const legacyBankFeePattern = [
+        'overdraft fee', 'nsf fee', 'insufficient funds', 'maintenance fee', 'monthly fee', 'service charge',
+        'atm fee', 'foreign transaction fee', 'wire fee', 'late fee', 'returned item', 'stop payment'
+      ].map(keyword => keyword.replace(/\s+/g, '\\s+')).join('|');
+      for (const rule of existingRules) {
+        if (rule.name === 'Bank Fee Protection' &&
+            rule.description === 'Ensures actual bank fees are not misclassified as transfers' &&
+            rule.createdDate.getTime() === rule.lastModifiedDate.getTime() &&
+            rule.priority === 5 && rule.conditions.length === 1 &&
+            rule.conditions[0].field === 'description' && rule.conditions[0].operator === 'regex' &&
+            rule.conditions[0].value === legacyBankFeePattern &&
+            rule.action.categoryId === 'financial' && rule.action.subcategoryId === 'financial-fees') {
+          await rulesService.updateRule(rule.id, {
+            conditions: [{ ...rule.conditions[0], value: bankFeePattern }]
+          });
+          console.info('Narrowed built-in bank fee rule to bank-specific fee descriptions.');
+        }
+      }
       const bankFeeRuleExists = existingRules.some(rule => 
         rule.name.includes('Bank Fee Protection')
       );
 
       if (!bankFeeRuleExists) {
-        // Create a regex pattern that matches actual bank fees
-        const bankFeePattern = this.bankFeeKeywords
-          .map(keyword => keyword.replace(/\s+/g, '\\s+'))
-          .join('|');
-
         const rule = await rulesService.addRule({
           name: 'Bank Fee Protection',
           description: 'Ensures actual bank fees are not misclassified as transfers',
@@ -165,8 +185,8 @@ class TransferDetectionService {
     }
 
     // Check for transfer keywords
-    const matchedKeywords = this.transferKeywords.filter(keyword => 
-      description.includes(keyword.toLowerCase())
+    const matchedKeywords = this.transferKeywords.filter(keyword =>
+      new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`, 'i').test(description)
     );
 
     if (matchedKeywords.length > 0) {

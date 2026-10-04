@@ -2,11 +2,34 @@ import { test, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { HttpRequest, InvocationContext } from '@azure/functions';
 import { DefaultAzureCredential } from '@azure/identity';
-import { completionRequest, completeWithAzure, createOpenAIHandler } from '../src/functions/openai';
+import { AIUpstreamError, completionRequest, completeWithAzure, createOpenAIHandler } from '../src/functions/openai';
 
 const originalEnv = { ...process.env };
 afterEach(() => { process.env = { ...originalEnv }; mock.restoreAll(); });
 const messages = [{ role: 'user', content: 'Classify a grocery purchase.' }];
+
+test('preserves Azure retry delays and distinguishes upstream authentication from transient outages', async () => {
+  process.env.AZURE_OPENAI_ENDPOINT = 'https://example.openai.azure.com/';
+  process.env.STORAGE_AUTH_MODE = 'swa-linked';
+  mock.method(DefaultAzureCredential.prototype, 'getToken', async () => ({ token: 'test-token', expiresOnTimestamp: Date.now() + 60000 }));
+  mock.method(globalThis, 'fetch', async () => new Response('private upstream body', {
+    status: 429, headers: { 'retry-after-ms': '61500' }
+  }));
+  const result = await createOpenAIHandler()(request(), new InvocationContext());
+  assert.equal(result.status, 429);
+  assert.equal((result.headers as Record<string, string>)['Retry-After'], '62');
+  assert.deepEqual(result.jsonBody, {
+    success: false, error: 'AI rate limit reached. Please retry later.', code: 'rate_limit', retryAfterMs: 61500
+  });
+});
+
+test('reports non-retryable backend identity errors without leaking upstream bodies', async () => {
+  process.env.STORAGE_AUTH_MODE = 'swa-linked';
+  const result = await createOpenAIHandler(async () => {
+    throw new AIUpstreamError(502, 'Azure AI authentication failed.', 'upstream_auth');
+  })(request(), new InvocationContext());
+  assert.deepEqual(result.jsonBody, { success: false, error: 'Azure AI authentication failed.', code: 'upstream_auth' });
+});
 const data = {
   model: 'gpt-5.4-mini-2026-03-17',
   choices: [{ message: { content: '{"categoryId":"groceries"}' }, finish_reason: 'stop' }],

@@ -17,7 +17,7 @@ describe('Batch Rule Matching', () => {
     rulesService.clearAllRules();
   });
 
-  it('should apply rules created from first batch to subsequent batches', async () => {
+  it('does not reuse unconfirmed AI suggestions in subsequent batches', async () => {
     // Create test data with exactly 25 transactions to ensure multiple batches (20 + 5)
     // All transactions are identical to maximize rule creation opportunity
     const rawData = [];
@@ -79,11 +79,12 @@ describe('Batch Rule Matching', () => {
     console.log(`📊 Results: ${ruleMatchedTransactions.length} rule-matched, ${aiMatchedTransactions.length} AI-matched`);
     console.log(`🤖 AI was called ${aiCallCount} times with total ${totalAIRequests} requests`);
     
-    // The key test: Rules should have been applied across batches
-    // We expect fewer than 25 AI requests because rules should catch some transactions
-    expect(ruleMatchedTransactions.length).toBeGreaterThan(0);
-    expect(totalAIRequests).toBeLessThan(25);
+    expect(ruleMatchedTransactions).toHaveLength(0);
+    expect(aiMatchedTransactions).toHaveLength(25);
+    expect(totalAIRequests).toBe(25);
+    expect(rules).toHaveLength(1);
+    expect(rules[0].isActive).toBe(false);
     
-    console.log('✅ Rules successfully applied across batches - AI requests optimized');
+    console.log('AI suggestions require confirmation before reuse across batches');
   });
 });

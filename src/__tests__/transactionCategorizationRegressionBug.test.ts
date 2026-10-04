@@ -196,27 +196,34 @@ describe('Transaction Categorization Regression Bug', () => {
     }
   });
 
-  it('should test the requiresHigherConfidence logic for non-ACH transactions', () => {
-    // Test that normal transactions like Spotify don't trigger higher confidence requirements
-    const method = (fileProcessingService as any).requiresHigherConfidence;
-    
-    console.log('🧪 Testing requiresHigherConfidence logic...');
-    
-    // These should NOT require higher confidence
-    expect(method('Spotify USA')).toBe(false);
-    expect(method('Netflix')).toBe(false);
-    expect(method('Amazon')).toBe(false);
-    expect(method('Grocery Store')).toBe(false);
-    
-    // These SHOULD require higher confidence (ACH/withdrawal patterns)
-    expect(method('ACH DEBIT SPOTIFY USA')).toBe(true);
-    expect(method('WITHDRAWAL TRANSFER')).toBe(true);
-    expect(method('ACH DEBIT')).toBe(true);
-    
-    // These should NOT (excluded withdrawal types)
-    expect(method('ATM WITHDRAWAL')).toBe(false);
-    expect(method('CASH WITHDRAWAL')).toBe(false);
-    
-    console.log('✅ requiresHigherConfidence logic is working correctly');
+  it('preserves merchant categories below 90% confidence regardless of payment method', async () => {
+    const classify = jest.spyOn(azureOpenAIService, 'classifyTransactionsBatch').mockResolvedValue([
+      { categoryId: 'entertainment', subcategoryId: 'entertainment-streaming', confidence: 0.88, reasoning: 'Music streaming' },
+      { categoryId: 'transportation', subcategoryId: 'transport-fuel', confidence: 0.85, reasoning: 'Vehicle fuel' },
+      { categoryId: 'food', subcategoryId: 'food-restaurants', confidence: 0.87, reasoning: 'Dining out' },
+      { categoryId: 'uncategorized', confidence: 0.2, reasoning: 'Unknown purpose' }
+    ]);
+    try {
+      const result = await (fileProcessingService as any).processTransactions(
+        'merchant-regression',
+        [
+          ['2024-01-15', 'ACH DEBIT SPOTIFY USA', '-15.99'],
+          ['2024-01-15', 'WITHDRAWAL SHELL', '-54.20'],
+          ['2024-01-15', 'Restaurant Krebsegaa', '-82.50'],
+          ['2024-01-15', 'ACH DEBIT', '-42.17']
+        ],
+        { dateColumn: '0', descriptionColumn: '1', amountColumn: '2', hasHeaders: false, skipRows: 0 },
+        defaultCategories, defaultCategories.flatMap(c => c.subcategories), 'test-checking'
+      );
+      expect(result).toEqual(expect.arrayContaining([
+        expect.objectContaining({ description: 'ACH DEBIT SPOTIFY USA', category: 'Entertainment', subcategory: 'Streaming Services', confidence: 0.88 }),
+        expect.objectContaining({ description: 'WITHDRAWAL SHELL', category: 'Transportation', subcategory: 'Fuel/Gas', confidence: 0.85 }),
+        expect.objectContaining({ description: 'Restaurant Krebsegaa', category: 'Food & Dining', subcategory: 'Restaurants' }),
+        expect.objectContaining({ description: 'ACH DEBIT', category: 'Uncategorized' })
+      ]));
+      expect((await rulesService.getAllRules()).every(rule => !rule.isActive)).toBe(true);
+    } finally {
+      classify.mockRestore();
+    }
   });
 });

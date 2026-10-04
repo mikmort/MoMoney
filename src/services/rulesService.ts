@@ -343,7 +343,6 @@ class RulesService {
 
     // Check if a rule already exists for this exact account + description combination
     const existingRule = this.rules.find(rule => 
-      rule.isActive && 
       rule.conditions.length === 2 &&
       rule.conditions.some(c => c.field === 'account' && c.operator === 'equals' && c.value === account) &&
       rule.conditions.some(c => c.field === 'description' && c.operator === 'equals' && c.value === description)
@@ -360,8 +359,8 @@ class RulesService {
     return this.addRule({
       name: ruleName,
       description: ruleDescription,
-      isActive: true,
-      priority: 50, // Higher priority than manual rules (lower number = higher priority)
+      isActive: false,
+      priority: 50,
       conditions: [
         {
           field: 'account',
@@ -395,7 +394,6 @@ class RulesService {
   ): Promise<{ rule: CategoryRule; isNew: boolean; reclassifiedCount?: number }> {
     // Check if a rule already exists for this exact account + description combination
     const existingRuleIndex = this.rules.findIndex(rule => 
-      rule.isActive && 
       rule.conditions.length === 2 &&
       rule.conditions.some(c => c.field === 'account' && c.operator === 'equals' && c.value === account) &&
       rule.conditions.some(c => c.field === 'description' && c.operator === 'equals' && c.value === description)
@@ -408,6 +406,10 @@ class RulesService {
     if (existingRuleIndex !== -1) {
       // Update existing rule
       const updates: Partial<CategoryRule> = {
+        name: `User: ${description} (${account})`,
+        description: 'Created from user manual categorization',
+        isActive: true,
+        priority: 25,
         action: {
           categoryId: this.getCategoryIdByName(categoryName) || 'uncategorized',
           categoryName,
