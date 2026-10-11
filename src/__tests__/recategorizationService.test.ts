@@ -51,6 +51,28 @@ it('counts rows rejected by the persistence-time edit guard as skipped', async (
   expect(await rerunUncategorizedTransactions([tx('1')], defaultCategories, jest.fn())).toMatchObject({ skipped: 1, categorized: 0 });
 });
 
+it('passes original-language descriptions to AI and persists catalog names without changing protected rows', async () => {
+  const description = 'PAGO FARMACIA MADRID';
+  const rows = [
+    tx('original-language', { description }),
+    tx('verified', { description, isVerified: true }),
+    tx('split', { description, isSplit: true }),
+    tx('categorized', { description, category: 'Healthcare' })
+  ];
+  classify.mockResolvedValue([{
+    categoryId: 'healthcare', subcategoryId: 'health-pharmacy', confidence: 0.9,
+    reasoning: 'Pharmacy purchase.'
+  }]);
+  const summary = await rerunUncategorizedTransactions(rows, defaultCategories, jest.fn());
+  expect(classify.mock.calls[0][0]).toEqual([expect.objectContaining({ transactionText: description })]);
+  expect(update).toHaveBeenCalledWith([expect.objectContaining({
+    id: 'original-language', expectedTransaction: rows[0], updates: expect.objectContaining({
+      category: 'Healthcare', subcategory: 'Pharmacy', type: 'expense', isVerified: false
+    })
+  })], { source: 'ai' });
+  expect(summary).toMatchObject({ categorized: 1, unresolved: 0, failed: 0 });
+});
+
 it('overlaps two requests, saves out-of-order results to the correct rows, and serializes saves', async () => {
   const rows = Array.from({ length: 60 }, (_, index) => tx(String(index)));
   const resolveRequests: Array<(results: AIClassificationResponse[]) => void> = [];

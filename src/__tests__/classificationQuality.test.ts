@@ -65,6 +65,64 @@ describe('Classification context and correlation', () => {
     expect(messages[1].content).toContain('"s-opaque","Dining out","Restaurant meals",["restaurant"]');
   });
 
+  it.each([
+    'POS ΦΑΡΜΑΚΕΙΟ ΑΘΗΝΑ',
+    'PAIEMENT BOULANGERIE PARIS',
+    'PAGO FARMACIA MADRID',
+    '東京 スーパー',
+    'café paiement'.normalize('NFD'),
+    'PLIROMI FARMAKEIO',
+    'CARD PMT LOCAL SHOP LTD TERMINAL 42',
+    'PAYMENT UNKNOWN COMPANY'
+  ])('preserves multilingual descriptors with language-neutral guidance: %s', description => {
+    for (const batch of [false, true]) {
+      const messages = buildClassificationMessages([request(`${description} user@example.com`)], batch);
+      const payload = JSON.parse(messages[messages.length - 1].content.slice(3));
+      expect(batch ? payload[0].description : payload.description).toBe(`${description} [EMAIL]`);
+      const guidance = messages[0].content;
+      expect(guidance).toContain('any language or script');
+      expect(guidance).toContain('transliterations');
+      expect(guidance).toContain('missing accents and inflected words');
+      expect(guidance).toContain('an exact keyword match or translation in the catalog is not required');
+      expect(guidance).toContain('payment-processor prefixes, reference numbers, terminal identifiers');
+      expect(guidance).toContain('Do not invent a merchant identity');
+      expect(guidance).toContain('do not establish economic purpose or an own-account transfer');
+      expect(guidance).toContain('alone is not a category or evidence of travel');
+      expect(guidance).toContain('unfamiliar personal/company name without identifiable goods or services remains unclear');
+      expect(guidance).toContain('not familiarity with the language');
+      expect(guidance).toContain('return ONLY catalog ids');
+      expect(guidance).not.toMatch(/Greek|Greeklish|ΣΚΛΑΒΕΝΙΤΗΣ|FARMAKEIO/);
+    }
+  });
+
+  it.each([false, true])('sends language-neutral guidance through the AI service with a custom catalog (batch=%s)', async batch => {
+    const input = request('PAGO FARMACIA MADRID user@example.com');
+    input.availableCategories = [{
+      id: 'custom-health', name: 'Medical costs', type: 'expense',
+      subcategories: [{ id: 'custom-medicine', name: 'Medicines', description: 'Pharmacy purchases' }]
+    }];
+    const classification = {
+      categoryId: 'custom-health', subcategoryId: 'custom-medicine', confidence: 0.9,
+      reasoning: 'Pharmacy purchase.'
+    };
+    (fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, data: { choices: [{
+        message: { content: JSON.stringify(batch ? [{ index: 0, ...classification }] : classification) },
+        finish_reason: 'stop'
+      }] } })
+    });
+    const service = new AzureOpenAIService();
+    const result = batch ? (await service.classifyTransactionsBatch([input]))[0] : await service.classifyTransaction(input);
+    expect(result).toMatchObject(classification);
+    const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body.messages[0].content).toContain('description and catalog use different languages');
+    const payload = JSON.parse(body.messages[body.messages.length - 1].content.slice(3));
+    expect(batch ? payload[0].description : payload.description).toBe('PAGO FARMACIA MADRID [EMAIL]');
+    expect(body.messages.filter((message: { content: string }) => message.content.startsWith('CAT:')))
+      .toEqual([expect.objectContaining({ content: expect.stringContaining('"custom-medicine","Medicines"') })]);
+  });
+
   it('reduces default-catalog requests by at least a third while respecting token and message budgets', () => {
     const inputs = Array.from({ length: 100 }, () => request());
     const batches = planClassificationBatches(inputs);

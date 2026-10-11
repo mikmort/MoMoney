@@ -285,6 +285,19 @@ cached fallback models are no longer used in production.
 - The AI assigns categories and confidence scores
 - Review and verify classifications as needed
 
+Classification uses language-neutral guidance to interpret descriptions across
+languages and scripts, including transliterations and abbreviated statement
+descriptors. The model separates merchant/service evidence from payment-processor
+prefixes, reference numbers and other statement noise, then maps the economic
+purpose to your category catalog without requiring an exact keyword match.
+Locations and generic payment terms alone do not imply travel or internal
+transfers; ambiguous merchants remain uncategorized.
+
+For previously imported transactions, use **Re-run AI** on the
+Transactions page with AI enabled. This uses the same multilingual guidance and
+processes only visible uncategorized transactions under the current filters; it
+does not overwrite verified, split or already categorized transactions.
+
 ### 4. View Analytics
 - Dashboard shows spending summaries and trends
 - Charts display category breakdowns and monthly patterns
