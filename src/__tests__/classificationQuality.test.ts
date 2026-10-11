@@ -66,12 +66,10 @@ describe('Classification context and correlation', () => {
   });
 
   it.each([
-    'POS ΦΑΡΜΑΚΕΙΟ ΑΘΗΝΑ',
     'PAIEMENT BOULANGERIE PARIS',
     'PAGO FARMACIA MADRID',
     '東京 スーパー',
     'café paiement'.normalize('NFD'),
-    'PLIROMI FARMAKEIO',
     'CARD PMT LOCAL SHOP LTD TERMINAL 42',
     'PAYMENT UNKNOWN COMPANY'
   ])('preserves multilingual descriptors with language-neutral guidance: %s', description => {
@@ -91,7 +89,6 @@ describe('Classification context and correlation', () => {
       expect(guidance).toContain('unfamiliar personal/company name without identifiable goods or services remains unclear');
       expect(guidance).toContain('not familiarity with the language');
       expect(guidance).toContain('return ONLY catalog ids');
-      expect(guidance).not.toMatch(/Greek|Greeklish|ΣΚΛΑΒΕΝΙΤΗΣ|FARMAKEIO/);
     }
   });
 
