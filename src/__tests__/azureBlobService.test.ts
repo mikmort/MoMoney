@@ -1,19 +1,32 @@
 import { webcrypto } from 'crypto';
+import React from 'react';
+import { render, waitFor } from '@testing-library/react';
 import { AzureBlobService } from '../services/azureBlobService';
 import { captureSnapshot, restoreSnapshot } from '../services/cloudSnapshotService';
-import { notificationService } from '../services/notificationService';
 import { db } from '../services/db';
 import { CloudSnapshot, CloudVersion } from '../utils/cloudSnapshot';
+import { notifyLocalChange } from '../services/syncEvents';
+import { dataService } from '../services/dataService';
 
 jest.mock('../config/devConfig', () => ({ skipAuthentication: false }));
 jest.mock('../services/cloudSnapshotService');
-jest.mock('../services/dataService', () => ({ dataService: { readyForPersistence: jest.fn(), suspendPersistence: jest.fn() } }));
-jest.mock('../services/notificationService', () => ({ notificationService: { showConfirmation: jest.fn(), showAlert: jest.fn() } }));
+jest.mock('../services/dataService', () => ({ dataService: {
+  readyForPersistence: jest.fn(), suspendPersistence: jest.fn(), reloadAfterCloudSync: jest.fn(),
+  canApplyCloudSnapshot: jest.fn().mockResolvedValue(true)
+} }));
+jest.mock('../services/accountManagementService', () => ({ accountManagementService: { reloadFromStorage: jest.fn() } }));
+jest.mock('../services/rulesService', () => ({ rulesService: { reloadFromStorage: jest.fn() } }));
+jest.mock('../services/budgetService', () => ({ budgetService: { reloadFromStorage: jest.fn() } }));
+jest.mock('../services/userPreferencesService', () => ({ userPreferencesService: { reloadFromStorage: jest.fn() } }));
 
 const capture = jest.mocked(captureSnapshot);
 const restore = jest.mocked(restoreSnapshot);
 const fetchMock = jest.fn<Promise<Response>, Parameters<typeof fetch>>();
 let service: AzureBlobService;
+let local: CloudSnapshot;
+let remote: CloudVersion | null;
+let account: string;
+let writes: number;
 
 function data(ids = ['one']): CloudSnapshot {
   return {
@@ -27,39 +40,24 @@ function version(snapshot = data(), revision = 'first'): CloudVersion {
   return { data: snapshot, revision, parent: null, createdAt: '2026-01-01T00:00:00Z' };
 }
 function response(body: unknown, status = 200, protocol = '1'): Response {
-  const values = new Map([['x-momoney-storage', protocol]]);
-  const headers: Headers = {
-    get: name => values.get(name.toLowerCase()) ?? null,
-    has: name => values.has(name.toLowerCase()),
-    set: (name, value) => { values.set(name.toLowerCase(), value); },
-    append: (name, value) => { values.set(name.toLowerCase(), value); },
-    delete: name => { values.delete(name.toLowerCase()); },
-    forEach: (callback, thisArg) => values.forEach((value, name) => callback.call(thisArg, value, name, headers)),
-    entries: () => values.entries(),
-    keys: () => values.keys(),
-    values: () => values.values(),
-    [Symbol.iterator]: () => values.entries()
-  };
   return {
-    ok: status >= 200 && status < 300, status, statusText: '', url: '', type: 'basic',
-    redirected: false, body: null, bodyUsed: false,
-    headers,
-    json: async () => body,
-    text: async () => JSON.stringify(body),
-    clone: () => response(body, status, protocol),
-    arrayBuffer: async () => { throw new Error('Unexpected binary response'); },
-    blob: async () => { throw new Error('Unexpected blob response'); },
-    formData: async () => { throw new Error('Unexpected form response'); }
-  };
+    ok: status >= 200 && status < 300, status,
+    headers: { get: (name: string) => name.toLowerCase() === 'x-momoney-storage' ? protocol : null },
+    json: async () => body
+  } as Response;
 }
-function current(snapshot: CloudVersion | null) {
-  return response({ current: snapshot, account: 'alice' });
+async function server(_url: RequestInfo | URL, options?: RequestInit): Promise<Response> {
+  if (options?.method !== 'PUT') return response({ current: remote, account });
+  const body = JSON.parse(String(options.body));
+  if (body.expectedRevision !== (remote?.revision ?? null)) return response({ error: 'Cloud data changed.' }, 409);
+  writes++;
+  remote = { data: body.data, revision: `revision-${writes}`, parent: remote?.revision ?? null, createdAt: new Date().toISOString() };
+  return response(remote);
 }
-async function link(snapshot = data()) {
-  capture.mockResolvedValue(snapshot);
-  fetchMock.mockResolvedValueOnce(current(null)).mockResolvedValueOnce(response(version(snapshot)));
+async function link() {
   expect((await service.forceUpload()).success).toBe(true);
-  fetchMock.mockReset();
+  expect(writes).toBe(1);
+  fetchMock.mockClear();
 }
 
 beforeEach(async () => {
@@ -70,101 +68,219 @@ beforeEach(async () => {
   process.env.REACT_APP_CLOUD_SYNC_ENABLED = 'true';
   await db.open();
   await db.syncMetadata.clear();
+  await db.recoverySnapshots.clear();
   localStorage.clear();
+  local = data();
+  remote = null;
+  account = 'alice';
+  writes = 0;
   service = new AzureBlobService();
-  capture.mockResolvedValue(data());
+  capture.mockImplementation(async () => local);
+  restore.mockImplementation(async snapshot => { local = snapshot; });
+  jest.mocked(dataService.canApplyCloudSnapshot).mockResolvedValue(true);
+  fetchMock.mockImplementation(server);
 });
-afterEach(() => { service.stopSync(); });
+afterEach(() => service.stopSync());
 afterAll(() => db.close());
 
-test('construction and disabled cloud configuration never send data', async () => {
-  expect(fetchMock).not.toHaveBeenCalled();
+test('disabled cloud configuration never sends financial data', async () => {
   process.env.REACT_APP_CLOUD_SYNC_ENABLED = 'false';
   expect((await service.forceUpload()).success).toBe(false);
-  expect(fetchMock).not.toHaveBeenCalled();
+  expect(writes).toBe(0);
 });
 
-test('initial upload reads first and uses an explicit null base revision', async () => {
-  await link();
-  expect((await db.syncMetadata.get('cloud:alice'))?.revision).toBe('first');
+test('a new account automatically gets its first conditional cloud save and durable baseline', async () => {
+  await service.startSync();
+  expect(writes).toBe(1);
+  expect((await db.syncMetadata.get('cloud:alice'))?.data).toEqual(local);
+  expect(service.getStatus()).toMatchObject({ phase: 'saved', pendingChanges: 0 });
 });
 
-test('empty new client cannot overwrite existing cloud data, even with manual upload', async () => {
-  capture.mockResolvedValue(data([]));
-  fetchMock.mockResolvedValue(current(version()));
-  const result = await service.forceUpload();
-  expect(result.success).toBe(false);
-  expect(result.message).toMatch(/differs/);
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+test('an empty fresh browser loads existing cloud data without uploading an empty copy', async () => {
+  local = data([]);
+  remote = version();
+  await service.startSync();
+  expect(writes).toBe(0);
+  expect(local.transactions.map(row => row.id)).toEqual(['one']);
+  expect(restore).toHaveBeenCalled();
+  expect(service.getStatus().phase).toBe('saved');
+});
+
+test('unrelated existing copies require a one-time union preview, not upload or download replacement', async () => {
+  local = data(['local']);
+  remote = version(data(['cloud']));
+  await service.startSync();
+  expect(writes).toBe(0);
   expect(restore).not.toHaveBeenCalled();
+  expect(service.getReview()).toMatchObject({ firstLink: true, conflicts: [] });
+  expect((await service.resolveReview({})).success).toBe(true);
+  expect(local.transactions.map(row => row.id).sort()).toEqual(['cloud', 'local']);
+  expect(remote?.data.transactions).toEqual(local.transactions);
 });
 
-test('HTTP, network, malformed and missing-protocol responses never trigger a write fallback', async () => {
+test('HTTP, network, malformed and missing-protocol responses never fall back to a write', async () => {
   for (const result of [response({}, 403), response({}, 200, ''), response({}), response({ current: { data: null }, account: 'alice' })]) {
     fetchMock.mockResolvedValueOnce(result);
     expect((await service.forceUpload()).success).toBe(false);
   }
-  fetchMock.mockRejectedValueOnce(new Error('offline'));
+  fetchMock.mockRejectedValueOnce(new TypeError('offline'));
   expect((await service.forceUpload()).success).toBe(false);
+  expect(service.getStatus().phase).toBe('offline');
   expect(fetchMock.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true);
 });
 
-test('unchanged content is not uploaded again and newer cloud revisions block stale clients', async () => {
+test('unchanged content is acknowledged without another upload', async () => {
   await link();
-  fetchMock.mockResolvedValueOnce(current(version()));
+  await service.forceUpload();
+  expect(writes).toBe(1);
+  expect(service.getStatus().phase).toBe('saved');
+});
+
+test('independent device edits merge and hydrate the local cache automatically', async () => {
+  await link();
+  local = data(['one', 'local']);
+  remote = version(data(['one', 'cloud']), 'other-device');
   expect((await service.forceUpload()).success).toBe(true);
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-  capture.mockResolvedValue(data(['one', 'local']));
-  fetchMock.mockResolvedValueOnce(current(version(data(['one', 'remote']), 'second')));
+  expect(local.transactions.map(row => row.id).sort()).toEqual(['cloud', 'local', 'one']);
+  expect(writes).toBe(2);
+});
+
+test('missing local records never overwrite an existing cloud copy without reviewed deletion', async () => {
+  await link();
+  local = data([]);
+  await service.forceUpload();
+  expect(writes).toBe(1);
+  expect(service.getStatus().phase).toBe('attention');
+  const review = service.getReview()!;
+  expect(review.conflicts).toHaveLength(1);
+  expect((await service.resolveReview({ [review.conflicts[0].key]: 'local' })).success).toBe(true);
+  expect(remote?.data.transactions).toEqual([]);
+  const body = JSON.parse(String(fetchMock.mock.calls.find(([, options]) => options?.method === 'PUT')?.[1]?.body));
+  expect(body.allowRemoval).toBe(true);
+  expect(await db.recoverySnapshots.count()).toBeGreaterThan(0);
+});
+
+test('review approval is invalidated by newer local edits', async () => {
+  await link();
+  local = data([]);
+  await service.forceUpload();
+  const review = service.getReview()!;
+  local = data(['new-edit']);
+  const result = await service.resolveReview({ [review.conflicts[0].key]: 'local' });
+  expect(result.success).toBe(false);
+  expect(result.message).toMatch(/changed during review/);
+  expect(writes).toBe(1);
+});
+
+test('review approval is invalidated by a newer cloud revision', async () => {
+  await link();
+  local = data([]);
+  await service.forceUpload();
+  const review = service.getReview()!;
+  remote = version(data(['one', 'cloud-new']), 'newer');
+  expect((await service.resolveReview({ [review.conflicts[0].key]: 'local' })).message).toMatch(/changed during review/);
+  expect(writes).toBe(1);
+});
+
+test('edits made during an upload stay queued and are saved on the next pass', async () => {
+  await link();
+  local = data(['one', 'local']);
+  remote = version(data(['one', 'cloud']), 'remote');
+  fetchMock.mockImplementation(async (url, options) => {
+    const result = await server(url, options);
+    if (options?.method === 'PUT') local = data(['one', 'local', 'newer-local']);
+    return result;
+  });
+  await service.forceUpload();
+  expect(service.getStatus().phase).toBe('pending');
+  expect((await db.syncMetadata.get('apply-base:alice'))?.data?.transactions.map(row => row.id)).toEqual(['one', 'local']);
+  fetchMock.mockImplementation(server);
+  await service.forceUpload();
+  expect(service.getReview()).toBeNull();
+  expect(local.transactions.map(row => row.id).sort()).toEqual(['cloud', 'local', 'newer-local', 'one']);
+});
+
+test('a stale conditional write never acknowledges the rejected revision', async () => {
+  await link();
+  local = data(['one', 'two']);
+  const original = remote?.revision;
+  fetchMock.mockImplementation(async (url, options) => options?.method === 'PUT' ? response({ error: 'conflict' }, 409) : server(url, options));
   expect((await service.forceUpload()).success).toBe(false);
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect((await db.syncMetadata.get('cloud:alice'))?.revision).toBe(original);
+  expect(writes).toBe(1);
 });
 
-test('automatic empty save is blocked; intentional deletion requires confirmation', async () => {
+test('another account cannot upload or download over the previous account local cache', async () => {
   await link();
-  capture.mockResolvedValue(data([]));
-  fetchMock.mockResolvedValue(current(version()));
-  await service.startSync();
-  expect(await service.syncToCloud()).toBe(false);
-  expect(jest.mocked(notificationService.showConfirmation)).not.toHaveBeenCalled();
-  expect(fetchMock.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true);
-  jest.mocked(notificationService.showConfirmation).mockResolvedValue(true);
-  fetchMock.mockReset();
-  fetchMock.mockResolvedValueOnce(current(version())).mockResolvedValueOnce(response(version(data([]), 'second')));
-  expect((await service.forceUpload()).success).toBe(true);
-  const body = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
-  expect(body).toMatchObject({ expectedRevision: 'first', allowRemoval: true });
-});
-
-test('editing during deletion confirmation invalidates the reviewed save', async () => {
-  await link();
-  capture.mockResolvedValueOnce(data([])).mockResolvedValueOnce(data(['changed']));
-  fetchMock.mockResolvedValueOnce(current(version()));
-  jest.mocked(notificationService.showConfirmation).mockResolvedValue(true);
-  expect((await service.forceUpload()).message).toMatch(/changed during confirmation/);
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-});
-
-test('failed conditional upload does not acknowledge a revision or retry unconditionally', async () => {
-  await link();
-  capture.mockResolvedValue(data(['one', 'two']));
-  fetchMock.mockResolvedValueOnce(current(version())).mockResolvedValueOnce(response({ error: 'conflict' }, 409));
-  expect((await service.forceUpload()).success).toBe(false);
-  expect((await db.syncMetadata.get('cloud:alice'))?.revision).toBe('first');
-  expect(fetchMock).toHaveBeenCalledTimes(2);
-});
-
-test('cloud restore requires a reload and disables auto-save', async () => {
-  fetchMock.mockResolvedValue(current(version()));
-  expect((await service.forceDownload()).success).toBe(true);
-  expect(restore).toHaveBeenCalledWith(data());
-  expect(localStorage.getItem('mo_money_autosave_enabled')).toBe('false');
-  expect((await service.forceUpload()).message).toMatch(/Reload/);
-});
-
-test('switching accounts cannot upload the previous account local cache', async () => {
-  await link();
-  fetchMock.mockResolvedValue(response({ current: null, account: 'bob' }));
+  account = 'bob';
+  remote = null;
   expect((await service.forceUpload()).message).toMatch(/another cloud account/);
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect((await service.forceDownload()).message).toMatch(/another cloud account/);
+  expect(writes).toBe(1);
+  expect(restore).not.toHaveBeenCalled();
+});
+
+test('interrupted cloud loss blocks recreation over a previously linked baseline', async () => {
+  await link();
+  remote = null;
+  expect((await service.forceUpload()).message).toMatch(/unexpectedly missing/);
+  expect(writes).toBe(1);
+});
+
+test('imports do not publish partial datasets', async () => {
+  service.setImportInProgress(true);
+  await service.forceUpload();
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(service.getStatus().phase).toBe('pending');
+});
+
+test('restoring an older version retains the current baseline and requires reload before saving', async () => {
+  await link();
+  expect((await service.forceDownload()).success).toBe(true);
+  expect((await service.forceUpload()).message).toMatch(/Reload/);
+  expect((await db.syncMetadata.get('cloud:alice'))?.revision).toBe(remote?.revision);
+});
+
+test('offline changes survive a service restart and reconcile against the persisted baseline', async () => {
+  await link();
+  local = data(['one', 'offline']);
+  fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+  await service.forceUpload();
+  service.stopSync();
+  service = new AzureBlobService();
+  remote = version(data(['one', 'other-device']), 'remote');
+  await service.startSync();
+  expect(local.transactions.map(row => row.id).sort()).toEqual(['offline', 'one', 'other-device']);
+  expect(service.getStatus().phase).toBe('saved');
+});
+
+test('local save events automatically send queued changes without a toggle', async () => {
+  await service.startSync();
+  local = data(['one', 'new']);
+  notifyLocalChange();
+  expect(service.getStatus().phase).toBe('pending');
+  await waitFor(() => expect(writes).toBe(2), { timeout: 4500 });
+});
+
+test('incoming updates wait for editable screens rather than discarding form drafts', async () => {
+  await link();
+  const { unmount } = render(React.createElement('input', { defaultValue: 'Unsaved draft' }));
+  remote = version(data(['one', 'remote']), 'new-remote');
+  await service.forceUpload();
+  expect(local.transactions.map(row => row.id)).toEqual(['one']);
+  expect(service.getStatus().phase).toBe('pending');
+  unmount();
+  await service.forceUpload();
+  expect(local.transactions.map(row => row.id)).toEqual(['one', 'remote']);
+  expect(service.getStatus().phase).toBe('saved');
+});
+
+test('leaving with unsynced edits warns, while a server-confirmed save permits navigation', async () => {
+  await service.startSync();
+  local = data(['one', 'pending']);
+  notifyLocalChange();
+  expect(window.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(false);
+  await service.forceUpload();
+  expect(service.getStatus().phase).toBe('saved');
+  expect(window.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(true);
 });

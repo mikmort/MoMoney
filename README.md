@@ -30,7 +30,7 @@ Data. Clearing browser storage deletes local data and local backups.
 
 ### Protected cloud saves
 
-The old hard-coded storage proxy is no longer used. Cloud sync is opt-in and
+The old hard-coded storage proxy is no longer used. Cloud sync is automatic after sign-in and
 requires the versioned API in [`api/`](api/README.md), Microsoft sign-in, and
 `REACT_APP_CLOUD_SYNC_ENABLED=true` at frontend build time. Deploying just the
 frontend does **not** deploy the API. The managed-identity deployment documented
@@ -40,11 +40,57 @@ and linked on October 3, 2026; infrastructure and controlled redeployment
 instructions are in [`infra/`](infra/README.md). Infrastructure is not
 automatically reprovisioned by frontend builds.
 
-In Settings, download your existing cloud save (or upload once for a new
-account), then enable auto-sync. Startup never chooses a winner based on device
-clocks or silently replaces local data. Stale revisions and any removed record
-IDs block automatic saves; intentional deletions require explicit confirmation.
-Export local changes before downloading a conflicting cloud version.
+New browsers automatically load an existing cloud save. New accounts automatically
+save their local data. An existing device with an unrelated local copy gets a
+one-time reconciliation preview: neither copy is silently chosen as the winner.
+Sync starts after authentication, regardless of the old per-browser auto-sync
+toggle. An always-visible sidebar status distinguishes local-only changes,
+pending saves, offline operation, conflicts, and server-acknowledged saves.
+
+Edits are persisted locally and queued for reconciliation about 2.5 seconds after
+saving. The app also checks every 30 seconds, on reconnect, and on returning to
+the tab. Local data, the queued snapshot, and the last common baseline survive
+restarts. Independent record and field changes merge automatically. Conflicting
+edits retain both versions for review in Settings; conflicting transfer links
+are resolved as a complete group, never half a match. Local absence is not an
+implicit deletion: removals require an explicit reviewed choice and confirmation.
+Stale server revisions reject writes rather than overwrite another device.
+The app never chooses winners using device clocks.
+
+Reconciliation defers incoming changes during imports and active forms. Previous
+local data is snapshotted before replacement, services reload their caches, and
+the screen refreshes to use the reconciled data. Browsers with Web Locks allow
+one editable Mo Money tab per local database, preventing stale tab caches from
+overwriting each other. Other devices have independent databases and reconcile
+through server revisions. Keep the app open until the sidebar says **Saved to
+cloud**; offline changes cannot reach the server while the browser is closed.
+Do not clear browser storage with unsynced changes. Export an independent backup
+before deliberate recovery operations.
+
+Incoming updates wait while a screen contains editable controls, so background
+reconciliation does not discard unsaved form drafts. Open a read-only screen
+such as Dashboard to let them apply automatically, or explicitly apply a
+reviewed reconciliation after saving open forms. Default preferences and budgets
+are not written merely by displaying a screen or hydrating a cloud save.
+Approved removals have explicit record-ID receipts; the API retains them with
+the new recovery version, including nested subcategory removals.
+
+To exercise automatic sync without accessing real cloud data, start an isolated
+auth-enabled development server and run the mocked browser scenarios:
+
+```powershell
+$env:REACT_APP_SKIP_AUTH='false'
+$env:REACT_APP_CLOUD_SYNC_ENABLED='true'
+$env:PORT='3027'
+npm start
+# In a second terminal:
+$env:SYNC_TEST_URL='http://localhost:3027'
+npx playwright test automatic-cloud-sync --workers=1 --reporter=line
+```
+
+The scenarios mock sign-in and cloud storage; they never use your production
+account. They cover fresh-browser hydration, first-link review, offline retries,
+multiple tabs, and sample-data rendering.
 
 For local JSON backups, Settings > **Import Data** opens an in-page import dialog.
 Browse for a file, drag a JSON backup into the drop area, or expand **Paste JSON
@@ -55,8 +101,9 @@ use either alternative instead.
 
 Each successful save retains a create-only recovery version on the server.
 Settings > Recovery versions can restore older cloud versions or pre-restore
-local snapshots. Restores disable auto-sync and reload to discard stale service
-caches. A failed/interrupted restore blocks uploads until recovered. Manual local
+local snapshots. Restores reload to discard stale service caches, then resume
+guarded reconciliation; removals and conflicts still require review.
+A failed/interrupted restore blocks uploads until recovered. Manual local
 backups and the last automatic backup containing transactions are protected from
 automatic pruning. Cloud versions and local recovery snapshots are not
 automatically pruned: monitor storage usage and keep independent exports.

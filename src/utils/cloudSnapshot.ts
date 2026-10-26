@@ -20,6 +20,18 @@ export interface CloudVersion {
   parent: string | null;
   createdAt: string;
   data: CloudSnapshot;
+  deletions?: SnapshotRemoval[];
+}
+
+export interface SnapshotRemoval { collection: string; id: string }
+
+export function deletionReceipts(value: unknown): SnapshotRemoval[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error('Invalid deletion receipts.');
+  return value.map(item => {
+    if (!isRecord(item) || typeof item.collection !== 'string' || typeof item.id !== 'string') throw new Error('Invalid deletion receipts.');
+    return { collection: item.collection, id: item.id };
+  });
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -141,18 +153,34 @@ export function snapshotContent(value: unknown): string {
   return JSON.stringify(canonical(value));
 }
 
-export function removedRecords(previous: CloudSnapshot, next: CloudSnapshot): number {
-  const removed = (before: SnapshotRow[], after: SnapshotRow[]) => {
+export function snapshotRemovals(previous: CloudSnapshot, next: CloudSnapshot): SnapshotRemoval[] {
+  const removed = (collection: string, before: SnapshotRow[], after: SnapshotRow[]): SnapshotRemoval[] => {
     const ids = new Set(after.map(row => row.id));
-    return before.filter(row => !ids.has(row.id)).length;
+    return before.filter(row => !ids.has(row.id)).map(row => ({ collection, id: row.id }));
   };
-  let count = removed(previous.transactions, next.transactions) +
-    removed(previous.transactionHistory, next.transactionHistory) +
-    removed(previous.preferences, next.preferences);
+  const removals = [
+    ...removed('transactions', previous.transactions, next.transactions),
+    ...removed('transactionHistory', previous.transactionHistory, next.transactionHistory),
+    ...removed('preferences', previous.preferences, next.preferences)
+  ];
   for (const key of snapshotStorageKeys) {
-    count += removed(JSON.parse(previous.storage[key] || '[]'), JSON.parse(next.storage[key] || '[]'));
+    const before: SnapshotRow[] = JSON.parse(previous.storage[key] || '[]');
+    const after: SnapshotRow[] = JSON.parse(next.storage[key] || '[]');
+    removals.push(...removed(key, before, after));
+    if (key === 'mo-money-categories') {
+      for (const category of before) {
+        const counterpart = after.find(row => row.id === category.id);
+        if (counterpart && Array.isArray(category.subcategories) && Array.isArray(counterpart.subcategories)) {
+          removals.push(...removed(`${key}:${category.id}:subcategories`, category.subcategories, counterpart.subcategories));
+        }
+      }
+    }
   }
-  return count;
+  return removals;
+}
+
+export function removedRecords(previous: CloudSnapshot, next: CloudSnapshot): number {
+  return snapshotRemovals(previous, next).length;
 }
 
 export function hasSnapshotData(data: CloudSnapshot): boolean {

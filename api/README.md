@@ -45,6 +45,22 @@ Data Contributor** scoped to a private, pre-created blob container. Enable blob
 versioning and soft delete on the storage account as independent protection.
 Do not enable public blob access.
 
+Automatic browser reconciliation continues to use conditional snapshot saves;
+it cannot bypass stale-revision or removal checks. Approved removals (including
+nested subcategories) are recorded as `deletions` containing collection names and
+record IDs in the new immutable version. Older versions without receipts remain
+readable. Deploy this API update together with the automatic-sync frontend to
+retain server-side deletion receipts.
+
+For Flex Consumption code updates, identify the active deployment with
+`az functionapp log deployment list`. Azure can publish a new
+`<deployment-id>.zip` in the deployment container while leaving an older
+`released-package.zip` intact. Retain the actual preceding active package for
+rollback, not an assumed filename. Kudu also repackages ZIP archives: verify
+the deployed archive's file names and per-file SHA-256 contents against the
+validated input; whole-archive hashes can differ without any code change.
+Do not inspect or modify financial save containers for deployment verification.
+
 Configure server-side application settings:
 
 | Setting | Value |

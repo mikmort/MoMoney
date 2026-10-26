@@ -1,6 +1,8 @@
 import { v4 as uuid } from 'uuid';
 import { db } from './db';
-import { CloudSnapshot, isRecord, snapshotStorageKeys, validateSnapshot } from '../utils/cloudSnapshot';
+import { CloudSnapshot, isRecord, snapshotContent, snapshotStorageKeys, validateSnapshot } from '../utils/cloudSnapshot';
+
+class SnapshotChangedError extends Error {}
 
 export async function captureSnapshot(): Promise<CloudSnapshot> {
   if (await db.syncMetadata.get('pending-restore')) {
@@ -29,9 +31,19 @@ function datedTransaction(row: Record<string, unknown>): Record<string, unknown>
   };
 }
 
-async function applySnapshot(data: CloudSnapshot): Promise<void> {
+async function applySnapshot(data: CloudSnapshot, expected?: CloudSnapshot): Promise<void> {
   validateSnapshot(data);
   await db.transaction('rw', db.transactions, db.transactionHistory, db.userPreferences, async () => {
+    if (expected) {
+      const actual = JSON.parse(JSON.stringify({
+        schemaVersion: 1,
+        transactions: await db.transactions.toArray(),
+        transactionHistory: await db.transactionHistory.toArray(),
+        preferences: await db.userPreferences.toArray(),
+        storage: Object.fromEntries(snapshotStorageKeys.map(key => [key, localStorage.getItem(key)]))
+      }));
+      if (snapshotContent(actual) !== snapshotContent(expected)) throw new SnapshotChangedError('Local data changed during reconciliation. Retrying will preserve the new edits.');
+    }
     await db.transactions.clear();
     await db.transactionHistory.clear();
     await db.userPreferences.clear();
@@ -51,9 +63,12 @@ async function applySnapshot(data: CloudSnapshot): Promise<void> {
   });
 }
 
-export async function restoreSnapshot(data: CloudSnapshot): Promise<void> {
+export async function restoreSnapshot(data: CloudSnapshot, expected?: CloudSnapshot): Promise<void> {
   validateSnapshot(data);
   const before = await captureSnapshot();
+  if (expected && snapshotContent(before) !== snapshotContent(expected)) {
+    throw new Error('Local data changed during reconciliation. Review the latest changes before applying.');
+  }
   const id = uuid();
   // Keep this journal until BOTH storage systems commit. A crash cannot masquerade as an empty client.
   await db.transaction('rw', db.recoverySnapshots, db.syncMetadata, async () => {
@@ -62,9 +77,13 @@ export async function restoreSnapshot(data: CloudSnapshot): Promise<void> {
     await db.syncMetadata.put({ id: 'pending-restore', recoveryId: id });
   });
   try {
-    await applySnapshot(data);
+    await applySnapshot(data, before);
     await db.syncMetadata.delete('pending-restore');
   } catch (error) {
+    if (error instanceof SnapshotChangedError) {
+      await db.syncMetadata.delete('pending-restore');
+      throw error;
+    }
     try {
       await applySnapshot(before);
       await db.syncMetadata.delete('pending-restore');

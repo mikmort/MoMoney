@@ -1,8 +1,88 @@
-# Optimized AI re-run and CSV parsing rollout
+# Automatic protected cloud-sync rollout
 
 Status: Validated
 
-## Current release: October 4, 2026 (frontend optimization)
+## Current release: October 25, 2026 (automatic protected cloud sync)
+
+The user explicitly approved deployment to the existing production app and API
+in Visual Studio Enterprise Subscription
+`8cf05593-3360-4741-b3e8-ccc6f4f61290`.
+
+- Backend recipe: AZCLI code-only ZIP deployment to `func-momoney-prod-4eb0`,
+  resource group `rg-momoney-prod-4eb0`, Canada Central. Retain the current
+  deployment package in session artifacts before updating.
+- Frontend recipe: existing GitHub CI/CD workflow, reviewed release branch,
+  green quality checks, then merge to `main` and monitor production deployment.
+- Public app: `https://gentle-moss-087d9321e.1.azurestaticapps.net`.
+- Scope: automatic signed-in reconciliation, persistent baselines and queued
+  changes, conflict/removal review, recovery versions and deletion receipts,
+  transfer/account consistency, visible status and stale-tab/form protection.
+- Deploy the compatible API first, then the frontend. Preserve both API
+  handlers, existing managed identity, linked-backend authentication, model,
+  runtime settings, RBAC, storage namespaces and all financial save blobs.
+- Do not run the storage provisioning template or migration, change regions or
+  SKUs, or write user financial data during verification.
+- Rollback: retain/redeploy the preceding backend package if necessary; revert
+  the frontend release through the existing pipeline. Never roll back records
+  or delete recovery versions as part of application-code rollback.
+
+### Current validation proof
+
+Implementation validation on October 25, 2026: production frontend build,
+TypeScript and production-source lint pass; 13 affected frontend suites / 98
+tests pass; API suite / 25 tests pass; 5 isolated mocked-browser scenarios pass,
+including sample-data rendering. No live financial records were modified.
+
+Release validation must additionally run the full retained frontend suite,
+production-enabled build, API packaging/inspection, authenticated existing-target
+and role checks, and the azure-validate workflow before deployment. Record the
+current release results below; historical validation is not sufficient.
+
+### All validation checks pass
+
+- [x] Core validation: authenticated Azure CLI and GitHub, exact current-main
+  release base, existing Node 22 API, protected linked-backend authentication,
+  full frontend tests, TypeScript, production lint, API tests and package
+  inspection. Infrastructure build/validate/what-if is not applicable to this
+  code-only release; the existing storage template must not be reapplied.
+- [x] Docker build: not applicable; static frontend plus Node ZIP package.
+- [x] Azure policy validation: verify the unchanged existing resources; no
+  resource, region, SKU, identity or RBAC provisioning is included.
+- [x] Build verification: build with `CI=true`, `REACT_APP_SKIP_AUTH=false`,
+  `REACT_APP_AI_ENABLED=true`, `REACT_APP_CLOUD_SYNC_ENABLED=true`, and
+  `GENERATE_SOURCEMAP=false`.
+- [x] Static/live role verification: verify existing scoped application roles;
+  no infrastructure or role-assignment source changes.
+- [x] Preserve the previous backend deployment package before publishing.
+
+### Release execution gates
+
+- [x] Backend deployed and verified before the frontend release.
+- [ ] GitHub release quality checks and production deployment are monitored
+  gates; verify the published automatic-sync assets and protected API endpoints.
+
+### Backend deployment receipt: October 25, 2026
+
+- Azure deployment `338803be-0d0c-47a8-a971-8c89b24de673` completed successfully
+  and is active. Runtime remains Running on Node 22; both storage and OpenAI
+  functions are registered, with authentication and identity roles unchanged.
+- Active deployment blob:
+  `deployment/338803be-0d0c-47a8-a971-8c89b24de673.zip`.
+- Active archive SHA-256:
+  `C51B9A34F3B28804A4B03204DD52AEC2CFD99BD7F8701CB2C1FB0D5C84C6832B`.
+- Azure Kudu repackaged the input ZIP. All **10,600 file contents match**
+  the validated input by per-file SHA-256, with no missing or additional files.
+  The older `released-package.zip` remains intact; it is not the new active ZIP.
+- The preceding active package is retained outside the repository for rollback.
+- Frontend PR quality, TypeScript, API and preview build checks passed for
+  `847ae834214ba0a716d932522f2759b03246928e`. Recheck the final documentation
+  revision before merging and monitor the resulting production deployment.
+
+## Historical release plan: optimized AI re-run and CSV parsing
+
+Status: Validated
+
+## Historical release: October 4, 2026 (frontend optimization)
 
 User requested deployment of the optimized re-run path and investigation of an
 incorrect imported CSV row. Recipe: CI/CD frontend-only release through the
@@ -148,6 +228,44 @@ For a frontend rollback, revert the frontend release commit through a PR and
 let the existing workflow redeploy main; do not revert or migrate stored data.
 
 ## 7. Validation proof
+
+### Automatic protected sync release: October 25, 2026, 22:12 PDT
+
+- Azure validation workflow executed for this release, not the historical plan.
+- Full retained frontend suite: **135 suites / 715 tests pass**, using the
+  existing React Scripts Jest configuration with a Windows-safe testRegex.
+- `npx tsc --noEmit --pretty false`: passes.
+- CI-equivalent production-source lint: `npx eslint src --ext .ts,.tsx
+  --max-warnings 100 --ignore-pattern '**/__tests__/**'` passes. Invoked directly
+  from PowerShell because the npm script's POSIX single quotes are literal
+  under Windows cmd; GitHub runs the unchanged script on Linux.
+- `npm run build`: passes with `CI=true`, authentication, AI and cloud sync
+  enabled, and source maps disabled.
+- `npm --prefix api test`: **25 tests pass**, including conditional writes,
+  retained recovery versions, and nested-subcategory deletion receipts.
+- America/Los_Angeles date-boundary selection: **2 suites / 15 tests pass**.
+- Prior isolated browser validation: **5 scenarios pass**; no real account or
+  cloud records were used for those tests.
+- Current HEAD and remote main are both `16d8ed7`; no unrelated integration
+  changes are required. Existing Static Web App is Standard at the expected
+  hostname. Existing API is Running on Node 22 in Canada Central.
+- Platform authentication is enabled, requires authentication and retains the
+  linked SWA provider. Anonymous SWA API requests redirect (302); direct API
+  requests and forged-principal requests are rejected (400).
+- Live Azure tools/CLI confirm the unchanged API identity retains its scoped
+  Storage Blob Data Owner, Storage Queue Data Contributor, monitoring and
+  Cognitive Services OpenAI User roles. No role changes are requested.
+- Subscription policy query returns no assignments. No infrastructure sources
+  changed; ARM validate/what-if, Docker and provisioning are not applicable.
+- API archive inspection: both function handlers and shared snapshot modules
+  present, deletion-receipt implementation present, 10,679 entries, no `.env`,
+  `local.settings.json` or `.git`; standalone dependency links rejected by the
+  packaging script.
+- Existing deployment ZIP retained read-only in session artifacts, SHA-256
+  `4D12DDC8501E14296FF6DB8478B46EA3F52F90F5C19DAC549F6A882EBDC73CAA`.
+- New API ZIP SHA-256:
+  `516C8FF180B008B42D344B4535A0627249C448ACE1A2DCD115A32E7C13782D08`.
+- No financial save blobs were read or changed for deployment validation.
 
 ### Optimization and CSV release: October 4, 2026
 

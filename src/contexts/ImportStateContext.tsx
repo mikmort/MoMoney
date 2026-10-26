@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { azureBlobService } from '../services/azureBlobService';
 
 interface ImportStateContextType {
   isImporting: boolean;
@@ -25,6 +26,7 @@ export const ImportStateProvider: React.FC<ImportStateProviderProps> = ({ childr
   const [importingFileName, setImportingFileName] = useState<string | null>(null);
 
   const setIsImporting = (importing: boolean, fileName?: string | null) => {
+    azureBlobService.setImportInProgress(importing);
     setIsImportingState(importing);
     setImportingFileName(importing ? fileName || null : null);
   };

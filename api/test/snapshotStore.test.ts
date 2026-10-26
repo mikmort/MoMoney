@@ -45,6 +45,9 @@ test('confirming deletions retains the populated recovery version', async () => 
   assert.equal(second.parent, first.revision);
   assert.equal((await store.version(first.revision)).data.transactions.length, 2);
   assert.equal((await store.history()).versions.length, 2);
+  assert.deepEqual((await store.version(second.revision)).deletions, [
+    { collection: 'transactions', id: 'one' }, { collection: 'transactions', id: 'two' }
+  ]);
 });
 
 test('concurrent saves accept exactly one head update and preserve previous versions', async () => {
@@ -115,6 +118,20 @@ test('malformed snapshots fail before any persistent write', async () => {
 test('canonical comparisons ignore order; replaced IDs still count as deletions', () => {
   assert.equal(snapshotContent(data()), snapshotContent(data(['two', 'one'])));
   assert.equal(removedRecords(data(), data(['one', 'replacement'])), 1);
+});
+
+test('removing nested subcategories requires approval and retains explicit deletion receipts', async () => {
+  const store = new SnapshotStore(new MemoryBlobs(), 'alice');
+  const before = data();
+  before.storage['mo-money-categories'] = JSON.stringify([
+    { id: 'food', name: 'Food', type: 'expense', subcategories: [{ id: 'groceries', name: 'Groceries' }] }
+  ]);
+  const first = await store.save(before, null, false);
+  const after = data();
+  after.storage['mo-money-categories'] = JSON.stringify([{ id: 'food', name: 'Food', type: 'expense', subcategories: [] }]);
+  await assert.rejects(store.save(after, first.revision, false), { status: 422 });
+  const second = await store.save(after, first.revision, true);
+  assert.deepEqual(second.deletions, [{ collection: 'mo-money-categories:food:subcategories', id: 'groceries' }]);
 });
 
 test('legacy string fields and proxy envelopes are decoded without silent empty defaults', () => {

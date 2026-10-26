@@ -5,6 +5,8 @@ import { rulesService } from './rulesService';
 import { transferMatchingService } from './transferMatchingService';
 import { notificationService } from './notificationService';
 import { isIncomeCategory, isExpenseCategory } from '../utils/categoryTypeUtils';
+import { CloudSnapshot, snapshotContent } from '../utils/cloudSnapshot';
+import { notifyLocalChange } from './syncEvents';
 
 // Global flag to prevent multiple simultaneous initializations
 let isInitializationInProgress = false;
@@ -266,6 +268,18 @@ class DataService {
 
   public suspendPersistence(): void {
     this.persistenceSuspended = true;
+  }
+
+  public async canApplyCloudSnapshot(snapshot: CloudSnapshot): Promise<boolean> {
+    await this.ensureInitialized();
+    return snapshotContent(JSON.parse(JSON.stringify(this.transactions))) === snapshotContent(snapshot.transactions);
+  }
+
+  public async reloadAfterCloudSync(): Promise<void> {
+    await this.loadFromDB();
+    this.undoStacks = {};
+    this.redoStacks = {};
+    this.persistenceSuspended = false;
   }
 
   async loadSampleData(): Promise<void> {
@@ -1381,6 +1395,7 @@ class DataService {
       });
 
       // Notify backup service about data changes (but don't await to avoid blocking saves)
+      notifyLocalChange();
       this.notifyBackupService();
 
     } catch (error) {
@@ -1504,6 +1519,7 @@ class DataService {
       try { await db.open(); } catch {}
     }
     await db.clearAll();
+    notifyLocalChange();
   }
 
   // Anomaly detection methods

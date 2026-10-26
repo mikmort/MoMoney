@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { CloudSnapshot, CloudVersion, isRecord, removedRecords, validateSnapshot } from '../../src/utils/cloudSnapshot';
+import { CloudSnapshot, CloudVersion, isRecord, removedRecords, validateSnapshot, snapshotRemovals, deletionReceipts } from '../../src/utils/cloudSnapshot';
 
 export class StorageError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -30,7 +30,7 @@ export class SnapshotStore {
       throw new Error('Invalid stored version metadata.');
     }
     validateSnapshot(version.data);
-    return { revision: id, parent: version.parent, createdAt: version.createdAt, data: version.data };
+    return { revision: id, parent: version.parent, createdAt: version.createdAt, data: version.data, ...(version.deletions === undefined ? {} : { deletions: deletionReceipts(version.deletions) }) };
   }
 
   async current(): Promise<{ version: CloudVersion | null; etag: string | null }> {
@@ -50,7 +50,8 @@ export class SnapshotStore {
       throw new StorageError(422, 'Save blocked: records would be removed. Review and confirm this change in Settings.');
     }
     const version: CloudVersion = {
-      revision: randomUUID(), parent: expected, createdAt: new Date().toISOString(), data
+      revision: randomUUID(), parent: expected, createdAt: new Date().toISOString(), data,
+      ...(current.version && allowRemoval ? { deletions: snapshotRemovals(current.version.data, data) } : {})
     };
     // Create-only versions survive even a failed head update. Never delete or overwrite recovery data.
     await this.blobs.create(this.versionPath(version.revision), JSON.stringify(version));

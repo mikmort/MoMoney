@@ -2,13 +2,21 @@ import { Budget, Transaction, Category, BudgetViewPeriod } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { isExpenseCategory } from '../utils/categoryTypeUtils';
 import { currencyDisplayService } from './currencyDisplayService';
+import { persistSyncedStorage } from './syncEvents';
 
 class BudgetService {
   private budgets: Budget[] = [];
   private readonly STORAGE_KEY = 'mo-money-budgets';
 
   constructor() {
-    this.loadBudgets();
+    // Importing this service during cloud hydration must not manufacture data.
+    if (localStorage.getItem(this.STORAGE_KEY)) this.loadBudgets();
+  }
+
+  public reloadFromStorage(): void {
+    this.budgets = [];
+    const stored = localStorage.getItem(this.STORAGE_KEY);
+    if (stored) this.loadBudgets();
   }
 
   private loadBudgets(): void {
@@ -35,7 +43,7 @@ class BudgetService {
 
   private saveBudgets(): void {
     try {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.budgets));
+      persistSyncedStorage(this.STORAGE_KEY, JSON.stringify(this.budgets));
     } catch (error) {
       console.error('Failed to save budgets:', error);
     }
