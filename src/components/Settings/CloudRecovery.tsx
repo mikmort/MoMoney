@@ -3,8 +3,6 @@ import { Button } from '../../styles/globalStyles';
 import { azureBlobService } from '../../services/azureBlobService';
 import { db, RecoverySnapshot } from '../../services/db';
 import { CloudVersion } from '../../utils/cloudSnapshot';
-import { recoverInterruptedRestore, restoreSnapshot } from '../../services/cloudSnapshotService';
-import { dataService } from '../../services/dataService';
 import { useNotification } from '../../contexts/NotificationContext';
 
 export const CloudRecovery: React.FC = () => {
@@ -34,18 +32,13 @@ export const CloudRecovery: React.FC = () => {
 
   const restore = (revision: string, localSnapshot?: RecoverySnapshot) => perform(async () => {
     if (!await showConfirmation(
-      'Replace local data with this recovery version? A snapshot of your current local data will be kept. The page will reload; the current cloud version is not changed until you explicitly upload.',
+      'Restore this recovery version? A snapshot of your current local data will be kept. The page will reload and reconcile automatically. Conflicting edits and removals will require review before saving to the cloud.',
       { title: 'Restore recovery version', confirmText: 'Restore & Reload', danger: true }
     )) return;
-    azureBlobService.stopSync();
-    localStorage.setItem('mo_money_autosave_enabled', 'false');
-    if (localSnapshot) {
-      dataService.suspendPersistence();
-      await restoreSnapshot(localSnapshot.data);
-    } else {
-      const result = await azureBlobService.forceDownload(revision);
-      if (!result.success) throw new Error(result.message);
-    }
+    const result = localSnapshot
+      ? await azureBlobService.restoreLocalSnapshot(localSnapshot.data)
+      : await azureBlobService.forceDownload(revision);
+    if (!result.success) throw new Error(result.message);
     window.location.reload();
   });
 
@@ -62,10 +55,9 @@ export const CloudRecovery: React.FC = () => {
         })}>Local recovery snapshots</Button>
         <Button disabled={busy} onClick={() => perform(async () => {
           if (!await showConfirmation('Recover the local copy from before the interrupted restore and reload?', { title: 'Recover interrupted restore' })) return;
-          azureBlobService.stopSync();
-          dataService.suspendPersistence();
-          if (await recoverInterruptedRestore()) window.location.reload();
-          else setStatus('No interrupted restore found. Reload before editing.');
+          const result = await azureBlobService.recoverLocalRestore();
+          if (!result.success) throw new Error(result.message);
+          window.location.reload();
         })}>Recover interrupted restore</Button>
       </div>
       {status && <p role="status">{status}</p>}

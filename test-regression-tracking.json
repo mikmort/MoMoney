@@ -2,13 +2,35 @@
   "version": "1.0.0",
   "description": "Tracking system for automated test regressions - tracks when tests break and whether the fix was in the test or product code",
   "stats": {
-    "totalRegressions": 17,
-    "testBugFixes": 9,
-    "productBugFixes": 8,
+    "totalRegressions": 19,
+    "testBugFixes": 10,
+    "productBugFixes": 9,
     "testBugPercentage": 53,
     "productBugPercentage": 47
   },
   "regressions": [
+    {
+      "testName": "Cloud hydration mock setup",
+      "testFile": "src\\__tests__\\azureBlobService.test.ts",
+      "fixType": "test",
+      "severity": "low",
+      "description": "Reset mocks cleared canApplyCloudSnapshot, making hydration assertions fail; initialize the mock explicitly before each test.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1792989478382-aeac946vg",
+      "timestamp": "2026-10-26T04:37:58.382Z"
+    },
+    {
+      "testName": "Automatic sync first-link review",
+      "testFile": "tests\\e2e\\automatic-cloud-sync.spec.ts",
+      "fixType": "product",
+      "severity": "high",
+      "description": "Opening Settings persisted default preferences after preview capture and invalidated first-link approval; defaults now stay in memory until edited.",
+      "errorMessage": "No error message provided",
+      "filesChanged": [],
+      "id": "reg-1792989478259-4iqu1o2un",
+      "timestamp": "2026-10-26T04:37:58.259Z"
+    },
     {
       "testName": "aiBatchPersistence undo preservation",
       "testFile": "src/__tests__/aiBatchPersistence.test.ts",

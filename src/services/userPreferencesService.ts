@@ -1,10 +1,16 @@
 import { UserPreferences } from '../types';
 import { db } from './db';
 import { mockUser } from '../config/devConfig';
+import { notifyLocalChange } from './syncEvents';
 
 class UserPreferencesService {
   private preferences: UserPreferences | null = null;
   private isInitialized = false;
+
+  public async reloadFromStorage(): Promise<void> {
+    this.preferences = await db.getUserPreferences() || { ...mockUser.preferences };
+    this.isInitialized = true;
+  }
 
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
@@ -16,7 +22,6 @@ class UserPreferencesService {
       // If no preferences exist, initialize with defaults
       if (!this.preferences) {
         this.preferences = { ...mockUser.preferences };
-        await this.savePreferences(this.preferences);
       }
       
       this.isInitialized = true;
@@ -63,6 +68,7 @@ class UserPreferencesService {
   private async savePreferences(preferences: UserPreferences): Promise<void> {
     try {
       await db.saveUserPreferences(preferences);
+      notifyLocalChange();
     } catch (error) {
       console.error('Failed to save user preferences:', error);
       throw error;

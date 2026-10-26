@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { defaultAccounts, accountDetectionPatterns } from '../data/defaultAccounts';
 import { AzureOpenAIService } from './azureOpenAIService';
 import { currencyExchangeService } from './currencyExchangeService';
+import { persistSyncedStorage } from './syncEvents';
 
 // Import dataService directly - circular dependency is managed by initialization timing
 let dataServiceCache: any = null;
@@ -385,6 +386,11 @@ ${userPrompt}`;
   }
 
   // Persistence helpers
+  public reloadFromStorage(): void {
+    this.accounts = [];
+    this.loadFromStorage();
+  }
+
   private loadFromStorage(): void {
     try {
       const stored = localStorage.getItem(this.storageKey);
@@ -406,7 +412,7 @@ ${userPrompt}`;
 
   private saveToStorage(): void {
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(this.accounts));
+      persistSyncedStorage(this.storageKey, JSON.stringify(this.accounts));
     } catch (err) {
       console.error('Failed to save accounts to storage:', err);
     }

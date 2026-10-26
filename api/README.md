@@ -45,6 +45,13 @@ Data Contributor** scoped to a private, pre-created blob container. Enable blob
 versioning and soft delete on the storage account as independent protection.
 Do not enable public blob access.
 
+Automatic browser reconciliation continues to use conditional snapshot saves;
+it cannot bypass stale-revision or removal checks. Approved removals (including
+nested subcategories) are recorded as `deletions` containing collection names and
+record IDs in the new immutable version. Older versions without receipts remain
+readable. Deploy this API update together with the automatic-sync frontend to
+retain server-side deletion receipts.
+
 Configure server-side application settings:
 
 | Setting | Value |

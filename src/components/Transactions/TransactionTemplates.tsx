@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { Button } from '../../styles/globalStyles';
+import { persistSyncedStorage } from '../../services/syncEvents';
 
 interface TransactionTemplate {
   id: string;
@@ -140,6 +141,7 @@ export const TransactionTemplates: React.FC<TransactionTemplatesProps> = ({
   uniqueAccounts
 }) => {
   const [templates, setTemplates] = useState<TransactionTemplate[]>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTemplate, setNewTemplate] = useState({
     name: '',
@@ -198,16 +200,17 @@ export const TransactionTemplates: React.FC<TransactionTemplatesProps> = ({
         }
       ];
       setTemplates(defaultTemplates);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultTemplates));
+      persistSyncedStorage(STORAGE_KEY, JSON.stringify(defaultTemplates));
     }
+    setTemplatesLoaded(true);
   }, []);
 
   // Save templates to localStorage
   useEffect(() => {
-    if (templates.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
+    if (templatesLoaded) {
+      persistSyncedStorage(STORAGE_KEY, JSON.stringify(templates));
     }
-  }, [templates]);
+  }, [templates, templatesLoaded]);
 
   const handleAddTemplate = () => {
     if (!newTemplate.name || !newTemplate.description || !newTemplate.amount) {

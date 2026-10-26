@@ -70,3 +70,13 @@ test('corrupt local storage fails export instead of exporting an empty array', a
   localStorage.setItem('mo-money-accounts', 'broken json');
   await expect(captureSnapshot()).rejects.toThrow();
 });
+
+test('a stale reconciliation preview cannot replace newer local edits or roll them back', async () => {
+  await restoreSnapshot(snapshot('old'));
+  const before = await captureSnapshot();
+  await db.transactions.update('old', { description: 'New local edit' });
+  await expect(restoreSnapshot(snapshot('cloud'), before)).rejects.toThrow('Local data changed');
+  expect((await db.transactions.get('old'))?.description).toBe('New local edit');
+  expect(await db.transactions.get('cloud')).toBeUndefined();
+  expect(await db.syncMetadata.get('pending-restore')).toBeUndefined();
+});

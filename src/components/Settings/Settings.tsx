@@ -8,13 +8,13 @@ import { azureOpenAIService } from '../../services/azureOpenAIService';
 import { currencyExchangeService } from '../../services/currencyExchangeService';
 import { backupService } from '../../services/backupService';
 import { azureBlobService } from '../../services/azureBlobService';
-import { appInitializationService } from '../../services/appInitializationService';
 import { useNotification } from '../../contexts/NotificationContext';
 import { UserPreferences, CurrencyExchangeRate } from '../../types';
 import { BackupMetadata } from '../../types/backup';
 import ImportSelectionDialog from './ImportSelectionDialog';
 import { CloudRecovery } from './CloudRecovery';
 import { BackupFilePicker } from './BackupFilePicker';
+import { CloudSyncReview } from './CloudSyncReview';
 
 const DangerZone = styled.div`
   border: 2px solid #f44336;
@@ -452,7 +452,6 @@ const Settings: React.FC = () => {
   const [isDownloadingFromCloud, setIsDownloadingFromCloud] = useState(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<string>('');
   const [blobUrl, setBlobUrl] = useState<string>('');
-  const [isAutoSyncActive, setIsAutoSyncActive] = useState(false);
   
   // Import selection dialog state
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -463,12 +462,7 @@ const Settings: React.FC = () => {
     loadPreferences();
     loadDeploymentInfo();
     loadBlobUrl();
-    loadAutosaveStatus();
   }, []);
-
-  const loadAutosaveStatus = () => {
-    setIsAutoSyncActive(azureBlobService.isAvailable() && appInitializationService.isAutosaveEnabled());
-  };
 
   const loadBlobUrl = async () => {
     try {
@@ -682,6 +676,7 @@ const Settings: React.FC = () => {
   };
 
   const handleImportWithOptions = async (data: ExportData, options: ImportOptions) => {
+    azureBlobService.setImportInProgress(true);
     setIsImporting(true);
     setShowImportDialog(false);
     
@@ -726,6 +721,7 @@ const Settings: React.FC = () => {
       showAlert('error', 'Failed to import data. Please ensure you selected a valid Mo Money backup file and try again.');
     } finally {
       setIsImporting(false);
+      azureBlobService.setImportInProgress(false);
       setPendingImportData(null);
       setPendingFileName('');
     }
@@ -841,7 +837,7 @@ const Settings: React.FC = () => {
       const result = await azureBlobService.forceUpload();
       if (result.success) {
         setCloudSyncStatus('');
-        showAlert('success', result.message, 'Cloud Upload Complete');
+        showAlert(azureBlobService.getStatus().phase === 'attention' ? 'warning' : 'success', result.message, 'Cloud Check Complete');
       } else {
         setCloudSyncStatus('');
         showAlert('error', result.message, 'Cloud Upload Failed');
@@ -889,40 +885,6 @@ const Settings: React.FC = () => {
       showAlert('error', 'Failed to download data from cloud. Please check your connection and try again.');
     } finally {
       setIsDownloadingFromCloud(false);
-    }
-  };
-
-  // Cloud sync control functions
-  const handleStartAutoSync = async () => {
-    try {
-      setCloudSyncStatus('Starting automatic sync...');
-      const success = await appInitializationService.toggleAutosave(true);
-      if (success) {
-        setIsAutoSyncActive(true);
-        setCloudSyncStatus('');
-        showAlert('success', 'Automatic cloud sync started successfully!');
-      } else {
-        throw new Error('Failed to enable autosave');
-      }
-    } catch (error) {
-      console.error('Start sync error:', error);
-      setCloudSyncStatus('');
-      showAlert('error', error instanceof Error ? error.message : 'Failed to start automatic sync.');
-    }
-  };
-
-  const handleStopAutoSync = async () => {
-    try {
-      const success = await appInitializationService.toggleAutosave(false);
-      if (success) {
-        setIsAutoSyncActive(false);
-        showAlert('success', 'Automatic cloud sync stopped.');
-      } else {
-        throw new Error('Failed to disable autosave');
-      }
-    } catch (error) {
-      console.error('Stop sync error:', error);
-      showAlert('error', 'Failed to stop automatic sync.');
     }
   };
 
@@ -1206,9 +1168,9 @@ const Settings: React.FC = () => {
         <h3>Data Management</h3>
         <p>Manage your transaction data and application state.</p>
         
-        <div style={{ marginBottom: '20px' }}>
+        <div id="cloud-sync" style={{ marginBottom: '20px' }}>
           <h4>☁️ Cloud Storage</h4>
-          <p>Keep a cloud copy with recovery versions. Changes from another device and deletions require review before saving.</p>
+          <p>Sync is automatic after sign-in. Changes save on this device first, then reconcile with the cloud. Conflicts and intentional removals require review; recovery versions are retained.</p>
           {!azureBlobService.isAvailable() && <p role="status">Cloud sync is disabled for this local session. Your data stays in this browser. Cloud use requires sign-in and deployment of the protected storage API.</p>}
           
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '16px', alignItems: 'center' }}>
@@ -1217,33 +1179,8 @@ const Settings: React.FC = () => {
               disabled={isUploadingToCloud || isDownloadingFromCloud || !azureBlobService.isAvailable()}
               style={{ background: '#0078D4', borderColor: '#0078D4', color: 'white', minWidth: '140px' }}
             >
-              {isUploadingToCloud ? 'Uploading...' : '☁️ Upload to Cloud'}
+              {isUploadingToCloud ? 'Checking...' : 'Check & Sync Now'}
             </Button>
-
-            <Button 
-              onClick={handleDownloadFromCloud}
-              disabled={isDownloadingFromCloud || isUploadingToCloud || !azureBlobService.isAvailable()}
-              style={{ background: '#4CAF50', borderColor: '#4CAF50', color: 'white', minWidth: '140px' }}
-            >
-              {isDownloadingFromCloud ? 'Downloading...' : '📥 Download from Cloud'}
-            </Button>
-
-            {!isAutoSyncActive ? (
-              <Button 
-                onClick={handleStartAutoSync}
-                disabled={!azureBlobService.isAvailable()}
-                style={{ background: '#FF9800', borderColor: '#FF9800', color: 'white', minWidth: '140px' }}
-              >
-                🔄 Start Auto Sync
-              </Button>
-            ) : (
-              <Button 
-                onClick={handleStopAutoSync}
-                style={{ background: '#F44336', borderColor: '#F44336', color: 'white', minWidth: '140px' }}
-              >
-                ⏹️ Stop Auto Sync
-              </Button>
-            )}
           </div>
           
           {cloudSyncStatus && (
@@ -1252,9 +1189,7 @@ const Settings: React.FC = () => {
             </div>
           )}
 
-          <div style={{ marginTop: '12px', fontSize: '14px', color: isAutoSyncActive ? '#4CAF50' : '#666' }}>
-            {isAutoSyncActive ? '🔄 Auto sync enabled - checks every 30 seconds; conflicts or deletions require review' : '⏸️ Auto sync disabled - use manual buttons to sync'}
-          </div>
+          <CloudSyncReview />
           
           <details style={{ marginTop: '12px', fontSize: '14px' }}>
             <summary style={{ cursor: 'pointer' }}>Cloud connection details</summary>
@@ -1272,12 +1207,19 @@ const Settings: React.FC = () => {
               )}
             </div>
             <p style={{ color: '#666', marginTop: '4px' }}>
-              Auto-sync checks every 30 seconds when enabled. Startup never replaces local data.
+              Changes sync shortly after saving. The app also checks every 30 seconds, on reconnect, and when you return. Closing the browser before cloud confirmation leaves changes on this device until your next visit.
             </p>
           </details>
           <details style={{ marginTop: '12px', fontSize: '14px' }}>
             <summary style={{ cursor: 'pointer' }}>Recovery options</summary>
             <CloudRecovery />
+            <p>Replace this device's data only if you deliberately want to discard its current working copy. A local recovery snapshot will be kept.</p>
+            <Button
+              onClick={handleDownloadFromCloud}
+              disabled={isDownloadingFromCloud || isUploadingToCloud || !azureBlobService.isAvailable()}
+            >
+              {isDownloadingFromCloud ? 'Restoring...' : 'Replace Local Copy with Cloud'}
+            </Button>
           </details>
         </div>
         

@@ -2,9 +2,15 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAppAuth } from '../../hooks/useAppAuth';
+import { CloudSyncStatus } from '../shared/CloudSyncStatus';
 
 const Nav = styled.nav`
   width: 250px;
+  flex-shrink: 0;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
   background: #2c3e50;
   color: white;
   padding: 20px 0;
@@ -31,6 +37,8 @@ const Logo = styled.div`
 
 const NavLinks = styled.div`
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 `;
 
 const NavLink = styled(Link)<{ $isActive: boolean }>`
@@ -55,6 +63,7 @@ const NavLink = styled(Link)<{ $isActive: boolean }>`
 `;
 
 const UserSection = styled.div`
+  flex-shrink: 0;
   padding: 20px;
   border-top: 1px solid #34495e;
   
@@ -124,6 +133,7 @@ const Navigation: React.FC = () => {
       </NavLinks>
 
       <UserSection>
+        <CloudSyncStatus />
         {(account || user) && (
           <div className="user-info">
             <div className="name">{account?.name || user?.displayName}</div>

@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
 import { ThemeProvider } from 'styled-components';
 import { skipAuthentication } from './config/devConfig';
@@ -6,6 +6,8 @@ import { ImportStateProvider } from './contexts/ImportStateContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { NavigationBlocker } from './components/shared/NavigationBlocker';
 import { appInitializationService } from './services/appInitializationService';
+import { cloudAppliedEvent } from './services/syncEvents';
+import { useCloudSyncStatus } from './components/shared/CloudSyncStatus';
 // Lazy-loaded Components for code splitting
 import Navigation from './components/Layout/Navigation';
 import { AuthWrapper } from './components/Auth/AuthWrapper';
@@ -45,18 +47,36 @@ const LoadingFallback: React.FC = () => (
 );
 
 // Root layout for Data Router with Suspense + Outlet
-const RootLayout: React.FC = () => (
+const RootLayout: React.FC = () => {
+  const [initializing, setInitializing] = useState(true);
+  const [blocked, setBlocked] = useState('');
+  const [revision, setRevision] = useState(0);
+  const status = useCloudSyncStatus();
+  useEffect(() => {
+    let mounted = true;
+    void appInitializationService.initialize().then(result => {
+      if (!mounted) return;
+      if (!result.success) setBlocked(result.errors.join(' '));
+      setInitializing(false);
+    });
+    const refresh = () => setRevision(previous => previous + 1);
+    window.addEventListener(cloudAppliedEvent, refresh);
+    return () => { mounted = false; window.removeEventListener(cloudAppliedEvent, refresh); };
+  }, []);
+  return (
   <div style={{ display: 'flex', minHeight: '100vh' }}>
     <Navigation />
     <main style={{ flex: 1, padding: '20px', backgroundColor: '#f5f5f5' }}>
-      <Suspense fallback={<LoadingFallback />}>
+      {status.phase === 'applying' && <div role="alert" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#ffffffed', display: 'grid', placeItems: 'center' }}>{status.message}</div>}
+      {initializing ? <p role="status">Opening your data and checking cloud saves...</p> : blocked || status.blocksEditing ? <p role="alert">{blocked || status.message}</p> : <Suspense key={revision} fallback={<LoadingFallback />}>
         <NavigationBlocker />
         <ExchangeRateNotifications />
         <Outlet />
-      </Suspense>
+      </Suspense>}
     </main>
   </div>
-);
+  );
+};
 
 const router = createBrowserRouter([
   {
@@ -87,33 +107,6 @@ const router = createBrowserRouter([
 ]);
 
 const App: React.FC = () => {
-  // Initialize the app on startup - DEFERRED for faster initial render
-  useEffect(() => {
-    const initializeApp = async () => {
-      try {
-        console.log('[App] Starting deferred application initialization...');
-        const result = await appInitializationService.initialize();
-        
-        if (result.success) {
-          console.log(`[App] ✅ App initialized successfully. Sync: ${result.syncPerformed}, Autosave: ${result.autosaveEnabled}`);
-        } else {
-          console.error('[App] ❌ App initialization had errors:', result.errors);
-        }
-      } catch (error) {
-        console.error('[App] ❌ App initialization failed:', error);
-      }
-    };
-    
-    // Defer initialization to allow initial render to complete first
-    // This prevents cloud sync operations from blocking the UI
-    const deferredInit = setTimeout(() => {
-      initializeApp();
-    }, 100); // 100ms delay allows initial render to complete
-    
-    // Cleanup timeout on unmount
-    return () => clearTimeout(deferredInit);
-  }, []); // Empty dependency array ensures this runs only once
-
   return (
     <ThemeProvider theme={lightTheme}>
       <GlobalStyles />

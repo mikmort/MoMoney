@@ -1,7 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import { Transaction, UserPreferences } from '../types';
 import type { BackupMetadata, BackupData } from '../types/backup';
-import type { CloudSnapshot } from '../utils/cloudSnapshot';
+import type { CloudSnapshot, SnapshotRemoval } from '../utils/cloudSnapshot';
 
 export interface RecoverySnapshot {
   id: string;
@@ -14,6 +14,9 @@ export interface SyncMetadata {
   revision?: string | null;
   fingerprint?: string;
   recoveryId?: string;
+  data?: CloudSnapshot;
+  updatedAt?: string;
+  removals?: SnapshotRemoval[];
 }
 
 // Internal logger helpers: silence in test to avoid Jest "Cannot log after tests are done" noise

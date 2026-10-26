@@ -1,6 +1,7 @@
 import { CategoryRule, RuleCondition, RuleMatchResult, Transaction } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { containsUniqueIdentifiers } from '../utils/uniqueIdentifierDetection';
+import { persistSyncedStorage } from './syncEvents';
 
 // Lazy import for dataService to avoid circular dependency during initialization
 let dataServiceCache: any = null;
@@ -555,6 +556,11 @@ class RulesService {
   }
 
   // Storage operations
+  public reloadFromStorage(): void {
+    this.rules = [];
+    this.loadFromStorage();
+  }
+
   private loadFromStorage(): void {
     try {
       const stored = localStorage.getItem(this.storageKey);
@@ -574,7 +580,7 @@ class RulesService {
 
   private saveToStorage(): void {
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(this.rules));
+      persistSyncedStorage(this.storageKey, JSON.stringify(this.rules));
     } catch (error) {
       console.error('Failed to save category rules to storage:', error);
     }

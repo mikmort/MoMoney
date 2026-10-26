@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Category } from '../types';
 import { defaultCategories } from '../data/defaultCategories';
+import { persistSyncedStorage } from '../services/syncEvents';
 
 const CATEGORIES_STORAGE_KEY = 'mo-money-categories';
 
@@ -49,7 +50,7 @@ export const useCategoriesManager = () => {
     // Sort categories alphabetically before saving
     const sortedCategories = [...newCategories].sort((a, b) => a.name.localeCompare(b.name));
     setCategories(sortedCategories);
-    localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(sortedCategories));
+    persistSyncedStorage(CATEGORIES_STORAGE_KEY, JSON.stringify(sortedCategories));
   }, []);
 
   // Get all category options for dropdowns (includes subcategories)
