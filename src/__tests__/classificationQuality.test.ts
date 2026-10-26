@@ -65,6 +65,39 @@ describe('Classification context and correlation', () => {
     expect(messages[1].content).toContain('"s-opaque","Dining out","Restaurant meals",["restaurant"]');
   });
 
+  it.each([false, true])('sends account context and exact signed amounts in batch=%s requests', batch => {
+    const input = {
+      ...request('STARBUCKS DIVIDEND'), amount: 4.37,
+      accountType: 'investment' as const, currency: 'USD'
+    };
+    const messages = buildClassificationMessages([input], batch);
+    const payload = JSON.parse(messages[messages.length - 1].content.slice(3));
+    expect(batch ? payload[0] : payload).toEqual({
+      index: 0, description: 'STARBUCKS DIVIDEND', amount: 4.37, date: input.date,
+      accountType: 'investment', currency: 'USD'
+    });
+    expect(messages[0].content).toContain('security issuer, not a shop');
+    expect(messages[0].content).toContain('cash dividends or interest (investment income)');
+    expect(messages[0].content).toContain('never a fixed threshold');
+    expect(messages[0].content).toContain('Rocket Mortgage');
+    expect(messages[0].content).toContain('gross sale proceeds');
+    expect(messages[0].content).toContain('no identifiable payee or purpose remains unclear');
+  });
+
+  it('keeps account contexts separate in mixed-account batches without assuming missing types', () => {
+    const inputs: AIClassificationRequest[] = [
+      { ...request('STARBUCKS'), accountType: 'investment', amount: -2500, currency: 'USD' },
+      { ...request('STARBUCKS'), accountType: 'credit', amount: -6.75, currency: 'DKK' },
+      request('ACH:Debit')
+    ];
+    const messages = buildClassificationMessages(inputs, true);
+    const payload = JSON.parse(messages[messages.length - 1].content.slice(3));
+    expect(payload.map((item: { accountType?: string }) => item.accountType)).toEqual(['investment', 'credit', undefined]);
+    expect(payload.map((item: { amount: number }) => item.amount)).toEqual([-2500, -6.75, -12.99]);
+    expect(payload[2]).not.toHaveProperty('accountType');
+    expect(payload[2]).not.toHaveProperty('currency');
+  });
+
   it('reduces default-catalog requests by at least a third while respecting token and message budgets', () => {
     const inputs = Array.from({ length: 100 }, () => request());
     const batches = planClassificationBatches(inputs);

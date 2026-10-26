@@ -32,7 +32,12 @@ export function planClassificationBatches(requests: AIClassificationRequest[], m
 export const CLASSIFICATION_GUIDANCE = `Classify financial transactions by their economic purpose and merchant, not by the payment method.
 Use the catalog names, descriptions and keywords as context, but return ONLY catalog ids. Select the most specific supported subcategory belonging to the chosen category.
 Keywords are hints, not unconditional substring rules. Prefer the merchant's specific service over a generic subscription or payment category. Do not infer travel or business spending without supporting context.
+Use each transaction's accountType, currency, signed amount and description together. Negative amounts are outflows; positive amounts are inflows. Amount size is supporting evidence, never a fixed threshold or sufficient proof of purpose.
+An investment account is for investment activity, not ordinary retail spending. A familiar company name there usually identifies a security issuer, not a shop: STARBUCKS or HOME DEPOT stock trades are not dining or home supplies. Explicit securities context (share quantities, tickers with buy/sell trade wording, cash dividends, dividend reinvestment) also outweighs merchant keywords on other or unknown account types; ordinary retail "buy" or "purchase" wording alone is not securities evidence.
+Distinguish stock/fund purchases and sales (asset allocation) from cash dividends or interest (investment income), transfers between owned accounts, and actual account fees. Reinvestment is an asset purchase; do not label gross sale proceeds as capital gains without evidence of a gain. For investment activity with unclear buy/sell details, prefer the catalog's general investment-activity subcategory rather than inventing a trade direction or a retail purchase.
+For contrast: STARBUCKS on a credit/checking account with a normal retail debit and no security clues can be coffee/dining; a small STARBUCKS dividend in an investment account is still investment income, not coffee. Do not assume all positive amounts are dividends or all large retail payments are stock purchases.
 ACH, ACH debit/credit, withdrawal, automatic payment, autopay, card payment, Zelle and deposit describe payment methods, not categories. They alone do not imply an internal transfer or reduce confidence in an identifiable merchant.
+ACH:Debit to an identifiable mortgage lender/servicer (for example Rocket Mortgage) is a housing mortgage payment, not an internal transfer. Apply the same economic-purpose reasoning to ACH utility, insurance and other bill payments. A lender payment is not a credit-card balance payment; an ACH debit with no identifiable payee or purpose remains unclear.
 Use internal transfers only with evidence of movement between the user's own accounts or a credit-card balance payment. Merchant purchases, wages and reimbursements are not internal transfers.
 Actual bank fees (such as overdraft, ATM fee or wire fee) are expenses, not transfers. A generic "charge" is not necessarily a bank fee.
 If the merchant or purpose is genuinely unclear, use categoryId="uncategorized", subcategoryId=null and confidence<=0.3. Do not guess an unsupported subcategory.
@@ -44,7 +49,9 @@ export function classificationItem(request: AIClassificationRequest, index: numb
     index,
     description: sanitized.description.slice(0, 250),
     amount: Number.isFinite(sanitized.amount) ? sanitized.amount : 0,
-    date: sanitized.date.slice(0, 40)
+    date: sanitized.date.slice(0, 40),
+    accountType: request.accountType,
+    currency: request.currency?.slice(0, 12)
   };
 }
 

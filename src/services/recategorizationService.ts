@@ -1,6 +1,7 @@
 import { AIClassificationResponse, Category, Transaction } from '../types';
 import { azureOpenAIService } from './azureOpenAIService';
 import { dataService } from './dataService';
+import { accountManagementService } from './accountManagementService';
 import { AI_MAX_CONCURRENT_REQUESTS, AIRequestProgress } from './aiRequestScheduler';
 import { planClassificationBatches } from '../utils/classificationPrompt';
 
@@ -28,10 +29,14 @@ export async function rerunUncategorizedTransactions(
     ...transaction, date: new Date(transaction.date),
     lastModifiedDate: transaction.lastModifiedDate && new Date(transaction.lastModifiedDate)
   }));
-  const requests = candidates.map(transaction => ({
-    transactionText: transaction.description, amount: transaction.amount,
-    date: transaction.date.toISOString(), availableCategories: categories
-  }));
+  const requests = candidates.map(transaction => {
+    const account = accountManagementService.getAccountByName(transaction.account);
+    return {
+      transactionText: transaction.description, amount: transaction.amount,
+      date: transaction.date.toISOString(), availableCategories: categories,
+      accountType: account?.type, currency: transaction.originalCurrency || account?.currency
+    };
+  });
   const batches = planClassificationBatches(requests);
   const summary = { categorized: 0, unresolved: 0, failed: 0, skipped: 0, notAttempted: 0, errors: [] as string[] };
   let completed = 0;

@@ -58,6 +58,10 @@ export class AccountManagementService {
     return this.accounts.find(account => account.id === id);
   }
 
+  getAccountByName(name: string): Account | undefined {
+    return this.accounts.find(account => account.name === name);
+  }
+
   // Add a new account
   addAccount(account: Omit<Account, 'id'>): Account {
     // Defensive: ensure any provided maskedAccountNumber is canonical (Ending in XXX)

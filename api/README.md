@@ -162,6 +162,17 @@ withdrawal, Zelle and deposit alone are not evidence of an internal transfer.
 The importer no longer discards an identifiable merchant solely because an
 ACH/withdrawal description has confidence below 90%.
 
+Imports and AI re-runs also send the account type and amount currency when known,
+without account names, numbers, balances or institution details. The shared prompt
+uses account context, security terminology and signed amounts to distinguish
+investment activity from similarly named retailers. Stock trades and reinvestments
+use asset allocation; cash dividends/interest remain investment income. Amount size
+is supporting evidence, not a hard-coded cutoff. ACH lender payments such as Rocket
+Mortgage are classified by their mortgage purpose, not as internal transfers;
+an unidentified ACH debit still needs review. These are model instructions and
+examples, not new merchant-matching rules. Saved active rules still take precedence
+during import; disable an incorrect rule before importing again.
+
 New AI-derived rules are **inactive suggestions**. Review them in Rules and
 choose **Confirm & Enable** before they affect another transaction. Existing
 AI rules remain available, with their active state preserved; disable wrong
@@ -223,10 +234,15 @@ was not established.
 ### Opt-in model accuracy evaluation
 
 The evaluator shares the application's actual classification prompt and uses
-12 synthetic labeled cases, including Spotify, Shell and Restaurant Krebsegaa.
+23 synthetic labeled cases, including Spotify, Shell, Restaurant Krebsegaa,
+Starbucks/Home Depot security activity versus retail purchases, and Rocket
+Mortgage versus unidentified ACH debits.
 It reports parent-category accuracy, **exact category + subcategory accuracy**,
 mismatches, token usage, returned model version and latency. Malformed, missing,
 duplicate-index, refused and truncated responses are failures, not good scores.
+Evaluation uses the application's batch planning and request scheduler so the
+expanded cases stay within message/token budgets. Usage is reported per batch,
+with the returned model versions collected across batches.
 The command exits nonzero if any reported example fails or exact accuracy is
 below 90%. This small regression set is not a representative quality benchmark;
 repeat runs and add independently labeled holdout examples before choosing a model.

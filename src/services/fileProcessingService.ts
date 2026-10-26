@@ -1622,11 +1622,14 @@ EXAMPLE OUTPUT FORMAT:
     }
 
     // Step 2: Build batch requests for AI (only for unmatched transactions)
+    const classificationAccount = accountManagementService.getAccount(accountId);
     const batchRequests: AIClassificationRequest[] = ruleResults.unmatchedTransactions.map(transaction => ({
       transactionText: transaction.description,
       amount: transaction.amount,
       date: transaction.date.toISOString(),
-      availableCategories: categories
+      availableCategories: categories,
+      accountType: classificationAccount?.type,
+      currency: classificationAccount?.currency
     }));
 
     console.log(`🤖 Step 3: Created ${batchRequests.length} batch requests for AI (reduced from ${validIndices.length} total)`);
@@ -1687,7 +1690,9 @@ EXAMPLE OUTPUT FORMAT:
           transactionText: transaction.description,
           amount: transaction.amount,
           date: transaction.date.toISOString(),
-          availableCategories: categories
+          availableCategories: categories,
+          accountType: classificationAccount?.type,
+          currency: classificationAccount?.currency
         }));
         
         // Create correlation map to properly match responses back to transactions
@@ -2168,7 +2173,8 @@ EXAMPLE OUTPUT FORMAT:
         amount, 
         date.toISOString(), 
         categories, 
-        subcategories
+        subcategories,
+        accountId
       );
 
       const transaction: Omit<Transaction, 'id' | 'addedDate' | 'lastModifiedDate'> = {
@@ -2358,14 +2364,18 @@ EXAMPLE OUTPUT FORMAT:
     amount: number, 
     date: string, 
     categories: Category[], 
-    subcategories: Subcategory[]
+    subcategories: Subcategory[],
+    accountId?: string
   ): Promise<AIClassificationResponse> {
     try {
+      const account = accountId ? accountManagementService.getAccount(accountId) : undefined;
       const response = await azureOpenAIService.classifyTransaction({
         transactionText: description,
         amount,
         date,
-        availableCategories: categories
+        availableCategories: categories,
+        accountType: account?.type,
+        currency: account?.currency
       });
 
       // Validate and constrain to provided categories/subcategories

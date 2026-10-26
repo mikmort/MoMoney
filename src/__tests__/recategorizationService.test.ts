@@ -1,11 +1,13 @@
 import { rerunUncategorizedTransactions } from '../services/recategorizationService';
 import { azureOpenAIService } from '../services/azureOpenAIService';
 import { dataService } from '../services/dataService';
+import { accountManagementService } from '../services/accountManagementService';
 import { defaultCategories } from '../data/defaultCategories';
 import { AIClassificationResponse, Transaction } from '../types';
 
 jest.mock('../services/azureOpenAIService');
 jest.mock('../services/dataService');
+jest.mock('../services/accountManagementService');
 const classify = jest.mocked(azureOpenAIService.classifyTransactionsBatch);
 const update = jest.mocked(dataService.batchUpdateTransactions);
 const tx = (id: string, updates: Partial<Transaction> = {}): Transaction => ({
@@ -49,6 +51,27 @@ it('counts rows rejected by the persistence-time edit guard as skipped', async (
   classify.mockResolvedValue([success]);
   update.mockResolvedValue([]);
   expect(await rerunUncategorizedTransactions([tx('1')], defaultCategories, jest.fn())).toMatchObject({ skipped: 1, categorized: 0 });
+});
+
+it('resolves stored account names and passes only type and amount currency to classification', async () => {
+  jest.mocked(accountManagementService.getAccountByName).mockImplementation(name =>
+    name === 'My Brokerage' ? {
+      id: 'private-id', name, type: 'investment', currency: 'USD', institution: 'Private Broker',
+      maskedAccountNumber: 'Ending in 123', balance: 123456, isActive: false
+    } : undefined
+  );
+  classify.mockResolvedValue([success, success]);
+  await rerunUncategorizedTransactions([
+    tx('investment', { account: 'My Brokerage', description: 'HOME DEPOT DIVIDEND', amount: 7.50, originalCurrency: 'EUR' }),
+    tx('unknown', { account: 'Missing Account' })
+  ], defaultCategories, jest.fn());
+  const inputs = classify.mock.calls[0][0];
+  expect(inputs[0]).toEqual({
+    transactionText: 'HOME DEPOT DIVIDEND', amount: 7.50, date: '2026-01-15T00:00:00.000Z',
+    availableCategories: defaultCategories, accountType: 'investment', currency: 'EUR'
+  });
+  expect(inputs[1].accountType).toBeUndefined();
+  expect(inputs[1].currency).toBeUndefined();
 });
 
 it('overlaps two requests, saves out-of-order results to the correct rows, and serializes saves', async () => {

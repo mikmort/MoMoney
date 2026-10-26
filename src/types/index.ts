@@ -196,6 +196,8 @@ export interface AIClassificationRequest {
   transactionText: string;
   amount: number;
   date: string;
+  accountType?: Account['type'];
+  currency?: string;
   availableCategories: Category[];
 }
 
