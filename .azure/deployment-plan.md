@@ -57,8 +57,26 @@ current release results below; historical validation is not sufficient.
 
 ### Release execution gates
 
+- [x] Backend deployed and verified before the frontend release.
 - [ ] GitHub release quality checks and production deployment are monitored
   gates; verify the published automatic-sync assets and protected API endpoints.
+
+### Backend deployment receipt: October 25, 2026
+
+- Azure deployment `338803be-0d0c-47a8-a971-8c89b24de673` completed successfully
+  and is active. Runtime remains Running on Node 22; both storage and OpenAI
+  functions are registered, with authentication and identity roles unchanged.
+- Active deployment blob:
+  `deployment/338803be-0d0c-47a8-a971-8c89b24de673.zip`.
+- Active archive SHA-256:
+  `C51B9A34F3B28804A4B03204DD52AEC2CFD99BD7F8701CB2C1FB0D5C84C6832B`.
+- Azure Kudu repackaged the input ZIP. All **10,600 file contents match**
+  the validated input by per-file SHA-256, with no missing or additional files.
+  The older `released-package.zip` remains intact; it is not the new active ZIP.
+- The preceding active package is retained outside the repository for rollback.
+- Frontend PR quality, TypeScript, API and preview build checks passed for
+  `847ae834214ba0a716d932522f2759b03246928e`. Recheck the final documentation
+  revision before merging and monitor the resulting production deployment.
 
 ## Historical release plan: optimized AI re-run and CSV parsing
 
